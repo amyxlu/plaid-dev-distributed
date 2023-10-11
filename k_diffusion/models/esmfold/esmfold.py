@@ -52,7 +52,7 @@ esm_registry = {
 
 
 class ESMFold(nn.Module):
-    def __init__(self, esmfold_config=None, **kwargs):
+    def __init__(self, esmfold_config=None, make_trunk=True, **kwargs):
         super().__init__()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
@@ -94,7 +94,10 @@ class ESMFold(nn.Module):
         self.mask_idx = self.n_tokens_embed - 1
         self.embedding = nn.Embedding(self.n_tokens_embed, c_s, padding_idx=0)
 
-        self.trunk = FoldingTrunk(cfg.trunk)
+        if self.make_trunk:
+            self.trunk = FoldingTrunk(cfg.trunk)
+        else:
+            self.trunk = None
 
         self.distogram_head = nn.Linear(c_z, self.distogram_bins)
         self.ptm_head = nn.Linear(c_z, self.distogram_bins)
@@ -217,6 +220,8 @@ class ESMFold(nn.Module):
         return s_s_0, s_z_0, aa, residx, mask
     
     def folding_trunk(self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None):
+        assert not self.trunk is None
+        B, L = aa.shape
         structure: dict = self.trunk(
             s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles
         )
@@ -286,6 +291,7 @@ class ESMFold(nn.Module):
         return structure
     
     def forward(self, aa, mask, residx, masking_pattern=None, num_recycles=None):
+        assert not self.trunk is None
         s_s_0, s_z_0, aa, residx, mask = self.embed_for_folding_trunk(aa, mask, residx, masking_pattern)
         structure = self.folding_trunk(s_s_0, s_z_0, aa, residx, mask, num_recycles)
         return structure
@@ -316,6 +322,7 @@ class ESMFold(nn.Module):
             chain_linker (str): Linker to use between chains if predicting a multimer. Has no effect on single chain
                 predictions. Default: length-25 poly-G ("G" * 25).
         """
+        assert not self.trunk is None
         if isinstance(sequences, str):
             sequences = [sequences]
 
