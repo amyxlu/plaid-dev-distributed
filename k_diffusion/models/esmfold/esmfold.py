@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 import typing as T
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 
 import torch
@@ -13,22 +13,26 @@ from torch.nn import LayerNorm
 
 import esm
 from esm import Alphabet
-from esm.esmfold.v1.categorical_mixture import categorical_lddt
-from esm.esmfold.v1.misc import (
-    batch_encode_sequences,
-    collate_dense_tensors,
-    output_to_pdb,
-)
-from esm.esmfold.v1.trunk import FoldingTrunk, FoldingTrunkConfig
+
 from openfold.data.data_transforms import make_atom14_masks
 from openfold.np import residue_constants
 from openfold.utils.loss import compute_predicted_aligned_error, compute_tm
 
+# for all ESMFold specific imports, use local modules to allow for customization
+from .categorical_mixture import categorical_lddt
+from .misc import (
+    batch_encode_sequences,
+    collate_dense_tensors,
+    output_to_pdb,
+)
+from .trunk import FoldingTrunk, FoldingTrunkConfig
 
 @dataclass
 class ESMFoldConfig:
-    trunk: T.Any = FoldingTrunkConfig()
+    trunk: FoldingTrunkConfig = field(default_factory=FoldingTrunkConfig)
     lddt_head_hid_dim: int = 128
+    esm_type: str = "esm2_3B"  # added
+    use_esm_attn_map: bool = False # added
 
 
 load_fn = esm.pretrained.load_model_and_alphabet
@@ -90,7 +94,7 @@ class ESMFold(nn.Module):
         self.mask_idx = self.n_tokens_embed - 1
         self.embedding = nn.Embedding(self.n_tokens_embed, c_s, padding_idx=0)
 
-        self.trunk = FoldingTrunk(**cfg.trunk)
+        self.trunk = FoldingTrunk(cfg.trunk)
 
         self.distogram_head = nn.Linear(c_z, self.distogram_bins)
         self.ptm_head = nn.Linear(c_z, self.distogram_bins)
@@ -149,15 +153,16 @@ class ESMFold(nn.Module):
         new_esmaa[pattern == 1] = self.esm_dict.mask_idx
         return new_esmaa
 
-    def forward(
+    def embed_for_folding_trunk(
         self,
         aa: torch.Tensor,
         mask: T.Optional[torch.Tensor] = None,
         residx: T.Optional[torch.Tensor] = None,
         masking_pattern: T.Optional[torch.Tensor] = None,
-        num_recycles: T.Optional[int] = None,
     ):
-        """Runs a forward pass given input tokens. Use `model.infer` to
+        """First half of original `forward` function to get s_s_0 and s_z_0.
+        
+        Runs a forward pass given input tokens. Use `model.infer` to
         run inference from a sequence.
 
         Args:
@@ -209,6 +214,9 @@ class ESMFold(nn.Module):
 
         s_s_0 += self.embedding(aa)
 
+        return s_s_0, s_z_0, aa, residx, mask
+    
+    def folding_trunk(self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None):
         structure: dict = self.trunk(
             s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles
         )
@@ -276,6 +284,11 @@ class ESMFold(nn.Module):
         )
 
         return structure
+    
+    def forward(self, aa, mask, residx, masking_pattern=None, num_recycles=None):
+        s_s_0, s_z_0, aa, residx, mask = self.embed_for_folding_trunk(aa, mask, residx, masking_pattern)
+        structure = self.folding_trunk(s_s_0, s_z_0, aa, residx, mask, num_recycles)
+        return structure
 
     @torch.no_grad()
     def infer(
@@ -337,6 +350,55 @@ class ESMFold(nn.Module):
         output["chain_index"] = chain_index
 
         return output
+    
+    @torch.no_grad()
+    def infer_embedding(
+        self,
+        sequences: T.Union[str, T.List[str]],
+        residx=None,
+        masking_pattern: T.Optional[torch.Tensor] = None,
+        residue_index_offset: T.Optional[int] = 512,
+        chain_linker: T.Optional[str] = "G" * 25,
+    ):
+        """From a list of sequence strings, obtain embeddings.
+
+        Args:
+            sequences (Union[str, List[str]]): A list of sequences to make predictions for. Multimers can also be passed in,
+                each chain should be separated by a ':' token (e.g. "<chain1>:<chain2>:<chain3>").
+            residx (torch.Tensor): Residue indices of amino acids. Will assume contiguous if not provided.
+            masking_pattern (torch.Tensor): Optional masking to pass to the input. Binary tensor of the same size
+                as `aa`. Positions with 1 will be masked. ESMFold sometimes produces different samples when
+                different masks are provided.
+            num_recycles (int): How many recycle iterations to perform. If None, defaults to training max
+                recycles (cfg.trunk.max_recycles), which is 4.
+            residue_index_offset (int): Residue index separation between chains if predicting a multimer. Has no effect on
+                single chain predictions. Default: 512.
+            chain_linker (str): Linker to use between chains if predicting a multimer. Has no effect on single chain
+                predictions. Default: length-25 poly-G ("G" * 25).
+        """
+        if isinstance(sequences, str):
+            sequences = [sequences]
+
+        aatype, mask, _residx, linker_mask, chain_index = batch_encode_sequences(
+            sequences, residue_index_offset, chain_linker
+        )
+
+        if residx is None:
+            residx = _residx
+        elif not isinstance(residx, torch.Tensor):
+            residx = collate_dense_tensors(residx)
+
+        aatype, mask, residx, linker_mask = map(
+            lambda x: x.to(self.device), (aatype, mask, residx, linker_mask)
+        )
+
+        s_s_0, s_z_0, _, _, mask = self.embed_for_folding_trunk(aatype, mask, residx, masking_pattern)
+        
+        return {
+            "s": s_s_0,
+            "z": s_z_0,
+            "mask": mask
+        }
 
     def output_to_pdb(self, output: T.Dict) -> T.List[str]:
         """Returns the pbd (file) string from the model given the model output."""
