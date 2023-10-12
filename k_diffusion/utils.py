@@ -13,6 +13,13 @@ import torch
 from torch import nn, optim
 from torch.utils import data
 from torchvision.transforms import functional as TF
+import typing as T
+import random
+from pathlib import Path
+from datetime import datetime
+
+import numpy as np
+import torch
 
 
 def from_pil_image(x):
@@ -455,3 +462,145 @@ def ema_update_dict(values, updates, decay):
             values[k] *= decay
             values[k] += (1 - decay) * v
     return values
+
+
+PathLike = T.Union[str, Path]
+ArrayLike = T.Union[np.ndarray, torch.Tensor]
+
+
+def npy(x: ArrayLike):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    else:
+        return np.array(x)
+
+
+def to_tensor(x, device=None, dtype=None):
+    if isinstance(x, torch.Tensor):
+        pass
+    elif isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+    else:
+        x = torch.tensor(x)
+    
+    if device is not None:
+        x = x.to(device)
+    if dtype is not None:
+        x = x.type(dtype)
+    return x
+
+
+def save_pdbstr_to_disk(
+    pdbstrs: T.List[str], outdir: PathLike, identifiers_list: T.List[str]
+):
+    assert len(pdbstrs) == len(identifiers_list)
+    for i in range(len(pdbstrs)):
+        path = Path(outdir) / f"{identifiers_list[i]}.pdb"
+        with open(path, "w") as f:
+            f.write(pdbstrs[i])
+
+
+def set_random_seed(seed: int) -> None:
+    if seed == -1:
+        # pseudorandom-ception
+        seed = random.randint(0, 1000000)
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+
+def normalize(
+    x: ArrayLike, minv: T.Union[float, ArrayLike], maxv: T.Union[float, ArrayLike]
+) -> ArrayLike:
+    return (x - minv) / (maxv - minv)
+
+
+def generate_square_subsequent_mask(sz: int):
+    """Generate a square mask for the sequence. The masked positions are filled with float('-inf').
+    Unmasked positions are filled with float(0.0).
+    """
+    return torch.triu(torch.full((sz, sz), float("-inf")), diagonal=1)
+
+
+def count_parameters(model, require_grad_only=True):
+    if require_grad_only:
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+    else:
+        return sum(p.numel() for p in model.parameters())
+
+
+def get_model_device(model: torch.nn.Module) -> torch.device:
+    return next(model.parameters()).device
+
+
+def random_hash():
+    gen_hash = random.getrandbits(128)
+    gen_hash = "%032x" % gen_hash
+    return gen_hash
+
+
+def remove_all_pdb_files(outdir: PathLike):
+    outdir = Path(outdir)
+    for fpath in outdir.glob("*.pdb"):
+        fpath.unlink()
+
+
+def timestamp():
+    return datetime.now().strftime("%y%m%d_%H%M")
+
+
+def write_pdb_to_disk(pdb_str, outpath):
+    outpath = Path(outpath)
+    if not outpath.parent.exists():
+        outpath.parent.mkdir(parents=True, exist_ok=False)
+    with open(outpath, "w") as f:
+        f.write(pdb_str)
+    return outpath
+
+
+def write_to_fasta(sequences, outpath, headers: T.Optional[T.List[str]] = None):
+    outpath = Path(outpath)
+    if not outpath.parent.exists():
+        outpath.parent.mkdir(parents=True, exist_ok=True)
+    if headers is None:
+        headers = [f"sequence_{i}" for i in range(len(sequences))]
+    assert len(headers) == len(sequences)
+        
+    with open(outpath, "w") as f:
+        for i, seq in enumerate(sequences):
+            f.write(f">{headers[i]}\n")
+            f.write(f"{seq}\n")
+
+
+def load_from_fasta(fpath: PathLike) -> T.List[str]:
+    sequences = []
+    with open(fpath, "r") as f:
+        for line in f.readlines():
+            if line.startswith(">"):
+                pass
+            else:
+                sequences.append(line.strip())
+    return sequences
+
+
+def extract_avg_b_factor_per_residue(pdb_file: PathLike) -> T.List[float]:
+    """ Mostly used for OmegaFold. """
+    b_factors = []
+
+    with open(pdb_file, 'r') as file:
+        for line in file:
+            if line.startswith("ATOM") or line.startswith("HETATM"):
+                try:
+                    b_factor = float(line[60:66].strip())
+                    b_factors.append(b_factor)
+                except ValueError:
+                    pass
+
+    return b_factors
+
+
+if __name__ == "__main__":
+    import IPython
+
+    IPython.embed()
