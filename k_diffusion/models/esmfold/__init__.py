@@ -1,1 +1,1 @@
-from esmfold import ESMFold, ESMFoldConfig
+from .esmfold import ESMFold, ESMFoldConfig

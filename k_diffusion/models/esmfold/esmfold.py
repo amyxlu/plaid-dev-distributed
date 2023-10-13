@@ -57,6 +57,7 @@ class ESMFold(nn.Module):
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
         cfg = self.cfg
+        self.make_trunk=make_trunk
 
         self.distogram_bins = 64
 
@@ -399,12 +400,13 @@ class ESMFold(nn.Module):
             lambda x: x.to(self.device), (aatype, mask, residx, linker_mask)
         )
 
-        s_s_0, s_z_0, _, _, mask = self.embed_for_folding_trunk(aatype, mask, residx, masking_pattern)
-        
+        s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(aatype, mask, residx, masking_pattern)
+
         return {
             "s": s_s_0,
             "z": s_z_0,
-            "mask": mask
+            "mask": mask,
+            "pos": residx,
         }
 
     def output_to_pdb(self, output: T.Dict) -> T.List[str]:
