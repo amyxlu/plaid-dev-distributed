@@ -1,7 +1,16 @@
-"""k-diffusion transformer diffusion models, version 1."""
+"""Adapted from the image version, but:
+* Model inputs are 1D instead of 2D. Attention shapes are mostly the same.
+* Uses an embedder to create the ESMFold intermediate representation from strings.
+* Uses Rotary Embeddings instead of the axial version
+* Removes augmentation conditioningk-diffusion transformer diffusion models, version 1.
+
+Model inputs are 1D instead of 2D.
+Attention shapes are mostly the same, except that an attention mask is used for variable lengths. 
+"""
 
 import math
 import typing as T
+import random
 
 from einops import rearrange, repeat
 import torch
@@ -25,8 +34,23 @@ if flags.get_use_compile():
 
 def maybe_unsqueeze(x):
     if len(x.shape) == 1:
-        return x.unsqueeze(1)
-    return x  
+        return x.unsqueeze(-1)
+    return x
+
+
+def _get_random_sequence_crop(s, length):
+    if len(s) > length:
+        start = random.randint(0, len(s) - length)
+        return s[start:start + length]
+    else:
+        return s
+
+
+def get_random_sequence_crop_batch(sequence_batch, seq_len, min_len=None):
+    if not min_len is None:
+        sequence_batch = list(filter(lambda s: len(s) >= min_len, sequence_batch))
+    return [_get_random_sequence_crop(seq, seq_len) for seq in sequence_batch]
+
 
 def zero_init(layer):
     nn.init.zeros_(layer.weight)
@@ -177,7 +201,7 @@ class SelfAttentionBlock(nn.Module):
         k = rearrange(k, "n l (h e) -> n h l e", e=self.d_head)
         v = rearrange(v, "n l (h e) -> n h l e", e=self.d_head)
         q, k = self.rotary_emb(self.qk_norm(q), self.qk_norm(k))
-        attn_mask = attn_mask.to(torch.bool)
+        attn_mask = (attn_mask != 1).to(q.dtype) * -1e9
         attn_mask = repeat(attn_mask, "n l -> n h l s", h=self.n_heads, s=attn_mask.shape[-1])
         x = scaled_dot_product_attention(q, k, v, attn_mask)
         x = rearrange(x, "n h l e -> n l (h e)")
@@ -257,21 +281,25 @@ class MappingNetwork(nn.Module):
         return x
 
 
-class TransformerDenoiserModelV1(nn.Module):
+class ProteinTransformerDenoiserModelV1(nn.Module):
     def __init__(
         self,
         n_layers,
         d_model,
         d_ff,
         d_head,
-        num_classes=0,
-        dropout=0.0,
-        sigma_data=1.0,
+        input_size: int = 512,
+        min_len: int = 0,
+        num_classes: int = 0,
+        dropout: float = 0.0,
+        sigma_data: float = 1.0,
     ):
         super().__init__()
         self.sigma_data = sigma_data
         self.num_classes = num_classes
-
+        self.input_size = input_size
+        self.min_len = min_len
+        
         assert (
             d_model == ESMFOLD_S_DIM
         ), "d_model must match ESMFold embedding dimension"
@@ -282,15 +310,12 @@ class TransformerDenoiserModelV1(nn.Module):
         # TODO: what are these constants in the architecture for the initial codebase?
         self.time_emb = layers.FourierFeatures(1, d_model)
         self.time_in_proj = nn.Linear(d_model, d_model, bias=False)
-        self.aug_emb = layers.FourierFeatures(9, d_model)
-        self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
+        # self.aug_emb = layers.FourierFeatures(9, d_model)
+        # self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
         self.class_emb = nn.Embedding(num_classes, d_model) if num_classes else None
         self.mapping = tag_module(
             MappingNetwork(2, d_model, d_ff, dropout=dropout), "mapping"
         )
-        # self.mapping = tag_module(
-        #     MappingNetwork(1, d_model, d_ff, dropout=dropout), "mapping"
-        # )
 
         self.in_proj = nn.Linear(d_model, d_model, bias=False)
         self.blocks = nn.ModuleList(
@@ -334,6 +359,8 @@ class TransformerDenoiserModelV1(nn.Module):
         Create the ESMFold intermediate representation from strings.
         Used for training only.
         """
+        sequences = get_random_sequence_crop_batch(sequences, self.input_size, self.min_len)
+
         with torch.no_grad():
             embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)
         return embeddings_dict["s"], embeddings_dict["mask"]
@@ -341,25 +368,22 @@ class TransformerDenoiserModelV1(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: torch.Tensor,
         sigma: torch.Tensor,
-        aug_cond: T.Optional[torch.Tensor] = None,
+        mask: torch.Tensor,
         class_cond: T.Optional[torch.Tensor] = None,
     ):
         # Mapping network
         if class_cond is None and self.class_emb is not None:
             raise ValueError("class_cond must be specified if num_classes > 0")
-
-        N, L, C = x.shape
         c_noise = torch.log(sigma) / 4
-        time_emb = self.time_in_proj(self.time_emb(c_noise))
-        aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
-        aug_emb = self.aug_in_proj(self.aug_emb(aug_cond))
+        time_emb = self.time_in_proj(self.time_emb(maybe_unsqueeze(c_noise)))
+        # aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
+        # aug_emb = self.aug_in_proj(self.aug_emb(aug_cond))
         class_emb = self.class_emb(class_cond) if self.class_emb is not None else 0
-        cond = self.mapping(time_emb + aug_emb + class_emb).unsqueeze(1)
-
+        # cond = self.mapping(time_emb + aug_emb + class_emb).unsqueeze(1)
+        cond = self.mapping(time_emb + class_emb).unsqueeze(1)
+        
         # Transformer
         for i, block in enumerate(self.blocks):
             x = block(x, mask, cond)
-
         return x
