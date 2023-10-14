@@ -4,6 +4,7 @@ ml_collections
 biopython
 omegaconf
 fair-esm
+git+https://github.com/amyxlu/evo.git
 
 # additionaly, run:
 # ```

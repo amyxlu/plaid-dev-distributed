@@ -1,0 +1,46 @@
+{
+    "model": {
+        "type": "protein_transformer_v1",
+        "n_layers": 4,
+        "d_model": 1024,
+        "d_ff": 256,
+        "d_head": 128,
+        "input_size": 512,
+        "min_len": 32,
+        "num_classes": 0,
+        "dropout": 0.0,
+        "loss_config": "simple",
+        "loss_weighting": "soft-min-snr",
+        "dropout_rate": 0.05,
+        "augment_prob": 0.0,
+        "sigma_data": 0.6162,
+        "sigma_min": 1e-2,
+        "sigma_max": 80,
+        "sigma_sample_density": {
+            "type": "cosine-interpolated"
+        }
+    },
+    "dataset": {
+        "type": "uniref",
+        "path": "/shared/amyxlu/data/uniref90/uniref90.fasta",
+        "toy_data_path": "/shared/amyxlu/data/uniref90/partial.fasta",
+        "random_split_seed": 42,
+        "num_holdout": 50000 
+    },
+    "optimizer": {
+        "type": "adamw",
+        "lr": 5e-4,
+        "betas": [0.9, 0.95],
+        "eps": 1e-8,
+        "weight_decay": 1e-4
+    },
+    "lr_sched": {
+        "type": "constant",
+        "warmup": 0.0
+    },
+    "ema_sched": {
+        "type": "inverse",
+        "power": 0.6667,
+        "max_value": 0.9999
+    }
+}

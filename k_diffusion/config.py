@@ -21,6 +21,7 @@ def round_to_power_of_two(x, tol):
 
 
 def load_config(path_or_dict):
+    # Here, add hacks if using new code has been added that makes old configs non-configurable
     defaults_image_v1 = {
         'model': {
             'patch_size': 1,
@@ -138,6 +139,18 @@ def make_model(config):
             dropout=config['dropout_rate'],
             sigma_data=config['sigma_data'],
         )
+    elif config['type'] == 'protein_transformer_v1':
+        model = models.ProteinTransformerDenoiserModelV1(
+            n_layers=config['n_layers'],
+            d_model=config['d_model'],
+            d_ff=config['d_ff'],
+            d_head=config['d_head'],
+            input_size=config['input_size'],
+            min_len=config['min_len'],
+            num_classes=0,
+            dropout=config['dropout'],
+            sigma_data=config['sigma_data'],
+        )
     else:
         raise ValueError(f'unsupported model type {config["type"]}')
     return model
@@ -190,9 +203,9 @@ def make_sample_density(config):
     if sd_config['type'] == 'cosine-interpolated':
         min_value = sd_config.get('min_value', min(config['sigma_min'], 1e-3))
         max_value = sd_config.get('max_value', max(config['sigma_max'], 1e3))
-        image_d = sd_config.get('image_d', max(config['input_size']))
+        image_d = sd_config.get('image_d', config['input_size'])
         noise_d_low = sd_config.get('noise_d_low', 32)
-        noise_d_high = sd_config.get('noise_d_high', max(config['input_size']))
+        noise_d_high = sd_config.get('noise_d_high', config['input_size'])
         return partial(utils.rand_cosine_interpolated, image_d=image_d, noise_d_low=noise_d_low, noise_d_high=noise_d_high, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
 
     raise ValueError('Unknown sample density type')

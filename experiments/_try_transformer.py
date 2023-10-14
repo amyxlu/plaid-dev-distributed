@@ -1,6 +1,6 @@
-from k_diffusion.models.protein_transformer_v1 import  TransformerDenoiserModelV1
+from k_diffusion.models import ProteinTransformerDenoiserModelV1
 import torch
-model = TransformerDenoiserModelV1(
+model = ProteinTransformerDenoiserModelV1(
     n_layers=4,
     d_model=1024,
     d_ff=256,
@@ -8,27 +8,40 @@ model = TransformerDenoiserModelV1(
     num_classes=0,
     dropout=0.0,
     sigma_data=1.0,
+    input_size=512,
+    min_len=32
 )
 device = torch.device("cuda:1")
 model.to(device)
 
 # simulate training setting where we have input sequences
-sequences = [
-    "DEYECDQESIARMLKLATHHQMVHNQFCMLWKVKHGGTPPGWKPFQWDNAKKHWDAEKLEGAWPSFPQQMIWIFKWTYEWS",
-    "SCTSWCIRFKPFEIIRDCFWISLSSMTTCNPRMFVKCHWFGRVKKLYQELHFTLKQPAVNVREIQDQKRYHAARWVYRWFCSTSPHMECRFALLIMQDHQ",
-    "VHWMPKYIAPFWHVQQEPQIKYGWRRGDFSIRSQPRCSLNCHNTEWNYDMGVMSVTPQCRFNWRENCENFCMKLFSNTNQVEATCWKTMDVESAVSWEDAESIARMLK",
-    "VLGHTGKMAWYDSIKHLQTEQSAAIDHAPSMGTEVLAFHQNMATVLNLSDRTINYQTYWNHPHPANFATIDVMDCFAPHAMTEANHRMCSGCHLNEQ",
-    "EKSAKDSFIGLHWITQQPSAPDQLPDQNGLSDHWGLRYEWGWQHFAVRMWDDYSFFAPGWTKTEFANGVMKRTDHSSN",
-]
+# sequences = [
+#     "DEYECDQESIARMLKLATHHQMVHNQFCMLWKVKHGGTPPGWKPFQWDNAKKHWDAEKLEGAWPSFPQQMIWIFKWTYEWS",
+#     "SCTSWCIRFKPFEIIRDCFWISLSSMTTCNPRMFVKCHWFGRVKKLYQELHFTLKQPAVNVREIQDQKRYHAARWVYRWFCSTSPHMECRFALLIMQDHQ",
+#     "VHWMPKYIAPFWHVQQEPQIKYGWRRGDFSIRSQPRCSLNCHNTEWNYDMGVMSVTPQCRFNWRENCENFCMKLFSNTNQVEATCWKTMDVESAVSWEDAESIARMLK",
+#     "VLGHTGKMAWYDSIKHLQTEQSAAIDHAPSMGTEVLAFHQNMATVLNLSDRTINYQTYWNHPHPANFATIDVMDCFAPHAMTEANHRMCSGCHLNEQ",
+#     "EKSAKDSFIGLHWITQQPSAPDQLPDQNGLSDHWGLRYEWGWQHFAVRMWDDYSFFAPGWTKTEFANGVMKRTDHSSN",
+# ]
 
-x, mask = model.embed_from_sequences(sequences)
-sigma = torch.rand(x.shape[0], 1)
-out = model(
-    x=x.to(device),
-    mask=mask.to(device),
-    sigma=sigma.to(device),
-    aug_cond=None,
-    class_cond=None,
-)
-# import IPython; IPython.embed()
+
+
+from torch.utils.data import random_split
+from evo.dataset import FastaDataset
+fasta_file = "/shared/amyxlu/data/uniref90/partial.fasta"
+
+ds = FastaDataset(fasta_file, cache_indices=True)
+loader = torch.utils.data.DataLoader(ds, batch_size=32, shuffle=True)
+
+for i, batch in enumerate(loader):
+    print("=========", "batch", i, "=========")
+    sequences = batch[1]
+    x, mask = model.embed_from_sequences(sequences)
+    sigma = torch.rand(x.shape[0], 1)
+    out = model(
+        x=x.to(device),
+        sigma=sigma.to(device),
+        mask=mask.to(device),
+        class_cond=None,
+    )
+    # import IPython; IPython.embed()
 
