@@ -5,6 +5,7 @@
 import typing as T
 from dataclasses import dataclass, field
 from functools import partial
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -51,13 +52,29 @@ esm_registry = {
 }
 
 
+def get_esmfold_model_state(model_name="esmfold_3B_v1"):
+    if model_name.endswith(".pt"):  # local, treat as filepath
+        model_path = Path(model_name)
+        model_data = torch.load(str(model_path), map_location="cpu")
+    else:  # load from hub
+        url = f"https://dl.fbaipublicfiles.com/fair-esm/models/{model_name}.pt"
+        model_data = torch.hub.load_state_dict_from_url(
+            url, progress=False, map_location="cpu"
+        )
+    esmfold_config = model_data["cfg"]["model"]
+    model_state = model_data["model"]
+    return esmfold_config, model_state
+
+
 class ESMFold(nn.Module):
-    def __init__(self, esmfold_config=None, make_trunk=True, **kwargs):
+    def __init__(self, make_trunk=True, **kwargs):
         super().__init__()
 
-        self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
-        cfg = self.cfg
-        self.make_trunk=make_trunk
+        # load the trained weights from hub
+        cfg = ESMFoldConfig()  # checked to make sure that it matches the pretrained config
+        _, model_state = get_esmfold_model_state()
+        self.make_trunk = make_trunk
+        self.cfg = cfg
 
         self.distogram_bins = 64
 
@@ -110,6 +127,9 @@ class ESMFold(nn.Module):
             nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
             nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
         )
+
+        # Load the trained model state for any parameters that we've recreated
+        self.load_state_dict(model_state, strict=False)
 
     @staticmethod
     def _af2_to_esm(d: Alphabet):
