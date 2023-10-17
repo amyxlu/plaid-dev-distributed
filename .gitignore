@@ -9,3 +9,5 @@ wandb/*
 *.csv
 .env
 *.safetensors
+cached_tensors
+artifacts
