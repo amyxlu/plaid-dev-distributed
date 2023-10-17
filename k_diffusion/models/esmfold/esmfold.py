@@ -5,7 +5,7 @@
 import typing as T
 from dataclasses import dataclass, field
 from functools import partial
-from pathlib import Path
+import pathlib as Path
 
 import torch
 import torch.nn as nn
@@ -71,7 +71,7 @@ class ESMFold(nn.Module):
         super().__init__()
 
         # load the trained weights from hub
-        cfg = ESMFoldConfig()  # checked to make sure that it matches the pretrained config
+        cfg = ESMFoldConfig()  # checked to make sure that it matches the pretrained config 
         _, model_state = get_esmfold_model_state()
         self.make_trunk = make_trunk
         self.cfg = cfg
@@ -420,7 +420,8 @@ class ESMFold(nn.Module):
             lambda x: x.to(self.device), (aatype, mask, residx, linker_mask)
         )
 
-        s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(aatype, mask, residx, masking_pattern)
+        with torch.no_grad():
+            s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(aatype, mask, residx, masking_pattern)
 
         return {
             "s": s_s_0,

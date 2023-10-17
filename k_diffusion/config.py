@@ -146,6 +146,7 @@ def make_model(config):
             d_ff=config['d_ff'],
             d_head=config['d_head'],
             input_size=config['input_size'],
+            input_dim=config['input_dim'],
             min_len=config['min_len'],
             num_classes=0,
             dropout=config['dropout'],

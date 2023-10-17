@@ -20,13 +20,11 @@ from torch.nn import functional as F
 
 from . import flags
 from .. import layers
+from .. import utils
 
 # from .axial_rope import AxialRoPE, make_axial_pos
 from .rope import RotaryEmbedding
-from .esmfold import ESMFold, ESMFoldConfig
-
-
-ESMFOLD_S_DIM = 1024  # dimension of the s_s_0 tensor input to ESMFold folding trunk
+from .esmfold import ESMFold, ESMFOLD_S_DIM
 
 
 if flags.get_use_compile():
@@ -37,19 +35,6 @@ def maybe_unsqueeze(x):
         return x.unsqueeze(-1)
     return x
 
-
-def _get_random_sequence_crop(s, length):
-    if len(s) > length:
-        start = random.randint(0, len(s) - length)
-        return s[start:start + length]
-    else:
-        return s
-
-
-def get_random_sequence_crop_batch(sequence_batch, seq_len, min_len=None):
-    if not min_len is None:
-        sequence_batch = list(filter(lambda s: len(s) >= min_len, sequence_batch))
-    return [_get_random_sequence_crop(seq, seq_len) for seq in sequence_batch]
 
 
 def zero_init(layer):
@@ -289,22 +274,30 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         d_ff,
         d_head,
         input_size: int = 512,
-        min_len: int = 0,
+        input_dim: int = 1024, 
+        min_len: int = 32,
         num_classes: int = 0,
         dropout: float = 0.0,
         sigma_data: float = 1.0,
     ):
+        """Transformer denoiser model for proteins.
+        input_dim: the dimension of the actual embedding needed for the frozen decoders (i.e. for ESMFold, this is 1024)
+        d_model: the dimension of the latent embedding we will generate; might be a downprojection.
+        """
         super().__init__()
-        self.sigma_data = sigma_data
-        self.num_classes = num_classes
-        self.input_size = input_size
+        self.sigma_data = sigma_data  # i.e. the noise scale
+        self.num_classes = num_classes # not used
+        self.input_size = input_size  # i.e. length of protein
+        self.input_dim = input_dim # i.e. the actual latent dimension for ESMFold
+        assert input_dim == ESMFOLD_S_DIM
+        self.d_model = d_model
         self.min_len = min_len
-        
-        assert (
-            d_model == ESMFOLD_S_DIM
-        ), "d_model must match ESMFold embedding dimension"
 
-        self.esmfold_embedder = ESMFold(make_trunk=False)
+        # project from the ESMFold latent to the actual dimension for latent diffusion
+        self.latent_in_proj = nn.Linear(input_dim, d_model, bias=False)
+
+        # self.esmfold_embedder = ESMFold(make_trunk=False)
+        self.esmfold_embedder = ESMFold(make_trunk=True)
         self.esmfold_embedder.eval()
 
         # TODO: what are these constants in the architecture for the initial codebase?
@@ -359,11 +352,19 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         Create the ESMFold intermediate representation from strings.
         Used for training only.
         """
-        sequences = get_random_sequence_crop_batch(sequences, self.input_size, self.min_len)
+        sequences = utils.get_random_sequence_crop_batch(sequences, self.input_size, self.min_len)
 
         with torch.no_grad():
             embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)
         return embeddings_dict["s"], embeddings_dict["mask"]
+    
+    def project_to_d_model(self, x: torch.Tensor):
+        assert x.shape[-1] == self.input_dim, "x must have the same last dimension as input_dim"
+        return self.latent_in_proj(x)
+    
+    def project_to_input_dim(self, x: torch.Tensor):
+        assert x.shape[-1] == self.d_model, "x must have the same last dimension as d_model"
+        return x @ self.latent_in_proj.weight.data  # (batch_size, d_model) @ (d_model, input_dim)
 
     def forward(
         self,
@@ -372,6 +373,7 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         mask: torch.Tensor,
         class_cond: T.Optional[torch.Tensor] = None,
     ):
+        assert x.shape[-1] == self.d_model, "x must have the same dim as d_model; call self.project_to_latent(x) first."
         # Mapping network
         if class_cond is None and self.class_emb is not None:
             raise ValueError("class_cond must be specified if num_classes > 0")
