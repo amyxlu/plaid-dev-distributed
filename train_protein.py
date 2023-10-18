@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import accelerate
+from accelerate import DistributedDataParallelKwargs
 import safetensors.torch as safetorch
 import torch
 import torch._dynamo
@@ -42,19 +43,17 @@ def main():
                    help='compile the model')
     p.add_argument('--config', type=str, required=True,
                    help='the configuration file')
-    p.add_argument('--demo-batch-size', type=int, default=32,
-                   help='the batch size for structure generation demos (must be divisible by accelerator.num_processes)')
-    p.add_argument('--demo-every', type=int, default=500,
+    p.add_argument('--demo-every', type=int, default=0,
                    help='save a demo grid every this many steps')
     p.add_argument('--end-step', type=int, default=None,
                    help='the step to end training at')
     p.add_argument('--embedding-n', type=int, help="number of embeddings to save")
-    p.add_argument('--evaluate-every', type=int, default=10000,
+    p.add_argument('--evaluate-every', type=int, default=1000,
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-with', type=str, default='esmfold_embed',
                    choices=['esmfold_embed'],
                    help='the feature extractor to use for evaluation')
-    p.add_argument('--evaluate-n', type=int, default=2000,
+    p.add_argument('--evaluate-n', type=int, default=1000,
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only, disables stratified sampling)')
@@ -113,14 +112,14 @@ def main():
     seq_len = model_config['input_size']
 
     # ==============================================================================
-    # set up distributed training, model, optimizer, scheduler, logging, saving, etc.
+    # initialize objects and set up distributed training
     # ==============================================================================
-    accelerator = accelerate.Accelerator(gradient_accumulation_steps=args.grad_accum_steps, mixed_precision=args.mixed_precision)
+    ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = accelerate.Accelerator(gradient_accumulation_steps=args.grad_accum_steps, mixed_precision=args.mixed_precision, kwargs_handlers=[ddp_kwargs])
     ensure_distributed()
     device = accelerator.device
     unwrap = accelerator.unwrap_model
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
-    print(f'Num processes: {accelerator.num_processes}', flush=True)
 
     if args.seed is not None:
         seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
@@ -132,10 +131,13 @@ def main():
 
     if args.compile:
         inner_model.compile()
-        # inner_model_ema.compile()
+        inner_model_ema.compile()
 
     if accelerator.is_main_process:
-        print(f'Parameters: {K.utils.n_params(inner_model):,}')
+        print(f'Parameters: {K.utils.count_parameters(inner_model, require_grad_only=True):,}')
+
+    # models must be prepared before optimizer creation if using FSDP
+    inner_model, inner_model_ema = accelerator.prepare(inner_model, inner_model_ema)
 
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and args.wandb_project
@@ -157,7 +159,8 @@ def main():
             p.mkdir(parents=True, exist_ok=True)
 
     lr = opt_config['lr'] if args.lr is None else args.lr
-    groups = inner_model.param_groups(lr)
+    # groups = inner_model.param_groups(lr)
+    groups = unwrap(inner_model).param_groups(lr)
     if opt_config['type'] == 'adamw':
         opt = optim.AdamW(groups,
                           lr=lr,
@@ -223,7 +226,12 @@ def main():
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
-    inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
+    train_dl, opt = accelerator.prepare(train_dl, opt)
+
+    # ==============================================================================
+    # Post distribution configurations 
+    # ==============================================================================
+
     if use_wandb:
         wandb.watch(inner_model)
     if accelerator.num_processes == 1:
@@ -316,13 +324,13 @@ def main():
     demo_enabled = args.demo_every > 0 and args.sample_n
     if evaluate_enabled:
         if args.evaluate_with == "esmfold_embed":
-            extractor = K.evaluation.ESMFoldLatentFeatureExtractor(inner_model.esmfold_embedder, device=device)
+            extractor = K.evaluation.ESMFoldLatentFeatureExtractor(unwrap(inner_model).esmfold_embedder, device=device)
         else:
             raise ValueError('Invalid evaluation feature extractor')
         if accelerator.is_main_process:
             accelerator.print('Loading cached ESMFold features for 50,000 real holdout proteins...')
             cache_location = project_home_dir / "cached_tensors" / "holdout_esmfold_feats.st"
-            reals_features = extractor.load_saved_features(cache_location, device=device)
+            reals_features = extractor.load_saved_features(cache_location, device="cpu") #, device=device)
             accelerator.print('Done.')
             
         if accelerator.is_main_process:
@@ -333,6 +341,8 @@ def main():
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
     def evaluate():
+        if accelerator.is_main_process:
+            tqdm.write('Evaluating...')
         if not evaluate_enabled:
             return
         sigmas = K.sampling.get_sigmas_karras(args.evaluate_n, sigma_min, sigma_max, rho=7., device=device)
@@ -340,19 +350,25 @@ def main():
         def sample_fn(n):
             x = torch.randn([n, seq_len, model_config['d_model']], device=device) * sigma_max
             model_fn, extra_args = model_ema, {"mask": torch.ones(n, seq_len, device=device).long()}
-            # if num_classes:
-            #     extra_args['class_cond'] = torch.randint(0, num_classes, [n], device=device)
-            #     model_fn = make_cfg_model_fn(model_ema)
-            # TODO: fix this to work with sequence inputs
             x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=True)
+            del x
+
+            # 2) Downproject latent space, maybe
             if model_config['d_model'] != model_config['input_dim']:
-                x_0 = model_ema.project_to_input_dim(x_0)
+                x_0 = model_ema.inner_model.project_to_input_dim(x_0)
+
+            # 1) Normalize, maybe
+            x_0 = K.normalization.undo_scale_embedding(x_0, model_config['normalize_latent_by'])
             return x_0
         
-        fakes_features = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x.mean(dim=1), args.evaluate_n, args.batch_size)
+        # fakes_features = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x.mean(dim=1), args.evaluate_n, args.batch_size)
+        sampled = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x, args.evaluate_n, args.batch_size)
+        np.save(artifacts_dir / f"step{step}_sampled.npy", sampled.cpu().numpy(), allow_pickle=True)
+        fakes_features = sampled.mean(dim=1)
+
         if accelerator.is_main_process:
-            fid = K.evaluation.fid(fakes_features, reals_features)
-            kid = K.evaluation.kid(fakes_features, reals_features)
+            fid = K.evaluation.fid(fakes_features, reals_features.to(device))
+            kid = K.evaluation.kid(fakes_features, reals_features.to(device))
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             if accelerator.is_main_process:
                 metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
@@ -364,71 +380,61 @@ def main():
     # ==============================================================================
     # set up demo 
     # ==============================================================================
-    # cfg_scale = 1.
+    cfg_scale = 1.
     # def make_cfg_model_fn(model):
     #     # Removed, because we don't need to condition on class
     #     return model
-    if demo_enabled: 
-        print("Creating structure and sequence constructos from generated latents...")
-        sequence_constructor = K.proteins.LatentToSequence(device)
-        structure_constructor = K.proteins.LatentToStructure(device, esmfold=inner_model.esmfold_embedder)
-
-    @torch.no_grad()
-    @K.utils.eval_mode(model_ema)
-    def demo():
-        if accelerator.is_main_process:
-            tqdm.write('Sampling...')
+    # if demo_enabled: 
+    #     # TODO: figure out how to best do this with multi GPU
+    #     print("Creating structure and sequence constructions from generated latents...")
+    #     sequence_constructor = K.proteins.LatentToSequence(device)
+    #     structure_constructor = K.proteins.LatentToStructure(device, esmfold=inner_model.esmfold_embedder)
+        # esmfold2 = K.models.esmfold.ESMFold(make_trunk=True).to("cpu")
+        # structure_constructor = K.proteins.LatentToStructure("cpu", esmfold=esmfold2)
+    
+    # @torch.no_grad()
+    # @K.utils.eval_mode(model_ema)
+    # def demo():
+    #     if accelerator.is_main_process:
+    #         tqdm.write('Sampling...')
         
-        n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
-        x = torch.randn([accelerator.num_processes, n_per_proc, seq_len, model_config['latent_dim']], generator=demo_gen).to(device)
-        dist.broadcast(x, 0)
-        x = x[accelerator.process_index] * sigma_max
+    #     n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
+    #     x = torch.randn([accelerator.num_processes, n_per_proc, seq_len, model_config['d_model']], generator=demo_gen).to(device)
+    #     mask = torch.ones([accelerator.num_processes, n_per_proc, seq_len], device=device).long()
+    #     dist.broadcast(x, 0)
+    #     dist.broadcast(mask, 0)
+    #     x = x[accelerator.process_index] * sigma_max
+    #     mask = mask[accelerator.process_index]
+    # #     K.utils.print_cuda_memory_usage()
 
-        model_fn = model_ema
-        sigmas = K.sampling.get_sigmas_karras(args.sample_n, sigma_min, sigma_max, rho=7., device=device)
+    #     model_fn, extra_args = model_ema, {"mask": mask}
+    #     sigmas = K.sampling.get_sigmas_karras(args.sample_n, sigma_min, sigma_max, rho=7., device=device)
+    #     x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
+    #     x_0 = accelerator.gather(x_0)[:args.sample_n]
+    #     if model_config['d_model'] != model_config['input_dim']:
+    #         x_0 = model_ema.inner_model.project_to_input_dim(x_0)
 
-        sequence_probs, sequence_str, pdb_strs, structure_metrics = [], [], [], []
-        n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
-
-        for i in trange(
-            0, n_per_proc, args.demo_batch_size, disable=not accelerator.is_main_process, desc="(Demo Generation)", leave=False 
-        ):
-            cur_batch_size = min(args.sample_n - i, args.demo_batch_size)
-            batch_x = x[i:i+cur_batch_size]
-            batch_sigmas = sigmas[i:i+cur_batch_size]
-            extra_args = {'mask': torch.ones(batch_x.shape[0], batch_x.shape[1], device=device)}
-            batch_x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, batch_x, batch_sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
-            # batch_x_0 = accelerator.gather(batch_x_0)[:cur_batch_size]
-
-            batch_probs, _, batch_strs = sequence_constructor.to_sequence(batch_x_0)
-            batch_pdbstrs, batch_metrics = structure_constructor.to_structure(batch_x_0, batch_strs, args.recycling_n, cur_batch_size)
-            del batch_x_0, extra_args
-
-            batch_probs = accelerator.gather(batch_probs)
-            batch_strs = accelerator.gather(batch_strs)
-            batch_pdbstrs = accelerator.gather(batch_pdbstrs)
-            batch_metrics = accelerator.gather(batch_metrics)
-            sequence_probs.append(batch_probs.cpu().numpy())
-            sequence_str.extend(batch_strs)
-            pdb_strs.extend(batch_pdbstrs)
-            structure_metrics.append(batch_metrics)
-
-        sequence_probs = np.concatenate(sequence_probs)
-        structure_metrics = pd.concat(structure_metrics)
-
-        if accelerator.is_main_process:
-            accelerator.print("Writing structure and sequence samples to disk...")
-            K.utils.write_to_fasta(sequence_str, sampled_dir / f"step{step}.fasta")
-            pdb_paths = [sampled_dir / f"step{step}_sample{i}.pdb" for i in range(len(pdb_strs))]
-            _ = [K.utils.write_pdb_to_disk(pstr, ppath) for (pstr, ppath) in zip(pdb_strs, pdb_paths)]
-            if use_wandb:
-                wandb.log({
-                    "generated_structures": wandb.Table(dataframe=structure_metrics),
-                    "plddt": wandb.Histogram(structure_metrics["plddt"])
-                })
-                _ = [wandb.log({"protein": wandb.Molecule(pdb_paths[i])}) for i in range(3)]
-                sequence_results = pd.DataFrame({"sequences": sequences, "mean_residue_confidence": K.utils.npy(sequence_probs.mean(dim=1)), "step": step})
-                wandb.log({"generated_sequences": wandb.Table(dataframe=sequence_results)})
+    #     if accelerator.is_main_process:
+    #         # use half the batch size since we'll need to put in the pairwise rep too
+    #         probs, _, seqs = sequence_constructor.to_sequence(x_0)
+    #         pdb_strs, metrics = structure_constructor.to_structure(
+    #             x_0, seqs, args.recycling_n, batch_size=args.batch_size // 4
+    #         )
+    #         accelerator.print("Writing structure and sequence samples to disk...")
+    #         K.utils.write_to_fasta(seqs, sampled_dir / f"step{step}.fasta")
+    #         pdb_paths = [sampled_dir / f"step{step}_sample{i}.pdb" for i in range(len(pdb_strs))]
+    #         _ = [K.utils.write_pdb_to_disk(pstr, ppath) for (pstr, ppath) in zip(pdb_strs, pdb_paths)]
+    #         if use_wandb:
+    #             wandb.log({
+    #                 "generated_structures": wandb.Table(dataframe=metrics),
+    #                 "plddt": wandb.Histogram(metrics["plddt"])
+    #             })
+    #             _ = [wandb.log({"protein": wandb.Molecule(pdb_paths[i])}) for i in range(3)]
+    #             wandb.log(
+    #                 wandb.Table(
+    #                     pd.DataFrame({"sequences": seqs, "mean_residue_confidence": K.utils.npy(probs.mean(dim=1)), "step": step})
+    #                 )
+    #             )
 
     # ==============================================================================
     # main train loop 
@@ -440,9 +446,15 @@ def main():
             for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process, desc="Training"):
                 with accelerator.accumulate(model):
                     sequences = batch[1]
-                    x, mask = model.inner_model.embed_from_sequences(sequences)  # (N, L, input_dim=1024)
+                    x, mask = unwrap(model.inner_model).embed_from_sequences(sequences)  # (N, L, input_dim=1024)
+
+                    # 1) Normalize, maybe
+                    K.normalization.scale_embedding(x, model_config['normalize_latent_by'])
+
+                    # 2) Downproject latent space, maybe
                     if model_config['d_model'] != model_config['input_dim']:
-                        x = model.inner_model.project_to_d_model(x)  # (N, L, d_model)
+                        x = unwrap(model.inner_model).project_to_d_model(x)  # (N, L, d_model)
+                    
                     class_cond, extra_args, N = None, {'mask': mask}, x.shape[0]
                     # if num_classes:
                         # class_cond = batch[class_key]
@@ -495,7 +507,6 @@ def main():
                     if args.gns:
                         log_dict['gradient_noise_scale'] = gns_stats.get_gns()
                     wandb.log(log_dict, step=step)
-
 
                 # if demo_enabled and step % args.demo_every == 0:
                 #     demo()

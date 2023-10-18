@@ -296,9 +296,10 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         # project from the ESMFold latent to the actual dimension for latent diffusion
         self.latent_in_proj = nn.Linear(input_dim, d_model, bias=False)
 
-        # self.esmfold_embedder = ESMFold(make_trunk=False)
-        self.esmfold_embedder = ESMFold(make_trunk=True)
+        self.esmfold_embedder = ESMFold(make_trunk=False)
         self.esmfold_embedder.eval()
+        if not self.esmfold_embedder.trunk is None:
+            self.esmfold_embedder.set_chunk_size(128)
 
         # TODO: what are these constants in the architecture for the initial codebase?
         self.time_emb = layers.FourierFeatures(1, d_model)

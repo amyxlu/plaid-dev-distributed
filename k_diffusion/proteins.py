@@ -19,6 +19,7 @@ from openfold.np.residue_constants import restype_order_with_x
 from . import utils
 from .layers import FullyConnectedNetwork
 from .models.esmfold import ESMFold, ESMFOLD_Z_DIM
+from . import utils
 
 ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
 PathLike = T.Union[str, Path]
@@ -236,6 +237,9 @@ class LatentToStructure:
         self.esmfold.to(device)
         self.device = device
         assert not self.esmfold.trunk is None
+        self.esmfold.eval()
+        for param in self.esmfold.parameters():
+            param.requires_grad = False
 
     def to_structure(
         self,
@@ -248,20 +252,26 @@ class LatentToStructure:
         latent = utils.to_tensor(latent, device=self.device)
         batch_size = latent.shape[0] if batch_size is None else batch_size
         N, L, _ = latent.shape
-        # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
-        s_z_0 = latent.new_zeros(N, L, L, ESMFOLD_Z_DIM)
         aatype, mask, residx, _, _ = batch_encode_sequences(sequences)
         aatype, mask, residx = tuple(
             map(lambda x: x.to(self.device), (aatype, mask, residx))
         )
 
+        metrics = []
+        all_pdb_strs = []
+        utils.print_cuda_memory_usage()
+        torch.cuda.empty_cache()
+        
         for start in range(0, len(latent), batch_size):
-            s_, z_, aa_, mask_, residx_ = tuple(
+            # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
+            s_, aa_, mask_, residx_ = tuple(
                 map(
                     lambda x: x[start : start + batch_size],
-                    (latent, s_z_0, aatype, mask, residx),
+                    (latent, aatype, mask, residx),
                 )
             )
+            z_ = latent.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
+            
             with torch.no_grad():
                 output = self.esmfold.folding_trunk(
                     s_s_0=s_,
@@ -271,10 +281,10 @@ class LatentToStructure:
                     mask=mask_,
                     num_recycles=num_recycles,
                 )
-            metrics = outputs_to_avg_metric(output)
-            pdb_strs = output_to_pdb(output)
-
-        return pdb_strs, metrics
+            metrics.append(outputs_to_avg_metric(output))
+            all_pdb_strs.extend(output_to_pdb(output))
+        metrics = pd.concat(metrics)
+        return all_pdb_strs, metrics
 
 if __name__ == "__main__":
     import torch

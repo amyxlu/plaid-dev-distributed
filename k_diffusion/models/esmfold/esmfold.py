@@ -114,19 +114,19 @@ class ESMFold(nn.Module):
 
         if self.make_trunk:
             self.trunk = FoldingTrunk(cfg.trunk)
-        else:
-            self.trunk = None
+            self.distogram_head = nn.Linear(c_z, self.distogram_bins)
+            self.ptm_head = nn.Linear(c_z, self.distogram_bins)
+            self.lm_head = nn.Linear(c_s, self.n_tokens_embed)
+            self.lddt_bins = 50
+            self.lddt_head = nn.Sequential(
+                nn.LayerNorm(cfg.trunk.structure_module.c_s),
+                nn.Linear(cfg.trunk.structure_module.c_s, cfg.lddt_head_hid_dim),
+                nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
+                nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
+            )
 
-        self.distogram_head = nn.Linear(c_z, self.distogram_bins)
-        self.ptm_head = nn.Linear(c_z, self.distogram_bins)
-        self.lm_head = nn.Linear(c_s, self.n_tokens_embed)
-        self.lddt_bins = 50
-        self.lddt_head = nn.Sequential(
-            nn.LayerNorm(cfg.trunk.structure_module.c_s),
-            nn.Linear(cfg.trunk.structure_module.c_s, cfg.lddt_head_hid_dim),
-            nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
-            nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
-        )
+        else:
+            self.trunk, self.distogram_head, self.ptm_head, self.lm_head, self.lddt_bins, self.lddt_head = None, None, None, None, None, None
 
         # Load the trained model state for any parameters that we've recreated
         self.load_state_dict(model_state, strict=False)
