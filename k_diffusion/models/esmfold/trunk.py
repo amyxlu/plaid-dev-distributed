@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from openfold.model.structure_module import StructureModule
 
-from esm.esmfold.v1.tri_self_attn_block import TriangularSelfAttentionBlock
+from .tri_self_attn_block import TriangularSelfAttentionBlock
 
 
 @dataclass
@@ -205,7 +205,7 @@ class FoldingTrunk(nn.Module):
                 structure = self.structure_module(
                     {"single": self.trunk2sm_s(s_s), "pair": self.trunk2sm_z(s_z)},
                     true_aa,
-                    mask.float(),
+                    mask.to(s_s.dtype),
                 )
 
                 recycle_s = s_s
