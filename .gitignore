@@ -11,3 +11,4 @@ wandb/*
 *.safetensors
 cached_tensors
 artifacts
+.vscode
