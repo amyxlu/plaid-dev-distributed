@@ -1,8 +1,8 @@
 {
     "model": {
         "type": "protein_transformer_v1",
-        "n_layers": 7,
-        "d_model": 1024,
+        "n_layers": 12,
+        "d_model": 512,
         "d_ff": 256,
         "d_head": 128,
         "input_size": 512,

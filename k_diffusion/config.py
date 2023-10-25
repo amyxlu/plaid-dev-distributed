@@ -172,6 +172,10 @@ def make_denoiser_wrapper(config):
         if has_variance:
             raise ValueError('Simple loss config does not support a variance output')
         return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data)
+    if loss_config == "vanilla":
+        if has_variance:
+            raise ValueError('Simple loss config does not support a variance output')
+        return partial(layers.SimpleVanilla, sigma_data=sigma_data)
     raise ValueError('Unknown loss config type')
 
 

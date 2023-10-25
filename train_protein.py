@@ -53,8 +53,6 @@ def main():
     p.add_argument('--evaluate-with', type=str, default='esmfold_embed',
                    choices=['esmfold_embed'],
                    help='the feature extractor to use for evaluation')
-    p.add_argument('--evaluate-n', type=int, default=1000,
-                   help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only, disables stratified sampling)')
     p.add_argument('--grad-accum-steps', type=int, default=1,
@@ -77,7 +75,8 @@ def main():
                    help='the inference checkpoint to resume from')
     p.add_argument('--sample-n', type=int, default=64,
                    help='the number of images to sample for demo grids')
-    p.add_argument('--save-every', type=int, default=5000,
+    p.add_argument('--log-every', type=int, default=6)
+    p.add_argument('--save-every', type=int, default=1000,
                    help='save every this many steps')
     p.add_argument('--seed', type=int,
                    help='the random seed')
@@ -320,31 +319,22 @@ def main():
     # ==============================================================================
     # set up "frechet esmfold distnace" evaluation 
     # ==============================================================================
-    evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
-    demo_enabled = args.demo_every > 0 and args.sample_n
-    if evaluate_enabled:
-        if args.evaluate_with == "esmfold_embed":
-            extractor = K.evaluation.ESMFoldLatentFeatureExtractor(unwrap(inner_model).esmfold_embedder, device=device)
-        else:
-            raise ValueError('Invalid evaluation feature extractor')
-        if accelerator.is_main_process:
-            accelerator.print('Loading cached ESMFold features for 50,000 real holdout proteins...')
-            cache_location = project_home_dir / "cached_tensors" / "holdout_esmfold_feats.st"
-            reals_features = extractor.load_saved_features(cache_location, device="cpu") #, device=device)
-            accelerator.print('Done.')
-            
-        if accelerator.is_main_process:
-            metrics_log = K.utils.CSVLogger(str(artifacts_dir / 'metrics.csv'), ['step', 'loss', 'fid', 'kid'])
-            # if use_wandb:
-            #     wandb.log({f"real_embeddings": wandb.Table(dataframe=pd.DataFrame(reals_features.cpu().numpy()).sample(args.embedding_n))})
+    evaluate_enabled = False
+    demo_enabled = False
+    if args.evaluate_with == "esmfold_embed":
+        extractor = K.evaluation.ESMFoldLatentFeatureExtractor(unwrap(inner_model).esmfold_embedder, device=device)
+    else:
+        raise ValueError('Invalid evaluation feature extractor')
+    if accelerator.is_main_process:
+        accelerator.print('Loading cached ESMFold features for 50,000 real holdout proteins...')
+        cache_location = project_home_dir / "cached_tensors" / "holdout_esmfold_feats.st"
+        reals_features = extractor.load_saved_features(cache_location, device="cpu") #, device=device)
 
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
     def evaluate():
         if accelerator.is_main_process:
             tqdm.write('Evaluating...')
-        if not evaluate_enabled:
-            return
         sigmas = K.sampling.get_sigmas_karras(args.evaluate_n, sigma_min, sigma_max, rho=7., device=device)
         
         def sample_fn(n):
@@ -355,7 +345,7 @@ def main():
 
             # 2) Downproject latent space, maybe
             if model_config['d_model'] != model_config['input_dim']:
-                x_0 = model_ema.inner_model.project_to_input_dim(x_0)
+                x_0 = unwrap(model_ema.inner_model).project_to_input_dim(x_0)
 
             # 1) Normalize, maybe
             x_0 = K.normalization.undo_scale_embedding(x_0, model_config['normalize_latent_by'])
@@ -363,15 +353,15 @@ def main():
         
         # fakes_features = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x.mean(dim=1), args.evaluate_n, args.batch_size)
         sampled = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x, args.evaluate_n, args.batch_size)
-        np.save(artifacts_dir / f"step{step}_sampled.npy", sampled.cpu().numpy(), allow_pickle=True)
+        np.save(artifacts_dir / "sampled" / f"step{step}_sampled.pkl.npy", sampled.cpu().numpy(), allow_pickle=True)
         fakes_features = sampled.mean(dim=1)
 
         if accelerator.is_main_process:
             fid = K.evaluation.fid(fakes_features, reals_features.to(device))
             kid = K.evaluation.kid(fakes_features, reals_features.to(device))
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-            if accelerator.is_main_process:
-                metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
+            # if accelerator.is_main_process:
+            #     metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
                 # wandb.log({f"generated_embedding_step{step}": wandb.Table(dataframe=pd.DataFrame(fakes_features.cpu().numpy()).sample(args.embedding_n))})
@@ -466,8 +456,10 @@ def main():
                     with K.utils.enable_stratified_accelerate(accelerator, disable=args.gns):
                         sigma = sample_density([N], device=device)
                     with K.models.checkpointing(args.checkpointing):
-                        losses = model.loss(x, noise, sigma, **extra_args)
+                        losses, model_output = model.loss(x, noise, sigma, return_model_output=True, **extra_args)
                     loss = accelerator.gather(losses).mean().item()
+                    model_output = accelerator.gather(model_output)
+                    mean, std = model_output.mean(), model_output.std()
                     losses_since_last_print.append(loss)
                     accelerator.backward(losses.mean())
                     if args.gns:
@@ -485,7 +477,7 @@ def main():
                         K.utils.ema_update(model, model_ema, ema_decay)
                         ema_sched.step()
                 
-                del batch, x, mask, noise, sigma
+                del batch, x, mask, noise, sigma, model_output
 
                 if step % 25 == 0:
                     loss_disp = sum(losses_since_last_print) / len(losses_since_last_print)
@@ -496,26 +488,28 @@ def main():
                             tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}, gns: {gns_stats.get_gns():g}')
                         else:
                             tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}')
-
-                if use_wandb:
-                    log_dict = {
-                        'epoch': epoch,
-                        'loss': loss,
-                        'lr': sched.get_last_lr()[0],
-                        'ema_decay': ema_decay,
-                    }
-                    if args.gns:
-                        log_dict['gradient_noise_scale'] = gns_stats.get_gns()
-                    wandb.log(log_dict, step=step)
+                if step % args.log_every == 0:
+                    if use_wandb:
+                        log_dict = {
+                            'epoch': epoch,
+                            'loss': loss,
+                            'lr': sched.get_last_lr()[0],
+                            'ema_decay': ema_decay,
+                            'pred_mean': mean,
+                            'pred_std': std
+                        }
+                        if args.gns:
+                            log_dict['gradient_noise_scale'] = gns_stats.get_gns()
+                        wandb.log(log_dict, step=step)
 
                 # if demo_enabled and step % args.demo_every == 0:
                 #     demo()
 
-                if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
-                    evaluate()
-
                 if step == args.end_step or (step > 0 and step % args.save_every == 0):
                     save()
+
+                if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
+                    evaluate()
 
                 if step == args.end_step:
                     if accelerator.is_main_process:

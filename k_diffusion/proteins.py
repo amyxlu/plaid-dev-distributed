@@ -2,6 +2,7 @@ import os
 import re
 import typing as T
 from pathlib import Path
+from tqdm import trange
 
 import numpy as np
 import torch
@@ -233,14 +234,15 @@ class LatentToSequence:
 
 class LatentToStructure:
     def __init__(self, device, esmfold: ESMFold = None):
-        self.esmfold = ESMFold(make_trunk=True).eval().requires_grad_(False) if esmfold is None else esmfold
+        self.esmfold = ESMFold(make_lm=False, make_trunk=True).eval().requires_grad_(False) if esmfold is None else esmfold
+        self.esmfold = self.esmfold.set_chunk_size(128)
         self.esmfold.to(device)
         self.device = device
         assert not self.esmfold.trunk is None
-        self.esmfold.eval()
         for param in self.esmfold.parameters():
             param.requires_grad = False
 
+    @torch.no_grad()
     def to_structure(
         self,
         latent: ArrayLike,
@@ -259,11 +261,11 @@ class LatentToStructure:
 
         metrics = []
         all_pdb_strs = []
-        utils.print_cuda_memory_usage()
-        torch.cuda.empty_cache()
         
-        for start in range(0, len(latent), batch_size):
+        for start in trange(0, len(latent), batch_size, desc="(Generating structure from latents..)"):
+            torch.cuda.empty_cache()
             # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
+            utils.print_cuda_memory_usage()
             s_, aa_, mask_, residx_ = tuple(
                 map(
                     lambda x: x[start : start + batch_size],

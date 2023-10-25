@@ -73,7 +73,7 @@ class Denoiser(nn.Module):
         c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         return c_skip, c_out, c_in
 
-    def loss(self, input, noise, sigma, **kwargs):
+    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         c_weight = self.weighting(sigma)
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
@@ -83,7 +83,11 @@ class Denoiser(nn.Module):
             return ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
         sq_error = dct(model_output - target) ** 2
         f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
-        return (sq_error * f_weight).flatten(1).mean(1) * c_weight
+        loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
+        if return_model_output:
+            return loss, model_output
+        else:
+            return loss
 
     def forward(self, input, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
@@ -91,24 +95,47 @@ class Denoiser(nn.Module):
 
 
 class DenoiserWithVariance(Denoiser):
-    def loss(self, input, noise, sigma, **kwargs):
+    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
         logvar = utils.append_dims(logvar, model_output.ndim)
         target = (input - c_skip * noised_input) / c_out
         losses = ((model_output - target) ** 2 / logvar.exp() + logvar) / 2
-        return losses.flatten(1).mean(1)
+        loss = losses.flatten(1).mean(1)
+        if return_model_output:
+            return loss, model_output
+        else:
+            return loss
 
 
 class SimpleLossDenoiser(Denoiser):
     """L_simple with the Karras et al. preconditioner."""
 
-    def loss(self, input, noise, sigma, **kwargs):
+    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         denoised = self(noised_input, sigma, **kwargs)
         eps = sampling.to_d(noised_input, sigma, denoised)
-        return (eps - noise).pow(2).flatten(1).mean(1)
+        loss = (eps - noise).pow(2).flatten(1).mean(1)
+        if return_model_output:
+            return loss, denoised
+        else:
+            return loss
+           
+            
+class SimpleVanilla(Denoiser):
+    """ Vanilla L_simple without the Karras et al. preconditioner."""
+    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
+        noised_input = input + noise * utils.append_dims(sigma, input.ndim)
+        model_output = self.inner_model(noised_input, sigma, **kwargs)
+        loss = dct(model_output - noise) ** 2
+        if return_model_output:
+            return loss, model_output
+        else:
+            return loss
+
+    def forward(self, input, sigma, **kwargs):
+        return self.inner_model(input, sigma, **kwargs)
 
 
 # Residual blocks
