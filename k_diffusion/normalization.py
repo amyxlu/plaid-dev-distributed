@@ -25,10 +25,10 @@ GLOBAL_SEQEMB_STATS = {
 
 CHANNELWISE_NPY_PATHS = {
     "uniref": {
-        "max": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_100000/channelwise_max.npy",
-        "min": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_100000/channelwise_min.npy",
-        "mean": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_100000/channelwise_mean.npy",
-        "std": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_100000/channelwise_std.npy",
+        "max": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_max.pkl.npy",
+        "min": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_min.pkl.npy",
+        "mean": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_mean.pkl.npy",
+        "std": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_std.pkl.npy",
     }
 }
 

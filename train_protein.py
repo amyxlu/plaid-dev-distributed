@@ -75,9 +75,9 @@ def main():
                    help='the inference checkpoint to resume from')
     p.add_argument('--sample-n', type=int, default=64,
                    help='the number of images to sample for demo grids')
-    p.add_argument('--log-every', type=int, default=6)
+    p.add_argument('--log-every', type=int, default=10)
     p.add_argument('--save-every', type=int, default=1000,
-                   help='save every this many steps')
+                   help='save checkpoint every this many steps')
     p.add_argument('--seed', type=int,
                    help='the random seed')
     p.add_argument('--start-method', type=str, default='spawn',
@@ -127,13 +127,14 @@ def main():
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
+    num_parameters = K.utils.count_parameters(inner_model, require_grad_only=True)
 
     if args.compile:
         inner_model.compile()
         inner_model_ema.compile()
 
     if accelerator.is_main_process:
-        print(f'Parameters: {K.utils.count_parameters(inner_model, require_grad_only=True):,}')
+        accelerator.print(f'Number of trainable parameters: {num_parameters:,}')
 
     # models must be prepared before optimizer creation if using FSDP
     inner_model, inner_model_ema = accelerator.prepare(inner_model, inner_model_ema)
@@ -144,7 +145,7 @@ def main():
         import wandb
         log_config = vars(args)
         log_config['config'] = config
-        log_config['parameters'] = K.utils.n_params(inner_model)
+        log_config['parameters'] = num_parameters 
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
         if args.name == 'model':
             args.name = wandb.run.id
@@ -365,66 +366,6 @@ def main():
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
                 # wandb.log({f"generated_embedding_step{step}": wandb.Table(dataframe=pd.DataFrame(fakes_features.cpu().numpy()).sample(args.embedding_n))})
-
-
-    # ==============================================================================
-    # set up demo 
-    # ==============================================================================
-    cfg_scale = 1.
-    # def make_cfg_model_fn(model):
-    #     # Removed, because we don't need to condition on class
-    #     return model
-    # if demo_enabled: 
-    #     # TODO: figure out how to best do this with multi GPU
-    #     print("Creating structure and sequence constructions from generated latents...")
-    #     sequence_constructor = K.proteins.LatentToSequence(device)
-    #     structure_constructor = K.proteins.LatentToStructure(device, esmfold=inner_model.esmfold_embedder)
-        # esmfold2 = K.models.esmfold.ESMFold(make_trunk=True).to("cpu")
-        # structure_constructor = K.proteins.LatentToStructure("cpu", esmfold=esmfold2)
-    
-    # @torch.no_grad()
-    # @K.utils.eval_mode(model_ema)
-    # def demo():
-    #     if accelerator.is_main_process:
-    #         tqdm.write('Sampling...')
-        
-    #     n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
-    #     x = torch.randn([accelerator.num_processes, n_per_proc, seq_len, model_config['d_model']], generator=demo_gen).to(device)
-    #     mask = torch.ones([accelerator.num_processes, n_per_proc, seq_len], device=device).long()
-    #     dist.broadcast(x, 0)
-    #     dist.broadcast(mask, 0)
-    #     x = x[accelerator.process_index] * sigma_max
-    #     mask = mask[accelerator.process_index]
-    # #     K.utils.print_cuda_memory_usage()
-
-    #     model_fn, extra_args = model_ema, {"mask": mask}
-    #     sigmas = K.sampling.get_sigmas_karras(args.sample_n, sigma_min, sigma_max, rho=7., device=device)
-    #     x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
-    #     x_0 = accelerator.gather(x_0)[:args.sample_n]
-    #     if model_config['d_model'] != model_config['input_dim']:
-    #         x_0 = model_ema.inner_model.project_to_input_dim(x_0)
-
-    #     if accelerator.is_main_process:
-    #         # use half the batch size since we'll need to put in the pairwise rep too
-    #         probs, _, seqs = sequence_constructor.to_sequence(x_0)
-    #         pdb_strs, metrics = structure_constructor.to_structure(
-    #             x_0, seqs, args.recycling_n, batch_size=args.batch_size // 4
-    #         )
-    #         accelerator.print("Writing structure and sequence samples to disk...")
-    #         K.utils.write_to_fasta(seqs, sampled_dir / f"step{step}.fasta")
-    #         pdb_paths = [sampled_dir / f"step{step}_sample{i}.pdb" for i in range(len(pdb_strs))]
-    #         _ = [K.utils.write_pdb_to_disk(pstr, ppath) for (pstr, ppath) in zip(pdb_strs, pdb_paths)]
-    #         if use_wandb:
-    #             wandb.log({
-    #                 "generated_structures": wandb.Table(dataframe=metrics),
-    #                 "plddt": wandb.Histogram(metrics["plddt"])
-    #             })
-    #             _ = [wandb.log({"protein": wandb.Molecule(pdb_paths[i])}) for i in range(3)]
-    #             wandb.log(
-    #                 wandb.Table(
-    #                     pd.DataFrame({"sequences": seqs, "mean_residue_confidence": K.utils.npy(probs.mean(dim=1)), "step": step})
-    #                 )
-    #             )
 
     # ==============================================================================
     # main train loop 

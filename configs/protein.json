@@ -14,10 +14,10 @@
         "loss_weighting": "soft-min-snr",
         "dropout_rate": 0.05,
         "augment_prob": 0.0,
-        "sigma_data": 0.6162,
+        "sigma_data": 1.0,
         "sigma_min": 1e-2,
         "sigma_max": 80,
-        "normalize_latent_by": "channel_standardize",
+        "normalize_latent_by": "channel_minmaxnorm",
         "sigma_sample_density": {
             "type": "cosine-interpolated"
         }
@@ -31,14 +31,14 @@
     },
     "optimizer": {
         "type": "adamw",
-        "lr": 5e-4,
+        "lr": 1e-4,
         "betas": [0.9, 0.95],
         "eps": 1e-8,
         "weight_decay": 1e-4
     },
     "lr_sched": {
         "type": "constant",
-        "warmup": 0.0
+        "warmup": 0.1
     },
     "ema_sched": {
         "type": "inverse",

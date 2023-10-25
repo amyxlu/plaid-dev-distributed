@@ -80,10 +80,12 @@ class Denoiser(nn.Module):
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
         if self.scales == 1:
-            return ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
-        sq_error = dct(model_output - target) ** 2
-        f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
-        loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
+            loss = ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
+        else:
+            sq_error = dct(model_output - target) ** 2
+            f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
+            loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
+        
         if return_model_output:
             return loss, model_output
         else:
@@ -128,7 +130,7 @@ class SimpleVanilla(Denoiser):
     def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input, sigma, **kwargs)
-        loss = dct(model_output - noise) ** 2
+        loss = (model_output - noise).pow(2).flatten(1).mean(1)
         if return_model_output:
             return loss, model_output
         else:
