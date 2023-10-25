@@ -67,34 +67,29 @@ def get_esmfold_model_state(model_name="esmfold_3B_v1"):
 
 
 class ESMFold(nn.Module):
-    def __init__(self, make_lm=True, make_trunk=True, **kwargs):
+    def __init__(self, make_trunk=True, **kwargs):
         super().__init__()
 
         # load the trained weights from hub
-        # checked to make sure that it matches the pretrained config 
-        cfg = ESMFoldConfig()
+        cfg = ESMFoldConfig()  # checked to make sure that it matches the pretrained config 
         _, model_state = get_esmfold_model_state()
         self.make_trunk = make_trunk
         self.cfg = cfg
+
         self.distogram_bins = 64
+
+        self.esm, self.esm_dict = esm_registry.get(cfg.esm_type)()
+
+        self.esm.requires_grad_(False)
+        self.esm.half()
+
+        self.esm_feats = self.esm.embed_dim
+        self.esm_attns = self.esm.num_layers * self.esm.attention_heads
+        self.register_buffer("af2_to_esm", ESMFold._af2_to_esm(self.esm_dict))
+        self.esm_s_combine = nn.Parameter(torch.zeros(self.esm.num_layers + 1))
+
         c_s = cfg.trunk.sequence_state_dim
         c_z = cfg.trunk.pairwise_state_dim
-
-        if make_lm: 
-            self.esm, self.esm_dict = esm_registry.get(cfg.esm_type)()
-            self.esm.requires_grad_(False)
-            self.esm.half()
-
-            self.esm_feats = self.esm.embed_dim
-            self.esm_attns = self.esm.num_layers * self.esm.attention_heads
-            self.register_buffer("af2_to_esm", ESMFold._af2_to_esm(self.esm_dict))
-            self.esm_s_combine = nn.Parameter(torch.zeros(self.esm.num_layers + 1))
-
-        # 0 is padding, N is unknown residues, N + 1 is mask.
-        self.n_tokens_embed = residue_constants.restype_num + 3
-        self.pad_idx = 0
-        self.unk_idx = self.n_tokens_embed - 2
-        self.mask_idx = self.n_tokens_embed - 1
 
         self.esm_s_mlp = nn.Sequential(
             LayerNorm(self.esm_feats),
@@ -109,10 +104,13 @@ class ESMFold(nn.Module):
                 nn.ReLU(),
                 nn.Linear(c_z, c_z),
             )
-            self.embedding = nn.Embedding(self.n_tokens_embed, c_s, padding_idx=0)
-        else:
-            self.esm, self.esm_feats, self.esm_attns, self.esm_s_combine, self.esm_s_mlp, self.esm_z_mlp, self.embedding = None, None, None, None, None, None, None
 
+        # 0 is padding, N is unknown residues, N + 1 is mask.
+        self.n_tokens_embed = residue_constants.restype_num + 3
+        self.pad_idx = 0
+        self.unk_idx = self.n_tokens_embed - 2
+        self.mask_idx = self.n_tokens_embed - 1
+        self.embedding = nn.Embedding(self.n_tokens_embed, c_s, padding_idx=0)
 
         if self.make_trunk:
             self.trunk = FoldingTrunk(cfg.trunk)
@@ -126,6 +124,7 @@ class ESMFold(nn.Module):
                 nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
                 nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
             )
+
         else:
             self.trunk, self.distogram_head, self.ptm_head, self.lm_head, self.lddt_bins, self.lddt_head = None, None, None, None, None, None
 
