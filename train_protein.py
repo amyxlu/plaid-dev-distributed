@@ -176,20 +176,6 @@ def main():
     else:
         raise ValueError('Invalid optimizer type')
 
-    if sched_config['type'] == 'inverse':
-        sched = K.utils.InverseLR(opt,
-                                  inv_gamma=sched_config['inv_gamma'],
-                                  power=sched_config['power'],
-                                  warmup=sched_config['warmup'])
-    elif sched_config['type'] == 'exponential':
-        sched = K.utils.ExponentialLR(opt,
-                                      num_steps=sched_config['num_steps'],
-                                      decay=sched_config['decay'],
-                                      warmup=sched_config['warmup'])
-    elif sched_config['type'] == 'constant':
-        sched = K.utils.ConstantLRWithWarmup(opt, warmup=sched_config['warmup'])
-    else:
-        raise ValueError('Invalid schedule type')
 
     assert ema_sched_config['type'] == 'inverse'
     ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
@@ -225,6 +211,8 @@ def main():
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
+                               
+    sched = K.config.make_lr_sched(sched_config, opt, len(train_dl) // args.grad_accum_steps)
 
     train_dl, opt = accelerator.prepare(train_dl, opt)
 

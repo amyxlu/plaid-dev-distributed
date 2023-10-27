@@ -4,6 +4,11 @@ import math
 from pathlib import Path
 
 from jsonmerge import merge
+from transformers import (
+    get_scheduler,
+    get_cosine_schedule_with_warmup,
+    get_cosine_with_hard_restarts_schedule_with_warmup,
+)
 
 from . import augmentation, layers, models, utils
 
@@ -214,3 +219,27 @@ def make_sample_density(config):
         return partial(utils.rand_cosine_interpolated, image_d=image_d, noise_d_low=noise_d_low, noise_d_high=noise_d_high, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
 
     raise ValueError('Unknown sample density type')
+
+
+def make_lr_sched(lr_config, optimizer, num_training_steps):
+    if lr_config['type'] == "cosine_with_restarts":
+        return get_cosine_with_hard_restarts_schedule_with_warmup(
+            optimizer=optimizer,
+            num_warmup_steps=lr_config['warmup_steps'],
+            num_training_steps=num_training_steps,
+            num_cycles=lr_config['num_cycles'],
+        )
+    elif lr_config['type'] == "cosine":
+        return get_cosine_schedule_with_warmup(
+            optimizer=optimizer,
+            num_warmup_steps=lr_config['warmup_steps'],
+            num_training_steps=num_training_steps,
+            num_cycles=lr_config['num_cycles'],
+        )
+    else:
+        return get_scheduler(
+            name=lr_config['type'],
+            optimizer=optimizer,
+            num_warmup_steps=lr_config['warmup_steps'],
+            num_training_steps=num_training_steps,
+        ) 
