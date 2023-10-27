@@ -44,6 +44,13 @@ def zero_init(layer):
     return layer
 
 
+def xavier_init(module):
+    for p in module.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_normal_(p)
+    return module
+
+
 def checkpoint_helper(function, *args, **kwargs):
     if flags.get_checkpointing():
         kwargs.setdefault("use_reentrant", True)
@@ -304,20 +311,25 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         # TODO: what are these constants in the architecture for the initial codebase?
         self.time_emb = layers.FourierFeatures(1, d_model)
         self.time_in_proj = nn.Linear(d_model, d_model, bias=False)
+        xavier_init(self.time_in_proj)
+
         # self.aug_emb = layers.FourierFeatures(9, d_model)
         # self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
         self.class_emb = nn.Embedding(num_classes, d_model) if num_classes else None
+
         self.mapping = tag_module(
             MappingNetwork(2, d_model, d_ff, dropout=dropout), "mapping"
         )
 
         self.in_proj = nn.Linear(d_model, d_model, bias=False)
+        xavier_init(self.in_proj)
         self.blocks = nn.ModuleList(
             [
                 TransformerBlock(d_model, d_ff, d_head, dropout=dropout)
                 for _ in range(n_layers)
             ]
         )
+        xavier_init(self.blocks)
         self.out_norm = RMSNorm(d_model)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
 
