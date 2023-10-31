@@ -30,71 +30,7 @@ def ensure_distributed():
         dist.init_process_group(world_size=1, rank=0, store=dist.HashStore())
 
 
-def main():
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    p.add_argument('--artifacts-dir', type=str, default='artifacts',
-                   help='where artifacts will be saved. should have subdirectories `checkpoints` and `sampled`.')
-    p.add_argument('--batch-size', type=int, default=64,
-                   help='the batch size')
-    p.add_argument('--checkpointing', action='store_true',
-                   help='enable gradient checkpointing')
-    p.add_argument('--compile', action='store_true',
-                   help='compile the model')
-    p.add_argument('--config', type=str, required=True,
-                   help='the configuration file')
-    p.add_argument('--demo-every', type=int, default=0,
-                   help='save a demo grid every this many steps')
-    p.add_argument('--end-step', type=int, default=None,
-                   help='the step to end training at')
-    p.add_argument('--embedding-n', type=int, help="number of embeddings to save")
-    p.add_argument('--evaluate-every', type=int, default=1000,
-                   help='save a demo grid every this many steps')
-    p.add_argument('--evaluate-with', type=str, default='esmfold_embed',
-                   choices=['esmfold_embed'],
-                   help='the feature extractor to use for evaluation')
-    p.add_argument('--gns', action='store_true',
-                   help='measure the gradient noise scale (DDP only, disables stratified sampling)')
-    p.add_argument('--grad-accum-steps', type=int, default=1,
-                   help='the number of gradient accumulation steps')
-    p.add_argument('--lr', type=float,
-                   help='the learning rate')
-    p.add_argument('--mixed-precision', type=str,
-                   help='the mixed precision type')
-    p.add_argument('--name', type=str, default='model',
-                   help='the name of the run')
-    p.add_argument('--num-workers', type=int, default=8,
-                   help='the number of data loader workers')
-    p.add_argument("--recycling-n", type=int, default=4,
-                   help="the number of recycles to use when applying the frozen structure head")
-    p.add_argument('--reset-ema', action='store_true',
-                   help='reset the EMA')
-    p.add_argument('--resume', type=str,
-                   help='the checkpoint to resume from')
-    p.add_argument('--resume-inference', type=str,
-                   help='the inference checkpoint to resume from')
-    p.add_argument('--sample-n', type=int, default=64,
-                   help='the number of images to sample for demo grids')
-    p.add_argument('--log-every', type=int, default=10)
-    p.add_argument('--save-every', type=int, default=1000,
-                   help='save checkpoint every this many steps')
-    p.add_argument('--seed', type=int,
-                   help='the random seed')
-    p.add_argument('--start-method', type=str, default='spawn',
-                   choices=['fork', 'forkserver', 'spawn'],
-                   help='the multiprocessing start method')
-    p.add_argument('--toy', action='store_true',
-                   help='use a toy dataset')
-    p.add_argument('--wandb-entity', type=str, default="amyxlu",
-                   help='the wandb entity name')
-    p.add_argument('--wandb-group', type=str,
-                   help='the wandb group name')
-    p.add_argument('--wandb-project', type=str,
-                   help='the wandb project name (specify this to enable wandb)')
-    p.add_argument('--wandb-save-model', action='store_true',
-                   help='save model to wandb')
-    args = p.parse_args()
-
+def main(args: K.config.TrainArgs):
     mp.set_start_method(args.start_method)
     torch.backends.cuda.matmul.allow_tf32 = True
     try:
@@ -103,12 +39,12 @@ def main():
         pass
 
     config = K.config.load_config(args.config)
-    model_config = config['model']
-    dataset_config = config['dataset']
-    opt_config = config['optimizer']
-    sched_config = config['lr_sched']
-    ema_sched_config = config['ema_sched']
-    seq_len = model_config['input_size']
+    model_config = config.get('model')
+    dataset_config = config.get('dataset')
+    opt_config = config.get('optimizer')
+    sched_config = config.get('lr_sched')
+    ema_sched_config = config.get('ema_sched')
+    seq_len = model_config.get('input_size')
 
     # ==============================================================================
     # initialize objects and set up distributed training
@@ -140,61 +76,59 @@ def main():
     inner_model, inner_model_ema = accelerator.prepare(inner_model, inner_model_ema)
 
     # If logging to wandb, initialize the run
-    use_wandb = accelerator.is_main_process and args.wandb_project
+    use_wandb = accelerator.is_main_process and not args.debug_mode
     if use_wandb:
         import wandb
-        log_config = vars(args)
+        log_config = K.config.dataclass_to_dict(args)
         log_config['config'] = config
         log_config['parameters'] = num_parameters 
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
         if args.name == 'model':
             args.name = wandb.run.id
-    artifacts_dir = Path(args.artifacts_dir) / args.name
-    checkpoints_dir = artifacts_dir / "checkpoints"
-    sampled_dir = artifacts_dir / "sampled"
+    checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
+    sampled_dir = Path(args.artifacts_dir) / "sampled" / args.name
     project_home_dir = Path(os.environ["KD_PROJECT_HOME"])
 
-    for p in (artifacts_dir, checkpoints_dir, sampled_dir):
+    for p in (checkpoints_dir, sampled_dir):
         if not p.exists():
             p.mkdir(parents=True, exist_ok=True)
 
-    lr = opt_config['lr'] if args.lr is None else args.lr
-    # groups = inner_model.param_groups(lr)
+    # optimizer
+    lr = opt_config.lr
     groups = unwrap(inner_model).param_groups(lr)
-    if opt_config['type'] == 'adamw':
+    if opt_config.type == 'adamw':
         opt = optim.AdamW(groups,
                           lr=lr,
-                          betas=tuple(opt_config['betas']),
-                          eps=opt_config['eps'],
-                          weight_decay=opt_config['weight_decay'])
-    elif opt_config['type'] == 'sgd':
+                          betas=tuple(opt_config.betas),
+                          eps=opt_config.eps,
+                          weight_decay=opt_config.weight_decay)
+    elif opt_config.type == 'sgd':
         opt = optim.SGD(groups,
                         lr=lr,
-                        momentum=opt_config.get('momentum', 0.),
-                        nesterov=opt_config.get('nesterov', False),
-                        weight_decay=opt_config.get('weight_decay', 0.))
+                        momentum=opt_config.momentum,
+                        nesterov=opt_config.nesterov,
+                        weight_decay=opt_config.weight_decay)
     else:
         raise ValueError('Invalid optimizer type')
 
-
-    assert ema_sched_config['type'] == 'inverse'
-    ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
-                                  max_value=ema_sched_config['max_value'])
+    assert ema_sched_config.type == 'inverse'
+    ema_sched = K.utils.EMAWarmup(power=ema_sched_config.power,
+                                  max_value=ema_sched_config.max_value)
     ema_stats = {}
     
     # dataset specification
-    if dataset_config['type'] == "uniref":
+    if dataset_config.type == "uniref":
         from torch.utils.data import random_split
         from evo.dataset import FastaDataset
-        fasta_file = dataset_config['path']
+        fasta_file = dataset_config.path
         if args.toy:
-            fasta_file = dataset_config['toy_data_path']
+            fasta_file = dataset_config.toy_data_path
         
         ds = FastaDataset(fasta_file, cache_indices=True)
-        n_val = int(dataset_config['num_holdout'])
+        n_val = int(dataset_config.num_holdout)
         n_train = len(ds) - n_val  # 153,726,820
         train_set, val_set = random_split(
-            ds, [n_train, n_val], generator=torch.Generator().manual_seed(int(dataset_config['random_split_seed']))
+            ds, [n_train, n_val], generator=torch.Generator().manual_seed(int(dataset_config.random_split_seed))
         )
     else:
         raise ValueError('Invalid dataset type')
@@ -229,14 +163,14 @@ def main():
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
-    sigma_min = model_config['sigma_min']
-    sigma_max = model_config['sigma_max']
+    sigma_min = model_config.sigma_min
+    sigma_max = model_config.sigma_max
     sample_density = K.config.make_sample_density(model_config)
 
     model = K.config.make_denoiser_wrapper(config)(inner_model)
     model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
 
-    state_path = artifacts_dir / 'state.json'
+    state_path = checkpoints_dir / 'state.json'
 
     if state_path.exists() or args.resume:
         if args.resume:
@@ -266,8 +200,8 @@ def main():
 
     if args.reset_ema:
         unwrap(model.inner_model).load_state_dict(unwrap(model_ema.inner_model).state_dict())
-        ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
-                                      max_value=ema_sched_config['max_value'])
+        ema_sched = K.utils.EMAWarmup(power=ema_sched_config.power,
+                                      max_value=ema_sched_config.max_value)
         ema_stats = {}
 
     if args.resume_inference:
@@ -308,8 +242,6 @@ def main():
     # ==============================================================================
     # set up "frechet esmfold distnace" evaluation 
     # ==============================================================================
-    evaluate_enabled = False
-    demo_enabled = False
     if args.evaluate_with == "esmfold_embed":
         extractor = K.evaluation.ESMFoldLatentFeatureExtractor(unwrap(inner_model).esmfold_embedder, device=device)
     else:
@@ -319,47 +251,46 @@ def main():
         cache_location = project_home_dir / "cached_tensors" / "holdout_esmfold_feats.st"
         reals_features = extractor.load_saved_features(cache_location, device="cpu") #, device=device)
 
-    @torch.no_grad()
-    @K.utils.eval_mode(model_ema)
-    def evaluate():
-        if accelerator.is_main_process:
-            tqdm.write('Evaluating...')
-        sigmas = K.sampling.get_sigmas_karras(args.evaluate_n, sigma_min, sigma_max, rho=7., device=device)
+    # @torch.no_grad()
+    # @K.utils.eval_mode(model_ema)
+    # def evaluate():
+    #     if accelerator.is_main_process:
+    #         tqdm.write('Evaluating...')
+    #     sigmas = K.sampling.get_sigmas_karras(args.evaluate_n, sigma_min, sigma_max, rho=7., device=device)
         
-        def sample_fn(n):
-            x = torch.randn([n, seq_len, model_config['d_model']], device=device) * sigma_max
-            model_fn, extra_args = model_ema, {"mask": torch.ones(n, seq_len, device=device).long()}
-            x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=True)
-            del x
+    #     def sample_fn(n):
+    #         x = torch.randn([n, seq_len, model_config['d_model']], device=device) * sigma_max
+    #         model_fn, extra_args = model_ema, {"mask": torch.ones(n, seq_len, device=device).long()}
+    #         x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=True)
+    #         del x
 
-            # 2) Downproject latent space, maybe
-            if model_config['d_model'] != model_config['input_dim']:
-                x_0 = unwrap(model_ema.inner_model).project_to_input_dim(x_0)
+    #         # 2) Downproject latent space, maybe
+    #         if model_config['d_model'] != model_config['input_dim']:
+    #             x_0 = unwrap(model_ema.inner_model).project_to_input_dim(x_0)
 
-            # 1) Normalize, maybe
-            x_0 = K.normalization.undo_scale_embedding(x_0, model_config['normalize_latent_by'])
-            return x_0
+    #         # 1) Normalize, maybe
+    #         x_0 = K.normalization.undo_scale_embedding(x_0, model_config['normalize_latent_by'])
+    #         return x_0
         
-        # fakes_features = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x.mean(dim=1), args.evaluate_n, args.batch_size)
-        sampled = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x, args.evaluate_n, args.batch_size)
-        np.save(artifacts_dir / "sampled" / f"step{step}_sampled.pkl.npy", sampled.cpu().numpy(), allow_pickle=True)
-        fakes_features = sampled.mean(dim=1)
+    #     # fakes_features = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x.mean(dim=1), args.evaluate_n, args.batch_size)
+    #     sampled = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x, args.evaluate_n, args.batch_size)
+    #     np.save(sampled_dir / f"step{step}_sampled.pkl.npy", sampled.cpu().numpy(), allow_pickle=True)
+    #     fakes_features = sampled.mean(dim=1)
 
-        if accelerator.is_main_process:
-            fid = K.evaluation.fid(fakes_features, reals_features.to(device))
-            kid = K.evaluation.kid(fakes_features, reals_features.to(device))
-            print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-            # if accelerator.is_main_process:
-            #     metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
-            if use_wandb:
-                wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
-                # wandb.log({f"generated_embedding_step{step}": wandb.Table(dataframe=pd.DataFrame(fakes_features.cpu().numpy()).sample(args.embedding_n))})
+    #     if accelerator.is_main_process:
+    #         fid = K.evaluation.fid(fakes_features, reals_features.to(device))
+    #         kid = K.evaluation.kid(fakes_features, reals_features.to(device))
+    #         print(f'FID: {fid.item():g}, KID: {kid.item():g}')
+    #         # if accelerator.is_main_process:
+    #         #     metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
+    #         if use_wandb:
+    #             wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
+    #             # wandb.log({f"generated_embedding_step{step}": wandb.Table(dataframe=pd.DataFrame(fakes_features.cpu().numpy()).sample(args.embedding_n))})
 
     # ==============================================================================
     # main train loop 
     # ==============================================================================
     losses_since_last_print = []
-
     try:
         while True:
             for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process, desc="Training"):
@@ -368,10 +299,10 @@ def main():
                     x, mask = unwrap(model.inner_model).embed_from_sequences(sequences)  # (N, L, input_dim=1024)
 
                     # 1) Normalize, maybe
-                    K.normalization.scale_embedding(x, model_config['normalize_latent_by'])
+                    K.normalization.scale_embedding(x, model_config.normalize_latent_by)
 
                     # 2) Downproject latent space, maybe
-                    if model_config['d_model'] != model_config['input_dim']:
+                    if model_config.d_model != model_config.input_dim:
                         x = unwrap(model.inner_model).project_to_d_model(x)  # (N, L, d_model)
                     
                     class_cond, extra_args, N = None, {'mask': mask}, x.shape[0]
@@ -431,14 +362,8 @@ def main():
                             log_dict['gradient_noise_scale'] = gns_stats.get_gns()
                         wandb.log(log_dict, step=step)
 
-                # if demo_enabled and step % args.demo_every == 0:
-                #     demo()
-
                 if step == args.end_step or (step > 0 and step % args.save_every == 0):
                     save()
-
-                if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
-                    evaluate()
 
                 if step == args.end_step:
                     if accelerator.is_main_process:
@@ -452,4 +377,18 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    import tyro
+    from k_diffusion.config import TrainArgs
+    args = tyro.cli(TrainArgs) 
+
+    if args.debug_mode:
+        try:
+            main(args)
+        except:
+            import pdb, sys, traceback
+
+            extype, value, tb = sys.exc_info()
+            traceback.print_exc()
+            pdb.post_mortem(tb)
+    else:
+        main(args)
