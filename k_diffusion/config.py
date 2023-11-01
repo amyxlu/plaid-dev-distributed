@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 
-from dataclasses import dataclass, field, is_dataclass
+from dataclasses import dataclass, field, is_dataclass, make_dataclass
 from typing import Optional, Dict, List
 
 from jsonmerge import merge
@@ -24,6 +24,18 @@ def dataclass_to_dict(obj):
         else:
             outdict[k] = v
     return outdict
+
+
+def dict_to_dataclass(d, cls_name='Config'):
+    fields = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            v = dict_to_dataclass(v, cls_name=DICT_NAME_TO_DATACLASS_NAME.get(k, "UnnamedConfig"))
+        fields[k] = (v, type(v))
+        
+    dataclass = make_dataclass(cls_name, fields.items(), bases=(object,))
+    return dataclass(**d)
+
 
 @dataclass
 class SigmaDensityConfig:
@@ -105,6 +117,7 @@ class TrainArgs:
     checkpointing: bool = False
     compile: bool = False
     config: str = ""
+    debug_mode: bool = True
     demo_every: int = 0
     end_step: Optional[int] = None
     embedding_n: Optional[int] = None
@@ -144,7 +157,7 @@ def round_to_power_of_two(x, tol):
 
 
 def make_model(config: ModelConfig):
-    if config["type"] == "protein_transformer_v1":
+    if config.type == "protein_transformer_v1":
         model = models.ProteinTransformerDenoiserModelV1(
             n_layers=config.n_layers,
             d_model=config.d_model,
@@ -163,12 +176,14 @@ def make_model(config: ModelConfig):
 
 
 def make_denoiser_wrapper(config: ModelConfig):
-    sigma_data = config.get("sigma_data", 1.0)
-    has_variance = config.get("has_variance", False)
-    loss_config = config.get("loss_config", "karras")
+    sigma_data = getattr(config, "sigma_data", 1.0)
+    has_variance = getattr(config, "has_variance", False)
+    loss_config = getattr(config, "loss_config", "karras")
+    
     if loss_config == "karras":
-        weighting = config.get("loss_weighting", "karras")
-        scales = config.get("loss_scales", 1)
+        weighting = getattr(config, "loss_weighting", "karras")
+        scales = getattr(config, "loss_scales", 1)
+        
         if not has_variance:
             return partial(
                 layers.Denoiser,
@@ -177,31 +192,38 @@ def make_denoiser_wrapper(config: ModelConfig):
                 scales=scales,
             )
         return partial(
-            layers.DenoiserWithVariance, sigma_data=sigma_data, weighting=weighting
+            layers.DenoiserWithVariance,
+            sigma_data=sigma_data,
+            weighting=weighting,
         )
+        
     if loss_config == "simple":
         if has_variance:
             raise ValueError("Simple loss config does not support a variance output")
         return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data)
+    
     if loss_config == "vanilla":
         if has_variance:
-            raise ValueError("Simple loss config does not support a variance output")
+            raise ValueError("Vanilla loss config does not support a variance output")
         return partial(layers.SimpleVanilla, sigma_data=sigma_data)
+    
     raise ValueError("Unknown loss config type")
 
 
 def make_sample_density(config: ModelConfig):
     sd_config = config.sigma_sample_density
     sigma_data = config.sigma_data
+    
     if sd_config.type == "lognormal":
-        loc = sd_config.mean if "mean" in sd_config else sd_config.loc
-        scale = sd_config.std if "std" in sd_config else sd_config.scale
+        loc = getattr(sd_config, 'mean', getattr(sd_config, 'loc', None))
+        scale = getattr(sd_config, 'std', getattr(sd_config, 'scale', None))
         return partial(utils.rand_log_normal, loc=loc, scale=scale)
+
     if sd_config.type == "loglogistic":
-        loc = sd_config.loc if "loc" in sd_config else math.log(sigma_data)
-        scale = sd_config.scale if "scale" in sd_config else 0.5
-        min_value = sd_config.min_value if "min_value" in sd_config else 0.0
-        max_value = sd_config.max_value if "max_value" in sd_config else float("inf")
+        loc = getattr(sd_config, 'loc', math.log(sigma_data))
+        scale = getattr(sd_config, 'scale', 0.5)
+        min_value = getattr(sd_config, 'min_value', 0.0)
+        max_value = getattr(sd_config, 'max_value', float("inf"))
         return partial(
             utils.rand_log_logistic,
             loc=loc,
@@ -209,36 +231,36 @@ def make_sample_density(config: ModelConfig):
             min_value=min_value,
             max_value=max_value,
         )
+
     if sd_config.type == "loguniform":
-        min_value = (
-            sd_config.min_value if "min_value" in sd_config else config.sigma_min
-        )
-        max_value = (
-            sd_config.max_value if "max_value" in sd_config else config.sigma_max
-        )
+        min_value = getattr(sd_config, 'min_value', config.sigma_min)
+        max_value = getattr(sd_config, 'max_value', config.sigma_max)
         return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
+
     if sd_config.type in {"v-diffusion", "cosine"}:
-        min_value = sd_config.min_value if "min_value" in sd_config else 1e-3
-        max_value = sd_config.max_value if "max_value" in sd_config else 1e3
+        min_value = getattr(sd_config, 'min_value', 1e-3)
+        max_value = getattr(sd_config, 'max_value', 1e3)
         return partial(
             utils.rand_v_diffusion,
             sigma_data=sigma_data,
             min_value=min_value,
             max_value=max_value,
         )
+
     if sd_config.type == "split-lognormal":
-        loc = sd_config.mean if "mean" in sd_config else sd_config.loc
-        scale_1 = sd_config.std_1 if "std_1" in sd_config else sd_config.scale_1
-        scale_2 = sd_config.std_2 if "std_2" in sd_config else sd_config.scale_2
+        loc = getattr(sd_config, 'mean', getattr(sd_config, 'loc', None))
+        scale_1 = getattr(sd_config, 'std_1', getattr(sd_config, 'scale_1', None))
+        scale_2 = getattr(sd_config, 'std_2', getattr(sd_config, 'scale_2', None))
         return partial(
             utils.rand_split_log_normal, loc=loc, scale_1=scale_1, scale_2=scale_2
         )
+
     if sd_config.type == "cosine-interpolated":
-        min_value = sd_config.get("min_value", min(config.sigma_min, 1e-3))
-        max_value = sd_config.get("max_value", max(config.sigma_max, 1e3))
-        image_d = sd_config.get("image_d", config.input_size)
-        noise_d_low = sd_config.get("noise_d_low", 32)
-        noise_d_high = sd_config.get("noise_d_high", config.input_size)
+        min_value = getattr(sd_config, 'min_value', min(config.sigma_min, 1e-3))
+        max_value = getattr(sd_config, 'max_value', max(config.sigma_max, 1e3))
+        image_d = getattr(sd_config, 'image_d', config.input_size)
+        noise_d_low = getattr(sd_config, 'noise_d_low', 32)
+        noise_d_high = getattr(sd_config, 'noise_d_high', config.input_size)
         return partial(
             utils.rand_cosine_interpolated,
             image_d=image_d,
@@ -274,3 +296,12 @@ def make_lr_sched(lr_config: LRSchedulerConfig, optimizer, num_training_steps: i
             num_warmup_steps=lr_config.warmup_steps,
             num_training_steps=num_training_steps,
         )
+        
+
+DICT_NAME_TO_DATACLASS_NAME = {
+    "model_config": ModelConfig,
+    "dataset_config": DatasetConfig,
+    "opt_config": OptimizerConfig,
+    "sched_config": LRSchedulerConfig,
+    "ema_sched_config": EMASchedulerConfig,
+}

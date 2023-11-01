@@ -38,13 +38,45 @@ def main(args: K.config.TrainArgs):
     except AttributeError:
         pass
 
-    config = K.config.load_config(args.config)
-    model_config = config.get('model')
-    dataset_config = config.get('dataset')
-    opt_config = config.get('optimizer')
-    sched_config = config.get('lr_sched')
-    ema_sched_config = config.get('ema_sched')
-    seq_len = model_config.get('input_size')
+    # ==============================================================================
+    # set up config 
+    # ==============================================================================
+    checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
+    sampled_dir = Path(args.artifacts_dir) / "sampled" / args.name
+    project_home_dir = Path(os.environ["KD_PROJECT_HOME"])
+
+    for p in (checkpoints_dir, sampled_dir):
+        if not p.exists():
+            p.mkdir(parents=True, exist_ok=True)
+
+    state_path = checkpoints_dir / 'state.json'
+    RESUME = state_path.exists() or args.resume
+
+    if RESUME:
+        print(f'Resuming from {ckpt_path}...')
+        if args.resume:
+            ckpt_path = args.resume
+        if not args.resume:
+            state = json.load(open(state_path))
+            ckpt_path = state['latest_checkpoint']
+    
+        ckpt = torch.load(ckpt_path, map_location='cpu')
+        loaded_args = K.config.dataclass_from_dict(ckpt['config'])
+
+        # use currently specified train args, but override other nested configs
+        model_config = loaded_args.model_config
+        dataset_config = loaded_args.dataset_config
+        opt_config = loaded_args.opt_config
+        sched_config = loaded_args.sched_config
+        ema_sched_config = loaded_args.ema_sched_config
+    
+    else:
+        ckpt = None
+        model_config = args.model_config
+        dataset_config = args.dataset_config
+        opt_config = args.opt_config
+        sched_config = args.sched_config
+        ema_sched_config = args.ema_sched_config
 
     # ==============================================================================
     # initialize objects and set up distributed training
@@ -61,7 +93,7 @@ def main(args: K.config.TrainArgs):
         torch.manual_seed(seeds[accelerator.process_index])
     demo_gen = torch.Generator().manual_seed(torch.randint(-2 ** 63, 2 ** 63 - 1, ()).item())
 
-    inner_model = K.config.make_model(config)
+    inner_model = K.config.make_model(model_config)
     inner_model_ema = deepcopy(inner_model)
     num_parameters = K.utils.count_parameters(inner_model, require_grad_only=True)
 
@@ -80,18 +112,10 @@ def main(args: K.config.TrainArgs):
     if use_wandb:
         import wandb
         log_config = K.config.dataclass_to_dict(args)
-        log_config['config'] = config
         log_config['parameters'] = num_parameters 
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
         if args.name == 'model':
             args.name = wandb.run.id
-    checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
-    sampled_dir = Path(args.artifacts_dir) / "sampled" / args.name
-    project_home_dir = Path(os.environ["KD_PROJECT_HOME"])
-
-    for p in (checkpoints_dir, sampled_dir):
-        if not p.exists():
-            p.mkdir(parents=True, exist_ok=True)
 
     # optimizer
     lr = opt_config.lr
@@ -139,9 +163,9 @@ def main(args: K.config.TrainArgs):
         except TypeError:
             pass
 
-    num_classes = dataset_config.get('num_classes', 0)
-    cond_dropout_rate = dataset_config.get('cond_dropout_rate', 0.1)
-    class_key = dataset_config.get('class_key', 1)
+    # num_classes = getattr(dataset_config, 'num_classes', 0)
+    # cond_dropout_rate = getattr(dataset_config, 'cond_dropout_rate', 0.1)
+    # class_key = getattr(dataset_config, 'class_key', 1)
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
@@ -163,24 +187,14 @@ def main(args: K.config.TrainArgs):
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
-    sigma_min = model_config.sigma_min
-    sigma_max = model_config.sigma_max
     sample_density = K.config.make_sample_density(model_config)
 
-    model = K.config.make_denoiser_wrapper(config)(inner_model)
-    model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
+    model = K.config.make_denoiser_wrapper(model_config)(inner_model)
+    model_ema = K.config.make_denoiser_wrapper(model_config)(inner_model_ema)
 
-    state_path = checkpoints_dir / 'state.json'
 
-    if state_path.exists() or args.resume:
-        if args.resume:
-            ckpt_path = args.resume
-        if not args.resume:
-            state = json.load(open(state_path))
-            ckpt_path = state['latest_checkpoint']
-        if accelerator.is_main_process:
-            print(f'Resuming from {ckpt_path}...')
-        ckpt = torch.load(ckpt_path, map_location='cpu')
+    if RESUME:
+        assert not ckpt is None
         unwrap(model.inner_model).load_state_dict(ckpt['model'])
         unwrap(model_ema.inner_model).load_state_dict(ckpt['model_ema'])
         opt.load_state_dict(ckpt['opt'])
@@ -220,7 +234,7 @@ def main(args: K.config.TrainArgs):
         inner_model = unwrap(model.inner_model)
         inner_model_ema = unwrap(model_ema.inner_model)
         obj = {
-            'config': config,
+            'config': K.config.dataclass_to_dict(args),
             'model': inner_model.state_dict(),
             'model_ema': inner_model_ema.state_dict(),
             'opt': opt.state_dict(),
