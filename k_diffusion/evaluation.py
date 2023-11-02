@@ -245,6 +245,7 @@ class RITAPerplexity:
             "lightonai/RITA_xl", trust_remote_code=True
         )
         self.model.to(self.device)
+        self.model.eval().requires_grad_(False)
         self.tokenizer = AutoTokenizer.from_pretrained("lightonai/RITA_xl")
 
     def calc_perplexity(self, sequence):

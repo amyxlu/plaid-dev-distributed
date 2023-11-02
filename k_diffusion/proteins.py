@@ -235,13 +235,11 @@ class LatentToSequence:
 class LatentToStructure:
     def __init__(self, device, esmfold: ESMFold = None):
         self.esmfold = ESMFold(make_lm=False, make_trunk=True) if esmfold is None else esmfold
-        self.esmfold.set_chunk_size(128)
+        self.esmfold.set_chunk_size(64)
         self.esmfold.eval().requires_grad_(False)
         self.esmfold.to(device)
         self.device = device
         assert not self.esmfold.trunk is None
-        for param in self.esmfold.parameters():
-            param.requires_grad = False
 
     @torch.no_grad()
     def to_structure(

@@ -116,9 +116,7 @@ def main(args: K.config.TrainArgs):
         import wandb
         log_config = K.config.dataclass_to_dict(args)
         log_config['parameters'] = num_parameters 
-        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
-        if args.name == 'model':
-            args.name = wandb.run.id
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, id=args.name, save_code=True)
 
     # optimizer
     lr = opt_config.lr
@@ -259,51 +257,18 @@ def main(args: K.config.TrainArgs):
     # ==============================================================================
     # set up "frechet esmfold distnace" evaluation 
     # ==============================================================================
-    if args.evaluate_with == "esmfold_embed":
-        extractor = K.evaluation.ESMFoldLatentFeatureExtractor(unwrap(inner_model).esmfold_embedder, device=device)
-    else:
-        raise ValueError('Invalid evaluation feature extractor')
-    if accelerator.is_main_process:
-        accelerator.print('Loading cached ESMFold features for 50,000 real holdout proteins...')
-        cache_location = project_home_dir / "cached_tensors" / "holdout_esmfold_feats.st"
-        reals_features = extractor.load_saved_features(cache_location, device="cpu") #, device=device)
-
-    # @torch.no_grad()
-    # @K.utils.eval_mode(model_ema)
-    # def evaluate():
-    #     if accelerator.is_main_process:
-    #         tqdm.write('Evaluating...')
-    #     sigmas = K.sampling.get_sigmas_karras(args.evaluate_n, sigma_min, sigma_max, rho=7., device=device)
-        
-    #     def sample_fn(n):
-    #         x = torch.randn([n, seq_len, model_config['d_model']], device=device) * sigma_max
-    #         model_fn, extra_args = model_ema, {"mask": torch.ones(n, seq_len, device=device).long()}
-    #         x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=True)
-    #         del x
-
-    #         # 2) Downproject latent space, maybe
-    #         if model_config['d_model'] != model_config['input_dim']:
-    #             x_0 = unwrap(model_ema.inner_model).project_to_input_dim(x_0)
-
-    #         # 1) Normalize, maybe
-    #         x_0 = K.normalization.undo_scale_embedding(x_0, model_config['normalize_latent_by'])
-    #         return x_0
-        
-    #     # fakes_features = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x.mean(dim=1), args.evaluate_n, args.batch_size)
-    #     sampled = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x, args.evaluate_n, args.batch_size)
-    #     np.save(sampled_dir / f"step{step}_sampled.pkl.npy", sampled.cpu().numpy(), allow_pickle=True)
-    #     fakes_features = sampled.mean(dim=1)
-
-    #     if accelerator.is_main_process:
-    #         fid = K.evaluation.fid(fakes_features, reals_features.to(device))
-    #         kid = K.evaluation.kid(fakes_features, reals_features.to(device))
-    #         print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-    #         # if accelerator.is_main_process:
-    #         #     metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
-    #         if use_wandb:
-    #             wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
-    #             # wandb.log({f"generated_embedding_step{step}": wandb.Table(dataframe=pd.DataFrame(fakes_features.cpu().numpy()).sample(args.embedding_n))})
-
+    # print("Instantiating sampler callback object...")
+    # sample_args = args.sample_config
+    # sample_args.model_id = args.name
+    # sample_args.model_step = step
+    # sampler = K.callback.SampleCallback(
+    #     model=model_ema,
+    #     config=args.sample_config,
+    #     model_config=model_config,
+    #     log_to_wandb=False,
+    # )
+    # sampled_latent = sampler.sample_latent()
+    
     # ==============================================================================
     # main train loop 
     # ==============================================================================
