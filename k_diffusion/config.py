@@ -26,17 +26,6 @@ def dataclass_to_dict(obj):
     return outdict
 
 
-def dict_to_dataclass(d, cls_name='Config'):
-    fields = {}
-    for k, v in d.items():
-        if isinstance(v, dict):
-            v = dict_to_dataclass(v, cls_name=DICT_NAME_TO_DATACLASS_NAME.get(k, "UnnamedConfig"))
-        fields[k] = (v, type(v))
-        
-    dataclass = make_dataclass(cls_name, fields.items(), bases=(object,))
-    return dataclass(**d)
-
-
 @dataclass
 class SigmaDensityConfig:
     type: str = "cosine-interpolated"
@@ -84,7 +73,7 @@ class DatasetConfig:
 @dataclass
 class OptimizerConfig:
     type: str = "adamw"
-    lr: float = 1e-4
+    lr: float = 8e-5
     betas: List[float] = field(default_factory=lambda: [0.9, 0.95])
     eps: float = 1e-8
     weight_decay: float = 1e-4
@@ -117,7 +106,7 @@ class TrainArgs:
     checkpointing: bool = False
     compile: bool = False
     config: str = ""
-    debug_mode: bool = True
+    debug_mode: bool = False 
     demo_every: int = 0
     end_step: Optional[int] = None
     embedding_n: Optional[int] = None
@@ -125,8 +114,9 @@ class TrainArgs:
     evaluate_with: str = "esmfold_embed"
     gns: bool = False
     grad_accum_steps: int = 1
-    mixed_precision: Optional[str] = None
-    name: str = "model"
+    mixed_precision: Optional[str] = "bf16"
+    clip_norm: Optional[float] = 10.0
+    name: str = ""
     num_workers: int = 8
     recycling_n: int = 4
     reset_ema: bool = False

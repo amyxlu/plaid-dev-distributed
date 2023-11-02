@@ -234,8 +234,9 @@ class LatentToSequence:
 
 class LatentToStructure:
     def __init__(self, device, esmfold: ESMFold = None):
-        self.esmfold = ESMFold(make_lm=False, make_trunk=True).eval().requires_grad_(False) if esmfold is None else esmfold
-        self.esmfold = self.esmfold.set_chunk_size(128)
+        self.esmfold = ESMFold(make_lm=False, make_trunk=True) if esmfold is None else esmfold
+        self.esmfold.set_chunk_size(128)
+        self.esmfold.eval().requires_grad_(False)
         self.esmfold.to(device)
         self.device = device
         assert not self.esmfold.trunk is None
@@ -265,7 +266,7 @@ class LatentToStructure:
         for start in trange(0, len(latent), batch_size, desc="(Generating structure from latents..)"):
             torch.cuda.empty_cache()
             # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
-            utils.print_cuda_memory_usage()
+            # utils.print_cuda_memory_usage()
             s_, aa_, mask_, residx_ = tuple(
                 map(
                     lambda x: x[start : start + batch_size],
@@ -283,7 +284,7 @@ class LatentToStructure:
                     mask=mask_,
                     num_recycles=num_recycles,
                 )
-            metrics.append(outputs_to_avg_metric(output))
+            metrics.append(pd.DataFrame(outputs_to_avg_metric(output)))
             all_pdb_strs.extend(output_to_pdb(output))
         metrics = pd.concat(metrics)
         return all_pdb_strs, metrics

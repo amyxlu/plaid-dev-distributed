@@ -7,6 +7,7 @@ from cleanfid.inception_torchscript import InceptionV3W
 import clip
 import torch
 from torch import nn
+import numpy as np
 from torch.nn import functional as F
 from torchvision import transforms
 from tqdm.auto import trange
@@ -27,6 +28,7 @@ class ESMFoldLatentFeatureExtractor(nn.Module):
 
     def load_saved_features(self, location, device="cpu"):
         import safetensors.torch as st
+
         return st.load_file(location)["features"].to(device=device)
 
     def forward(self, sequences: T.List[str], max_len: int = 512, min_len: int = 30):
@@ -136,7 +138,12 @@ def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size):
     feats_all = []
     try:
         for i in trange(
-            0, n_per_proc, batch_size, disable=not accelerator.is_main_process, desc="(Evaluation)", leave=False 
+            0,
+            n_per_proc,
+            batch_size,
+            disable=not accelerator.is_main_process,
+            desc="(Evaluation)",
+            leave=False,
         ):
             cur_batch_size = min(n - i, batch_size)
             samples = sample_fn(cur_batch_size)[:cur_batch_size]
@@ -241,6 +248,7 @@ class RITAPerplexity:
         self.tokenizer = AutoTokenizer.from_pretrained("lightonai/RITA_xl")
 
     def calc_perplexity(self, sequence):
+        """Calculates the perplexity under RITA for a single model"""
         input_ids = torch.tensor(self.tokenizer.encode(sequence)).unsqueeze(0)
         input_ids = input_ids.to(self.device)
         with torch.no_grad():
@@ -248,10 +256,23 @@ class RITAPerplexity:
         loss, logits = outputs[:2]
         return math.exp(loss)
 
-    def batch_calc_perplexity(self, sequences):
-        # todo: https://huggingface.co/transformers/v2.11.0/main_classes/tokenizer.html
-        # need to figure out how huggingface deals with batches
-        return [self.calc_perplexity(seq) for seq in sequences]
+    def batch_eval(self, all_sequences, batch_size: int = None):
+        """ Calculates the average perplexity under RITA for a batch of strings"""
+        if not len(set([len(s) for s in all_sequences])) == 1:
+            raise NotImplementedError("Batched calculation only supports sequences of the same length at the moment.")
+        
+        batch_size = len(all_sequences) if not batch_size else batch_size
+        all_perplexities = []
+        for i in range(0, len(all_sequences), batch_size):
+            sequences = all_sequences[i : i + batch_size]
+            input_ids = self.tokenizer.batch_encode_plus(sequences)['input_ids']
+            input_ids = utils.to_tensor(input_ids, device=self.device)
+            with torch.no_grad():
+                outputs = self.model(input_ids, labels=input_ids)
+            loss, logits = outputs[:2]
+            all_perplexities.append(torch.exp(loss).item())
+        
+        return np.mean(all_perplexities)
 
 
 class ESMPseudoPerplexity:
@@ -288,71 +309,4 @@ class ESMPseudoPerplexity:
                 )
                 perplexities.append(torch.exp(nll).item())
         return perplexities
-
-
-# def reconstruct(
-#     latent,
-#     device,
-#     sequence_reconstructor,
-#     structure_reconstructor,
-#     construct_structure=True,
-#     calc_perplexity=True,
-#     num_recycles=1,
-#     outdir=None,
-# ):
-#     """Bundle sequence and structure reconstruction together.
-#     If outdir is specified, will write to disk, otherwise simply return the results."""
-
-#     sequence_results = {}
-#     latent = latent.to(device)
-#     probs, _, sequences = sequence_reconstructor.to_sequence(latent)
-#     # TODO: truncate and mask if using vocab_23
-
-#     sequence_results = pd.DataFrame(
-#         {
-#             "sequences": sequences,
-#             "mean_residue_confidence": probs.mean(dim=1).cpu().numpy(),
-#             # add additional log-to-disk metrics here
-#         }
-#     )
-
-#     # maybe calculate sequence perplexities -- since RITA takes up memory, this is optional
-#     if calc_perplexity:
-#         perplexity_calculator = perplexity.RITAPerplexity(device)
-#         perplexities = perplexity_calculator.batch_calc_perplexity(sequences)
-#         sequence_results["perplexity"] = utils.npy(perplexities)
-
-#     # make structure generation optional
-#     if construct_structure:
-#         pdbstrs, structure_results = structure_reconstructor.to_structure(
-#             latent, sequences, num_recycles=num_recycles
-#         )
-#         structure_results = pd.DataFrame(structure_results)
-#     else:
-#         pdbstrs = None
-#         structure_results = None
-
-#     # maybe write things to disk
-#     if not outdir is None:
-#         outdir = Path(outdir)
-
-#         # write resulting sequences as a FASTA for downstream OmegaFold, etc.
-#         utils.write_to_fasta(sequences, outdir / "generated_sequences.fasta")
-
-#         # write auxiliary information to disk
-#         sequence_results.to_csv(outdir / "generated_sequences.csv", index=False)
-
-#         if not structure_results is None:
-#             # write individual PDB strings to disk
-#             for i, pdbstr in enumerate(pdbstrs):
-#                 utils.write_pdb_to_disk(
-#                     pdbstr, outdir / "generated_structures" / f"sample_{i}.pdb"
-#                 )
-
-#             # write auxiliary information to disk
-#             structure_results.to_csv(
-#                 outdir / "generated_structures" / "structure_confidence.csv", index=False
-#             )
-
-#     # return for in-program analysis
-#     return sequence_results, structure_results, pdbstrs
+    

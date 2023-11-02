@@ -41,6 +41,9 @@ def main(args: K.config.TrainArgs):
     # ==============================================================================
     # set up config 
     # ==============================================================================
+    if args.name == "":
+        import wandb
+        args.name = wandb.util.generate_id()
     checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
     sampled_dir = Path(args.artifacts_dir) / "sampled" / args.name
     project_home_dir = Path(os.environ["KD_PROJECT_HOME"])
@@ -339,8 +342,11 @@ def main(args: K.config.TrainArgs):
                     if args.gns:
                         sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
                         gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, N, N * accelerator.num_processes)
+                    if args.clip_norm:
+                        accelerator.clip_grad_norm_(model.parameters(), args.clip_norm)
                     if accelerator.sync_gradients:
                         accelerator.clip_grad_norm_(model.parameters(), 1.)
+
                     opt.step()
                     sched.step()
                     opt.zero_grad()

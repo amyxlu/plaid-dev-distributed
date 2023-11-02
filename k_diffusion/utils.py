@@ -571,6 +571,7 @@ def write_to_fasta(sequences, outpath, headers: T.Optional[T.List[str]] = None):
         for i, seq in enumerate(sequences):
             f.write(f">{headers[i]}\n")
             f.write(f"{seq}\n")
+    print(f"Wrote {len(sequences)} sequences to {outpath}.")
 
 
 def load_from_fasta(fpath: PathLike) -> T.List[str]:
