@@ -47,11 +47,12 @@ class ModelConfig:
     d_head: int = 128
     input_size: int = 512
     input_dim: int = 1024
+    skip_connect: bool = False
     min_len: int = 32
     num_classes: int = 0
     dropout: float = 0.0
     loss_config: str = "simple"
-    loss_weighting: str = ""
+    loss_weighting: str = "soft-min-snr"
     dropout_rate: float = 0.05
     augment_prob: float = 0.0
     sigma_data: float = 1.0
@@ -94,12 +95,35 @@ class EMASchedulerConfig:
 
 
 @dataclass
+class SampleCallbackConfig:
+    seq_len: int = 64 
+    solver_type: str = "heun"
+    use_ema: bool = True
+    batch_size: int = 32 
+    n_to_sample: int = 32
+    num_recycles: int = 4
+    sigma_max: float = 1e-2
+    sigma_min: float = 1e3
+    rho: float = 7.0
+    n_steps: int = 15
+    sampling_method: str = "sample_dpmpp_2m_sde"
+    model_id: Optional[str] = None
+    model_step: Optional[int] = None 
+    device_id: int = 0
+    save_to_disk: bool = True
+    log_to_wandb: bool = False
+    calc_perplexity: bool = True
+    base_artifact_dir = "/shared/amyxlu/kdplaid"
+
+
+@dataclass
 class TrainArgs:
     model_config: ModelConfig = field(default_factory=ModelConfig)
     dataset_config: DatasetConfig = field(default_factory=DatasetConfig)
     opt_config: OptimizerConfig = field(default_factory=OptimizerConfig)
     sched_config: LRSchedulerConfig = field(default_factory=LRSchedulerConfig)
     ema_sched_config: EMASchedulerConfig = field(default_factory=EMASchedulerConfig)
+    sample_config: SampleCallbackConfig = field(default_factory=SampleCallbackConfig)
 
     artifacts_dir: str = "/shared/amyxlu/kdplaid"
     batch_size: int = 64
@@ -115,7 +139,7 @@ class TrainArgs:
     gns: bool = False
     grad_accum_steps: int = 1
     mixed_precision: Optional[str] = "bf16"
-    clip_norm: Optional[float] = 10.0
+    clip_norm: Optional[float] = 1.0
     name: str = ""
     num_workers: int = 8
     recycling_n: int = 4
@@ -153,6 +177,7 @@ def make_model(config: ModelConfig):
             d_model=config.d_model,
             d_ff=config.d_ff,
             d_head=config.d_head,
+            skip_connect=getattr(config, "skip_connect", False),
             input_size=config.input_size,
             input_dim=config.input_dim,
             min_len=config.min_len,

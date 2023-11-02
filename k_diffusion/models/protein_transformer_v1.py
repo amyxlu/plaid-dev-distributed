@@ -222,13 +222,16 @@ class FeedForwardBlock(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, d_ff, d_head, dropout=0.0):
+    def __init__(self, d_model, d_ff, d_head, skip=False, dropout=0.0):
         super().__init__()
         self.self_attn = SelfAttentionBlock(d_model, d_head, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, dropout=dropout)
+        self.skip_linear = nn.Linear(d_model * 2, d_model) if skip else None
 
     # def forward(self, x, pos, attn_mask, cond):
-    def forward(self, x, attn_mask, cond):
+    def forward(self, x, attn_mask, cond, skip=None):
+        if self.skip_linear is not None:
+            x = checkpoint_helper(self.skip_linear, torch.cat([x, skip], dim=-1))
         x = checkpoint_helper(self.self_attn, x, attn_mask, cond)
         x = checkpoint_helper(self.ff, x, cond)
         return x
@@ -280,6 +283,7 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         d_model,
         d_ff,
         d_head,
+        skip_connect: bool = False,
         input_size: int = 512,
         input_dim: int = 1024, 
         min_len: int = 32,
@@ -323,13 +327,22 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
 
         self.in_proj = nn.Linear(d_model, d_model, bias=False)
         xavier_init(self.in_proj)
-        self.blocks = nn.ModuleList(
+        self.in_blocks = nn.ModuleList(
             [
-                TransformerBlock(d_model, d_ff, d_head, dropout=dropout)
-                for _ in range(n_layers)
+                TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
+                for _ in range(n_layers // 2)
             ]
         )
-        xavier_init(self.blocks)
+        self.mid_block = TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
+        self.out_blocks = nn.ModuleList(
+            [
+                TransformerBlock(d_model, d_ff, d_head, skip=skip_connect, dropout=dropout)
+                for _ in range(n_layers // 2)
+            ]
+        )
+        xavier_init(self.in_blocks)
+        xavier_init(self.mid_block)
+        xavier_init(self.out_blocks)
         self.out_norm = RMSNorm(d_model)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
 
@@ -399,6 +412,14 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         cond = self.mapping(time_emb + class_emb).unsqueeze(1)
         
         # Transformer
-        for i, block in enumerate(self.blocks):
+        skips = []
+        for i, block in enumerate(self.in_blocks):
             x = block(x, mask, cond)
+            skips.append(x)
+        
+        x = self.mid_block(x, mask, cond)
+
+        for i, block in enumerate(self.out_blocks):
+            x = block(x, mask, cond, skip=skips.pop())
+
         return x
