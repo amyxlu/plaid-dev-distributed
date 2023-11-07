@@ -75,15 +75,15 @@ class DatasetConfig:
 class OptimizerConfig:
     type: str = "adamw"
     lr: float = 8e-5
-    betas: List[float] = field(default_factory=lambda: [0.9, 0.95])
-    eps: float = 1e-8
+    betas: List[float] = field(default_factory=lambda: [0.9, 0.99])
+    eps: float = 1e-6
     weight_decay: float = 1e-4
 
 
 @dataclass
 class LRSchedulerConfig:
     type: str = "cosine"
-    warmup_steps: int = 1000
+    warmup_steps: int = 10000
     num_cycles: float = 0.5
 
 
@@ -96,7 +96,7 @@ class EMASchedulerConfig:
 
 @dataclass
 class SampleCallbackConfig:
-    seq_len: int = 64 
+    seq_len: int = 128 
     solver_type: str = "heun"
     use_ema: bool = True
     batch_size: int = 32 

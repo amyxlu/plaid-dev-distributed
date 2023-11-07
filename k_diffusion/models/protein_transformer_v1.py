@@ -327,22 +327,35 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
 
         self.in_proj = nn.Linear(d_model, d_model, bias=False)
         xavier_init(self.in_proj)
-        self.in_blocks = nn.ModuleList(
-            [
-                TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
-                for _ in range(n_layers // 2)
-            ]
-        )
-        self.mid_block = TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
-        self.out_blocks = nn.ModuleList(
-            [
-                TransformerBlock(d_model, d_ff, d_head, skip=skip_connect, dropout=dropout)
-                for _ in range(n_layers // 2)
-            ]
-        )
-        xavier_init(self.in_blocks)
-        xavier_init(self.mid_block)
-        xavier_init(self.out_blocks)
+
+        if skip_connect:
+            self.in_blocks = nn.ModuleList(
+                [
+                    TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
+                    for _ in range(n_layers // 2)
+                ]
+            )
+            self.mid_block = TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
+            self.out_blocks = nn.ModuleList(
+                [
+                    TransformerBlock(d_model, d_ff, d_head, skip=skip_connect, dropout=dropout)
+                    for _ in range(n_layers // 2)
+                ]
+            )
+            xavier_init(self.in_blocks)
+            xavier_init(self.mid_block)
+            xavier_init(self.out_blocks)
+            self.blocks = None
+        else:
+            # for backwards compatibility w/ checkpoint loading
+            self.blocks = nn.ModuleList(
+                [
+                    TransformerBlock(d_model, d_ff, d_head, skip=False, dropout=dropout)
+                    for _ in range(n_layers)
+                ]
+            )
+            xavier_init(self.blocks)
+            self.in_blocks, self.mid_block, self.out_blocks = None, None, None
         self.out_norm = RMSNorm(d_model)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
 
@@ -412,14 +425,16 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         cond = self.mapping(time_emb + class_emb).unsqueeze(1)
         
         # Transformer
-        skips = []
-        for i, block in enumerate(self.in_blocks):
-            x = block(x, mask, cond)
-            skips.append(x)
-        
-        x = self.mid_block(x, mask, cond)
-
-        for i, block in enumerate(self.out_blocks):
-            x = block(x, mask, cond, skip=skips.pop())
-
-        return x
+        if self.in_blocks is None:
+            for block in self.blocks:
+                x = block(x, mask, cond)
+            return x
+        else:
+            skips = []
+            for i, block in enumerate(self.in_blocks):
+                x = block(x, mask, cond)
+                skips.append(x)
+            x = self.mid_block(x, mask, cond)
+            for i, block in enumerate(self.out_blocks):
+                x = block(x, mask, cond, skip=skips.pop())
+            return x

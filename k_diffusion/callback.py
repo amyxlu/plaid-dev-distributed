@@ -236,7 +236,7 @@ def main(
         model=model,
         config=args,
         model_config=model_config,
-        log_to_wandb=args.log_to_wandb,
+        is_wandb_setup=not args.log_to_wandb,  # skip set up if we're not planning to log to wandb
     )
 
     # sample latent and construct sequences and structures
