@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 
-from dataclasses import dataclass, field, is_dataclass, make_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Optional, Dict, List
 
 from jsonmerge import merge
@@ -25,6 +25,12 @@ def dataclass_to_dict(obj):
             outdict[k] = v
     return outdict
 
+def dataclass_from_dict(dataclass_, d):
+    try:
+        fieldtypes = {f.name: f.type for f in fields(dataclass_)}
+        return dataclass_(**{f: dataclass_from_dict(fieldtypes[f], d[f]) for f in d})
+    except:
+        return d  # Assume that this is a terminal field (e.g., int, str, etc.)
 
 @dataclass
 class SigmaDensityConfig:
@@ -47,7 +53,7 @@ class ModelConfig:
     d_head: int = 128
     input_size: int = 512
     input_dim: int = 1024
-    skip_connect: bool = False
+    skip_connect: bool = True 
     min_len: int = 32
     num_classes: int = 0
     dropout: float = 0.0
@@ -77,7 +83,7 @@ class OptimizerConfig:
     lr: float = 8e-5
     betas: List[float] = field(default_factory=lambda: [0.9, 0.99])
     eps: float = 1e-6
-    weight_decay: float = 1e-4
+    weight_decay: float = 1e-2
 
 
 @dataclass
@@ -140,6 +146,7 @@ class TrainArgs:
     grad_accum_steps: int = 1
     mixed_precision: Optional[str] = "bf16"
     clip_norm: Optional[float] = 1.0
+    clip_value: Optional[float] = None
     name: str = ""
     num_workers: int = 8
     recycling_n: int = 4
@@ -311,12 +318,3 @@ def make_lr_sched(lr_config: LRSchedulerConfig, optimizer, num_training_steps: i
             num_warmup_steps=lr_config.warmup_steps,
             num_training_steps=num_training_steps,
         )
-        
-
-DICT_NAME_TO_DATACLASS_NAME = {
-    "model_config": ModelConfig,
-    "dataset_config": DatasetConfig,
-    "opt_config": OptimizerConfig,
-    "sched_config": LRSchedulerConfig,
-    "ema_sched_config": EMASchedulerConfig,
-}
