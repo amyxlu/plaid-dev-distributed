@@ -107,6 +107,7 @@ class SampleCallbackConfig:
     use_ema: bool = True
     batch_size: int = 32 
     n_to_sample: int = 32
+    n_to_construct: int = -1  # Number of latents to construct as structure/sequence. -1 means all.
     num_recycles: int = 4
     sigma_max: float = 1e-2
     sigma_min: float = 1e3

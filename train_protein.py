@@ -124,7 +124,6 @@ def main(args: K.config.TrainArgs):
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and not debug_mode
     if use_wandb:
-        import wandb
 
         log_config = K.config.dataclass_to_dict(args)
         log_config["parameters"] = num_parameters
@@ -293,21 +292,6 @@ def main(args: K.config.TrainArgs):
             json.dump(state_obj, open(state_path, "w"))
         if args.wandb_save_model and use_wandb:
             wandb.save(filename)
-
-    # ==============================================================================
-    # set up "frechet esmfold distnace" evaluation
-    # ==============================================================================
-    # print("Instantiating sampler callback object...")
-    # sample_args = args.sample_config
-    # sample_args.model_id = args.name
-    # sample_args.model_step = step
-    # sampler = K.callback.SampleCallback(
-    #     model=model_ema,
-    #     config=args.sample_config,
-    #     model_config=model_config,
-    #     log_to_wandb=False,
-    # )
-    # sampled_latent = sampler.sample_latent()
 
     # ==============================================================================
     # main train loop

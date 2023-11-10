@@ -1,4 +1,5 @@
 import typing as T
+import os
 import json
 from pathlib import Path
 import wandb
@@ -45,6 +46,7 @@ class SampleCallback:
         self.is_save_setup = False
         self.is_wandb_setup = is_wandb_setup
         self.is_perplexity_setup = False
+        self.is_fid_setup = False
         self.cur_model_step = config.model_step
         self.model_id = config.model_id
         self.uid = str(K.utils.timestamp())
@@ -113,9 +115,7 @@ class SampleCallback:
 
     def _save_setup(self):
         base_artifact_dir = Path(self.config.base_artifact_dir)
-        self.outdir = (
-            base_artifact_dir / "samples" / self.model_id / self.uid
-        )
+        self.outdir = base_artifact_dir / "samples" / self.model_id / self.uid
         if not self.outdir.exists():
             self.outdir.mkdir(parents=True)
             print("Created directory", self.outdir)
@@ -143,6 +143,38 @@ class SampleCallback:
     def _perplexity_setup(self):
         self.perplexity_calc = K.evaluation.RITAPerplexity(self.device)
         self.is_perplexity_setup = True
+
+    def _fid_setup(self):
+        cached_tensors_path = os.path.join(
+            os.__file__, "../cached_tensors/holdout_esmfold_feats.st"
+        )
+
+        def load_saved_features(self, location, device="cpu"):
+            import safetensors.torch as st
+
+            return st.load_file(location)["features"].to(device=device)
+
+        self.real_features = load_saved_features(
+            cached_tensors_path, device=self.device
+        )
+
+    def calculate_fid(self, sampled_latent, log_to_wandb=False):
+        if not self.is_fid_setup:
+            self._fid_setup()
+        fake_features = sampled_latent.mean(dim=1)
+        # just to be consistent since 50,000 features were saved. Not necessary though
+        indices = torch.randperm(self.real_features.size(0))[: fake_features.shape[0]]
+        real_features = self.real_features[indices]
+
+        assert real_features.ndim == fake_features.ndim == 2
+        fid = K.evaluation.fid(fake_features, real_features)
+        kid = K.evaluation.kid(fake_features, real_features)
+
+        if log_to_wandb:
+            if not self._wandb_setup:
+                self._wandb_setup()
+            wandb.log({"fid": fid, "kid": kid, "step": self.config.model_step})
+        return fid, kid
 
     def construct_sequence(
         self,
@@ -180,8 +212,13 @@ class SampleCallback:
         if log_to_wandb:
             if not self.is_wandb_setup:
                 self._wandb_setup()
-            wandb.log({"sequences": wandb.Table(dataframe=sequence_results)}, step=self.config.model_step)
-            wandb.log({"batch_perplexity": perplexity}, step=self.config.model_step)
+            wandb.log(
+                {
+                    "sequences": wandb.Table(dataframe=sequence_results),
+                    "batch_perplexity": perplexity,
+                    "step": self.config.model_step,
+                }
+            )
         return probs, idxs, strs
 
     def construct_structure(self, x_0, seq_str, save_to_disk=True, log_to_wandb=False):
@@ -257,9 +294,18 @@ def main(
         is_wandb_setup=not config.log_to_wandb,  # skip set up if we're not planning to log to wandb
     )
 
-    # sample latent and construct sequences and structures
+    # sample latent and calculate KID/FID to the saved known distribution
     print("Sampling latent...")
     sampled_latent = sampler.sample_latent()
+
+    print("Calculating FID/KID...")
+    fid, kid = sampler.calculate_fid(sampled_latent, log_to_wandb=config.log_to_wandb)
+
+    # potentially take a smaller subset to decode into structure/sequence and evaluate
+    if not config.n_to_construct == -1:
+        sampled_latent = torch.randperm(sampled_latent.shape[0])[
+            : config.n_to_construct
+        ]
 
     print("Constructing sequences...")
     _, _, strs = sampler.construct_sequence(
