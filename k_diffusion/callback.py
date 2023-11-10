@@ -13,6 +13,7 @@ import pandas as pd
 
 
 # TODO: add other sampling methods
+PROJECT_NAME = "kdplaid_sample"
 
 
 class SampleCallback:
@@ -22,6 +23,7 @@ class SampleCallback:
         config: SampleCallbackConfig,
         model_config: ModelConfig,
         is_wandb_setup: bool = False,
+        device: T.Optional[torch.device] = None,
     ):
         """Callback class that can be evoked as a standalone script or as a callback to a Trainer object.
 
@@ -35,19 +37,23 @@ class SampleCallback:
         self.model = model
         self.config = config
         self.model_config = model_config
-        self.device = torch.device(f"cuda:{config.device_id}")
-        
+        if device is None:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = device
+
         self.is_save_setup = False
         self.is_wandb_setup = is_wandb_setup
         self.is_perplexity_setup = False
         self.cur_model_step = config.model_step
         self.model_id = config.model_id
+        self.uid = str(K.utils.timestamp())
 
         self.sequence_constructor, self.structure_constructor = None, None
 
     def update_cur_step(self, cur_step):
         self.cur_model_step = cur_step
-        
+
     def update_model_id(self, model_id):
         self.model_id = model_id
 
@@ -67,7 +73,7 @@ class SampleCallback:
         )
 
         if cfg.sampling_method == "sample_dpmpp_2m_sde":
-            x_0 = K.sampling.sample_dpmpp_2m_sde(
+            x_0_raw = K.sampling.sample_dpmpp_2m_sde(
                 model_fn,
                 x,
                 sigmas,
@@ -81,52 +87,57 @@ class SampleCallback:
 
         # 2) Downproject latent space, maybe
         if self.model_config.d_model != self.model_config.input_dim:
-            x_0 = self.model.inner_model.project_to_input_dim(x_0)
+            x_0 = self.model.inner_model.project_to_input_dim(x_0_raw)
 
         # 1) Normalize, maybe
         x_0 = K.normalization.undo_scale_embedding(
             x_0, self.model_config.normalize_latent_by
         )
-        return x_0
+        return x_0, x_0_raw
 
     def sample_latent(self, save=True):
-        all_samples, n_samples = [], 0
+        all_samples, all_raw_samples, n_samples = [], [], 0
         while n_samples < self.config.n_to_sample:
-            sampled = self.batch_sample_fn(self.config.batch_size)
-            all_samples.append(sampled.detach().cpu())
-            n_samples += sampled.shape[0]
+            sample, raw_sample = self.batch_sample_fn(self.config.batch_size)
+            all_samples.append(sample.detach().cpu())
+            all_raw_samples.append(raw_sample.detach().cpu())
+            n_samples += sample.shape[0]
         x_0 = torch.cat(all_samples, dim=0)
+        x_0_raw = torch.cat(all_raw_samples, dim=0)
         if save:
             if not self.is_save_setup:
                 self._save_setup()
             torch.save(x_0, self.outdir / "samples.pth")
+            torch.save(x_0_raw, self.outdir / "samples_raw.pth")
         return x_0
 
     def _save_setup(self):
         base_artifact_dir = Path(self.config.base_artifact_dir)
         self.outdir = (
-            base_artifact_dir
-            / "samples"
-            / self.model_id
-            / str(K.utils.timestamp())
+            base_artifact_dir / "samples" / self.model_id / self.uid
         )
         if not self.outdir.exists():
             self.outdir.mkdir(parents=True)
             print("Created directory", self.outdir)
-        json.dump(
-            K.config.dataclass_to_dict(self.config),
-            open(self.outdir / "config.json", "w"),
-        )
+
+        args_dict = (K.config.dataclass_to_dict(self.config),)
+        with open(self.outdir / "config.json", "w") as f:
+            f.write(json.dumps(args_dict))
         self.is_save_setup = True
 
     def _wandb_setup(self):
         print(f"Setting up wandb logging for model {self.model_id}...")
-        wandb.init(
-            id=self.model_id, resume="allow", project="kdplaid", entity="amyxlu"
-        )
         config = K.config.dataclass_to_dict(self.config)
+        wandb.init(
+            id=self.uid,
+            name=self.model_id,
+            project=PROJECT_NAME,
+            entity="amyxlu",
+            config=config,
+            # resume="allow",
+        )
         # config.pop("model_config")
-        wandb.config.update(config)
+        # wandb.config.update(config)
         self.is_wandb_setup = True
 
     def _perplexity_setup(self):
@@ -141,7 +152,9 @@ class SampleCallback:
         log_to_wandb: bool = False,
     ):
         if self.sequence_constructor is None:
-            self.sequence_constructor = K.proteins.LatentToSequence(device=self.device)
+            self.sequence_constructor = K.proteins.LatentToSequence(
+                device=self.device, temperature=self.config.sequence_decode_temperature
+            )
 
         probs, idxs, strs = self.sequence_constructor.to_sequence(x_0)
         sequence_results = pd.DataFrame(
@@ -156,18 +169,18 @@ class SampleCallback:
                 self._perplexity_setup()
             perplexity = self.perplexity_calc.batch_eval(strs)
             print(f"Perplexity: {perplexity:.3f}")
-            
+
         if save_to_disk:
             if not self.is_save_setup:
                 self._save_setup()
             K.utils.write_to_fasta(strs, self.outdir / "sequences.fasta")
             with open(self.outdir / "batch_perplexity.txt", "w") as f:
                 f.write(f"{perplexity:.3f}")
-        
+
         if log_to_wandb:
             if not self.is_wandb_setup:
                 self._wandb_setup()
-            # wandb.log({"sequences": wandb.Table(dataframe=sequence_results)})
+            wandb.log({"sequences": wandb.Table(dataframe=sequence_results)}, step=self.config.model_step)
             wandb.log({"batch_perplexity": perplexity}, step=self.config.model_step)
         return probs, idxs, strs
 
@@ -190,53 +203,58 @@ class SampleCallback:
             metrics.to_csv(self.outdir / "structure_metrics.csv")
 
         if log_to_wandb:
-            wandb.log({
-                "plddt_mean": metrics["plddt"].mean(),
-                "plddt_std": metrics["plddt"].std(),
-                "plddt_min": metrics["plddt"].min(),
-                "plddt_max": metrics["plddt"].max(),
-            })
+            wandb.log(
+                {
+                    "plddt_mean": metrics["plddt"].mean(),
+                    "plddt_std": metrics["plddt"].std(),
+                    "plddt_min": metrics["plddt"].min(),
+                    "plddt_max": metrics["plddt"].max(),
+                    "step": self.config.model_step,
+                }
+            )
         return pdb_strs, metrics
 
 
 def main(
-    args: SampleCallbackConfig,
+    config: SampleCallbackConfig,
 ):
     # Load checkpoint from model_id and step
-    base_artifact_dir = Path(args.base_artifact_dir)
-    if not args.model_step:
-        assert not args.model_id is None
-        state_path = base_artifact_dir / "checkpoints" / args.model_id / "state.json"
+    base_artifact_dir = Path(config.base_artifact_dir)
+    if not config.model_step:
+        assert not config.model_id is None
+        state_path = base_artifact_dir / "checkpoints" / config.model_id / "state.json"
         state = json.load(open(state_path))
         filename = state["latest_checkpoint"]
-        args.model_step = int(state['latest_checkpoint'].split('/')[-1].split('.')[0])
+        config.model_step = int(state["latest_checkpoint"].split("/")[-1].split(".")[0])
     else:
         filename = str(
             base_artifact_dir
             / "checkpoints"
-            / args.model_id
-            / f"{args.model_step:08}.pth"
+            / config.model_id
+            / f"{config.model_step:08}.pth"
         )
 
     print("Loading checkpoint from", filename)
     ckpt = torch.load(filename, map_location="cpu")
     model_config = K.config.ModelConfig(**ckpt["config"]["model_config"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    inner_model = K.config.make_model(model_config).eval().requires_grad_(False).to(device)
-    if args.use_ema:
-        inner_model.load_state_dict(ckpt['model_ema'])
+
+    inner_model = (
+        K.config.make_model(model_config).eval().requires_grad_(False).to(device)
+    )
+    if config.use_ema:
+        inner_model.load_state_dict(ckpt["model_ema"])
     else:
-        inner_model.load_state_dict(ckpt['model'])
+        inner_model.load_state_dict(ckpt["model"])
     model = K.config.make_denoiser_wrapper(model_config)(inner_model)
 
     # instantiate sampler object
     print("Instantiating sampler callback object...")
     sampler = SampleCallback(
         model=model,
-        config=args,
+        config=config,
         model_config=model_config,
-        is_wandb_setup=not args.log_to_wandb,  # skip set up if we're not planning to log to wandb
+        is_wandb_setup=not config.log_to_wandb,  # skip set up if we're not planning to log to wandb
     )
 
     # sample latent and construct sequences and structures
@@ -246,22 +264,26 @@ def main(
     print("Constructing sequences...")
     _, _, strs = sampler.construct_sequence(
         sampled_latent,
-        calc_perplexity=args.calc_perplexity,
-        save_to_disk=args.save_to_disk,
-        log_to_wandb=args.log_to_wandb,
+        calc_perplexity=config.calc_perplexity,
+        save_to_disk=config.save_to_disk,
+        log_to_wandb=config.log_to_wandb,
     )
 
     print("Constructing structures...")
     pdb_strs, metrics = sampler.construct_structure(
-        sampled_latent, strs, save_to_disk=args.save_to_disk, log_to_wandb=args.log_to_wandb
+        sampled_latent,
+        strs,
+        save_to_disk=config.save_to_disk,
+        log_to_wandb=config.log_to_wandb,
     )
 
 
 if __name__ == "__main__":
     import tyro
-    args = tyro.cli(SampleCallbackConfig)
+
+    config = tyro.cli(SampleCallbackConfig)
     try:
-        main(args)
+        main(config)
     except:
         import pdb, sys, traceback
 

@@ -202,7 +202,8 @@ def outputs_to_avg_metric(outputs):
 
 
 class LatentToSequence:
-    def __init__(self, device):
+    def __init__(self, device, temperature: float = 1.0):
+        self.temperature = temperature
         self.device = device
         self.tokenizer = DecoderTokenizer("vocab_21")
         self.decoder = load_sequence_decoder(device=device).eval().requires_grad_(False)
@@ -220,15 +221,24 @@ class LatentToSequence:
             index=torch.arange(sequence_logits.shape[-1], device=self.device)[_mask]
         )
 
-        # get argmax inde and convert to string
-        sequence_idx = sequence_logits.argmax(-1)
+        # adjust by temperature
+        sequence_logits /= self.temperature
+
+        # get the argmax index & compare it to the actual sample, to get a sense as to how temperature affects diversity
+        argmax_idx = sequence_logits.argmax(-1)
+        sequence_idx = argmax_idx
+        dist = torch.distributions.OneHotCategorical(logits=sequence_logits)
+        sequence_idx = dist.sample().argmax(-1)
+        stochasticity = (argmax_idx == sequence_idx).sum() / (argmax_idx.shape[0] * argmax_idx.shape[1])
+        print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
+            
         sequence_str = [
             self.tokenizer.aatype_to_str_sequence(s)
             for s in sequence_idx.long().cpu().numpy()
         ]
         # softmax to probabilities, and only grab that for the argmax index
         sequence_probs = F.softmax(sequence_logits, dim=-1)
-        sequence_probs = torch.gather(sequence_probs, dim=-1, index=sequence_idx.unsqueeze(-1)).squeeze(-1)
+        sequence_probs = torch.gather(sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)).squeeze(-1)
         return sequence_probs, sequence_idx, sequence_str
 
 
@@ -291,9 +301,9 @@ if __name__ == "__main__":
     import torch
     from k_diffusion.proteins import LatentToSequence, LatentToStructure
     device = torch.device("cuda:3")
-    sequence_constructor = LatentToSequence(device)
+    sequence_constructor = LatentToSequence(device, strategy="onehot_categorical")
     structure_constructor = LatentToStructure(device)
     latent = torch.randn(16, 128, 1024).to(device)
     _, _, strs = sequence_constructor.to_sequence(latent)    
-    structure_constructor.to_structure(latent, strs)
+    # structure_constructor.to_structure(latent, strs)
 

@@ -21,6 +21,7 @@ from torch.utils import data
 from tqdm.auto import tqdm, trange
 import pandas as pd
 import numpy as np
+import wandb
 
 import k_diffusion as K
 
@@ -43,16 +44,12 @@ def main(args: K.config.TrainArgs):
     # ==============================================================================
     debug_mode = args.debug_mode
     if args.name == "":
-        import wandb
-
         args.name = wandb.util.generate_id()
+    
     checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
-    sampled_dir = Path(args.artifacts_dir) / "sampled" / args.name
-
-    for p in (checkpoints_dir, sampled_dir):
-        if not p.exists():
-            p.mkdir(parents=True, exist_ok=True)
-
+    ckpt = None
+    if not checkpoints_dir.exists():
+        checkpoints_dir.mkdir(parents=True, exist_ok=True)
     state_path = checkpoints_dir / "state.json"
     RESUME = state_path.exists() or args.resume
 
@@ -65,9 +62,18 @@ def main(args: K.config.TrainArgs):
 
         print(f"Resuming from {ckpt_path}...")
         ckpt = torch.load(ckpt_path, map_location="cpu")
+
+        # load the previous config for consistency.
+        # if a JSON config is saved, use it -- allows us to hack configs but use past checkpoints
+        if (checkpoints_dir / "config.json").exists():
+            argsdict = json.load(open(checkpoints_dir / "config.json"))
+            args = K.config.dataclass_from_dict(K.config.TrainArgs, argsdict) 
         args = K.config.dataclass_from_dict(K.config.TrainArgs, ckpt["config"])
-    else:
-        ckpt = None
+    
+    # save the config if it isn't already done
+    config_path = checkpoints_dir / "config.json"
+    if not config_path.exists():
+        json.dump(K.config.dataclass_to_dict(args), open(config_path, "w"), indent=4)
 
     model_config = args.model_config
     dataset_config = args.dataset_config
@@ -404,6 +410,7 @@ def main(args: K.config.TrainArgs):
                     if use_wandb:
                         log_dict = {
                             "epoch": epoch,
+                            "step": step,
                             "loss": loss,
                             "lr": sched.get_last_lr()[0],
                             "ema_decay": ema_decay,
@@ -412,7 +419,7 @@ def main(args: K.config.TrainArgs):
                         }
                         if args.gns:
                             log_dict["gradient_noise_scale"] = gns_stats.get_gns()
-                        wandb.log(log_dict, step=step)
+                        wandb.log(log_dict)
 
                 if step == args.end_step or (step > 0 and step % args.save_every == 0):
                     save()

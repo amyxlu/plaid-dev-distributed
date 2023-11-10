@@ -119,7 +119,8 @@ class SampleCallbackConfig:
     save_to_disk: bool = True
     log_to_wandb: bool = False
     calc_perplexity: bool = True
-    base_artifact_dir = "/shared/amyxlu/kdplaid"
+    base_artifact_dir: str = "/shared/amyxlu/kdplaid"
+    sequence_decode_temperature: float = 1.0
 
 
 @dataclass
@@ -155,7 +156,7 @@ class TrainArgs:
     resume_inference: Optional[str] = None
     sample_n: int = 64
     log_every: int = 10
-    save_every: int = 10000
+    save_every: int = 5000
     seed: Optional[int] = None
     start_method: str = "spawn"
     toy: bool = False

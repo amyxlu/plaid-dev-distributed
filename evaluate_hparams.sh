@@ -1,3 +1,3 @@
-for model_id in "7t63xkvs" "7m86038f" "tqv1s5ce" "yqwdco11"; do
-    CUDA_VISIBLE_DEVICES=6 python sampling_callback.py --model-id $model_id
+for model_id in "6rpppdho" "39jxzyw2" "62cuu4lk" "vb0h6q5w"; do
+    CUDA_VISIBLE_DEVICES=6 python sampling_callback.py --model-id $model_id --log-to-wandb --n-steps 15 --sequence-decode-strategy "onehot_categorical"
 done 
