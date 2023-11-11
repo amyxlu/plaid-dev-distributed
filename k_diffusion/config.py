@@ -1,29 +1,43 @@
 from functools import partial
-import json
+import enum
 import math
-from pathlib import Path
 
 from dataclasses import dataclass, field, fields, is_dataclass
-from typing import Optional, Dict, List
+from typing import Optional, List
 
-from jsonmerge import merge
 from transformers import (
     get_scheduler,
     get_cosine_schedule_with_warmup,
     get_cosine_with_hard_restarts_schedule_with_warmup,
 )
 
-from . import augmentation, layers, models, utils
+from . import layers, models, utils, external
+from .sampling import (
+    sample_euler,
+    sample_euler_ancestral,
+    sample_heun,
+    sample_dpm_2,
+    sample_dpm_2_ancestral,
+    sample_lms,
+    sample_dpm_fast,
+    # sample_dpm_adaptive,
+    sample_dpmpp_2s_ancestral,
+    sample_dpmpp_sde,
+    sample_dpmpp_2m,
+    sample_dpmpp_2m_sde,
+    sample_dpmpp_3m_sde,
+)
 
 
 def dataclass_to_dict(obj):
     outdict = {}
-    for k, v in obj.__dict__.items(): 
+    for k, v in obj.__dict__.items():
         if is_dataclass(v):
             outdict[k] = dataclass_to_dict(v)
         else:
             outdict[k] = v
     return outdict
+
 
 def dataclass_from_dict(dataclass_, d):
     try:
@@ -31,6 +45,23 @@ def dataclass_from_dict(dataclass_, d):
         return dataclass_(**{f: dataclass_from_dict(fieldtypes[f], d[f]) for f in d})
     except:
         return d  # Assume that this is a terminal field (e.g., int, str, etc.)
+
+
+class SampleSolverType(str, enum.Enum):
+    EULER = "euler" 
+    EULER_ANCESTRAL = "euler_ancestral" 
+    HEUN = "heun" 
+    DPM_2 = "dpm_2"
+    DPM_2_ANCESTRAL = "dpm_2_ancestral" 
+    LMS = "lms" 
+    DPM_FAST = "dpm_fast"
+    DPM_ADAPTIVE = "dpm_adaptive" 
+    DPMPP_2S_ANCESTRAL = "dpmpp_2s_ancestral" 
+    DPMPP_SDE = "dpmpp_sde" 
+    DPMPP_2M = "dpmpp_2m" 
+    DPMPP_2M_SDE = "dpmpp_2m_sde" 
+    DPMPP_3M_SDE = "dpmpp_3m_sde" 
+
 
 @dataclass
 class SigmaDensityConfig:
@@ -53,7 +84,7 @@ class ModelConfig:
     d_head: int = 128
     input_size: int = 512
     input_dim: int = 1024
-    skip_connect: bool = True 
+    skip_connect: bool = True
     min_len: int = 32
     num_classes: int = 0
     dropout: float = 0.0
@@ -102,26 +133,26 @@ class EMASchedulerConfig:
 
 @dataclass
 class SampleCallbackConfig:
-    seq_len: int = 128 
-    solver_type: str = "heun"
+    solver_type: SampleSolverType = SampleSolverType.DPMPP_2M_SDE
+    seq_len: int = 128
     use_ema: bool = True
-    batch_size: int = 32 
+    batch_size: int = 32
     n_to_sample: int = 32
-    n_to_construct: int = -1  # Number of latents to construct as structure/sequence. -1 means all.
+    n_to_construct: int = -1
     num_recycles: int = 4
     sigma_max: float = 1e-2
     sigma_min: float = 1e3
     rho: float = 7.0
     n_steps: int = 15
-    sampling_method: str = "sample_dpmpp_2m_sde"
     model_id: Optional[str] = None
-    model_step: Optional[int] = None 
+    model_step: Optional[int] = None
     device_id: int = 0
     save_to_disk: bool = True
     log_to_wandb: bool = False
     calc_perplexity: bool = True
     base_artifact_dir: str = "/shared/amyxlu/kdplaid"
     sequence_decode_temperature: float = 1.0
+    calc_fid: bool = False
 
 
 @dataclass
@@ -138,7 +169,7 @@ class TrainArgs:
     checkpointing: bool = False
     compile: bool = False
     config: str = ""
-    debug_mode: bool = False 
+    debug_mode: bool = False
     demo_every: int = 0
     end_step: Optional[int] = None
     embedding_n: Optional[int] = None
@@ -203,11 +234,11 @@ def make_denoiser_wrapper(config: ModelConfig):
     sigma_data = getattr(config, "sigma_data", 1.0)
     has_variance = getattr(config, "has_variance", False)
     loss_config = getattr(config, "loss_config", "karras")
-    
+
     if loss_config == "karras":
         weighting = getattr(config, "loss_weighting", "karras")
         scales = getattr(config, "loss_scales", 1)
-        
+
         if not has_variance:
             return partial(
                 layers.Denoiser,
@@ -220,16 +251,22 @@ def make_denoiser_wrapper(config: ModelConfig):
             sigma_data=sigma_data,
             weighting=weighting,
         )
-        
+
     if loss_config == "simple":
         if has_variance:
             raise ValueError("Simple loss config does not support a variance output")
         return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data)
-    
+
     if loss_config == "vanilla":
         if has_variance:
             raise ValueError("Vanilla loss config does not support a variance output")
         return partial(layers.SimpleVanilla, sigma_data=sigma_data)
+
+    # if loss_config == "vdiffusion":
+    #     return external.VDenoiser
+
+    # if loss_config == "openai":
+    #     return external.OpenAIDenoiser
     
     raise ValueError("Unknown loss config type")
 
@@ -237,17 +274,17 @@ def make_denoiser_wrapper(config: ModelConfig):
 def make_sample_density(config: ModelConfig):
     sd_config = config.sigma_sample_density
     sigma_data = config.sigma_data
-    
+
     if sd_config.type == "lognormal":
-        loc = getattr(sd_config, 'mean', getattr(sd_config, 'loc', None))
-        scale = getattr(sd_config, 'std', getattr(sd_config, 'scale', None))
+        loc = getattr(sd_config, "mean", getattr(sd_config, "loc", None))
+        scale = getattr(sd_config, "std", getattr(sd_config, "scale", None))
         return partial(utils.rand_log_normal, loc=loc, scale=scale)
 
     if sd_config.type == "loglogistic":
-        loc = getattr(sd_config, 'loc', math.log(sigma_data))
-        scale = getattr(sd_config, 'scale', 0.5)
-        min_value = getattr(sd_config, 'min_value', 0.0)
-        max_value = getattr(sd_config, 'max_value', float("inf"))
+        loc = getattr(sd_config, "loc", math.log(sigma_data))
+        scale = getattr(sd_config, "scale", 0.5)
+        min_value = getattr(sd_config, "min_value", 0.0)
+        max_value = getattr(sd_config, "max_value", float("inf"))
         return partial(
             utils.rand_log_logistic,
             loc=loc,
@@ -257,13 +294,13 @@ def make_sample_density(config: ModelConfig):
         )
 
     if sd_config.type == "loguniform":
-        min_value = getattr(sd_config, 'min_value', config.sigma_min)
-        max_value = getattr(sd_config, 'max_value', config.sigma_max)
+        min_value = getattr(sd_config, "min_value", config.sigma_min)
+        max_value = getattr(sd_config, "max_value", config.sigma_max)
         return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
 
     if sd_config.type in {"v-diffusion", "cosine"}:
-        min_value = getattr(sd_config, 'min_value', 1e-3)
-        max_value = getattr(sd_config, 'max_value', 1e3)
+        min_value = getattr(sd_config, "min_value", 1e-3)
+        max_value = getattr(sd_config, "max_value", 1e3)
         return partial(
             utils.rand_v_diffusion,
             sigma_data=sigma_data,
@@ -272,19 +309,19 @@ def make_sample_density(config: ModelConfig):
         )
 
     if sd_config.type == "split-lognormal":
-        loc = getattr(sd_config, 'mean', getattr(sd_config, 'loc', None))
-        scale_1 = getattr(sd_config, 'std_1', getattr(sd_config, 'scale_1', None))
-        scale_2 = getattr(sd_config, 'std_2', getattr(sd_config, 'scale_2', None))
+        loc = getattr(sd_config, "mean", getattr(sd_config, "loc", None))
+        scale_1 = getattr(sd_config, "std_1", getattr(sd_config, "scale_1", None))
+        scale_2 = getattr(sd_config, "std_2", getattr(sd_config, "scale_2", None))
         return partial(
             utils.rand_split_log_normal, loc=loc, scale_1=scale_1, scale_2=scale_2
         )
 
     if sd_config.type == "cosine-interpolated":
-        min_value = getattr(sd_config, 'min_value', min(config.sigma_min, 1e-3))
-        max_value = getattr(sd_config, 'max_value', max(config.sigma_max, 1e3))
-        image_d = getattr(sd_config, 'image_d', config.input_size)
-        noise_d_low = getattr(sd_config, 'noise_d_low', 32)
-        noise_d_high = getattr(sd_config, 'noise_d_high', config.input_size)
+        min_value = getattr(sd_config, "min_value", min(config.sigma_min, 1e-3))
+        max_value = getattr(sd_config, "max_value", max(config.sigma_max, 1e3))
+        image_d = getattr(sd_config, "image_d", config.input_size)
+        noise_d_low = getattr(sd_config, "noise_d_low", 32)
+        noise_d_high = getattr(sd_config, "noise_d_high", config.input_size)
         return partial(
             utils.rand_cosine_interpolated,
             image_d=image_d,
@@ -320,3 +357,34 @@ def make_lr_sched(lr_config: LRSchedulerConfig, optimizer, num_training_steps: i
             num_warmup_steps=lr_config.warmup_steps,
             num_training_steps=num_training_steps,
         )
+
+
+def make_sample_solver_fn(solver_type: SampleSolverType):
+    if solver_type == SampleSolverType.EULER:
+        return sample_euler
+    elif solver_type == SampleSolverType.EULER_ANCESTRAL:
+        return sample_euler_ancestral
+    elif solver_type == SampleSolverType.HEUN:
+        return sample_heun
+    elif solver_type == SampleSolverType.DPM_2:
+        return sample_dpm_2
+    elif solver_type == SampleSolverType.DPM_2_ANCESTRAL:
+        return sample_dpm_2_ancestral
+    elif solver_type == SampleSolverType.LMS:
+        return sample_lms
+    elif solver_type == SampleSolverType.DPM_FAST:
+        return sample_dpm_fast
+    elif solver_type == SampleSolverType.DPM_ADAPTIVE:
+        raise NotImplementedError("TODO: implement argument passing for adaptive DPM with sigma_min and sigma_max instead of fixed sigmas.")
+    elif solver_type == SampleSolverType.DPMPP_2S_ANCESTRAL:
+        return sample_dpmpp_2s_ancestral
+    elif solver_type == SampleSolverType.DPMPP_SDE:
+        return sample_dpmpp_sde
+    elif solver_type == SampleSolverType.DPMPP_2M:
+        return sample_dpmpp_2m
+    elif solver_type == SampleSolverType.DPMPP_2M_SDE:
+        return sample_dpmpp_2m_sde
+    elif solver_type == SampleSolverType.DPMPP_3M_SDE:
+        return sample_dpmpp_3m_sde
+    else:
+        raise ValueError(f"Unknown solver type")
