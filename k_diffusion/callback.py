@@ -99,17 +99,25 @@ class SampleCallback:
 
         print("Sampled latent mean:", x_0.mean(), "std:", x_0.std())
         print("Raw sampled latent mean:", x_0_raw.mean(), "std:", x_0_raw.std())
-        
+
         if save:
             if not self.is_save_setup:
                 self._save_setup()
             torch.save(x_0, self.outdir / "samples.pth")
             torch.save(x_0_raw, self.outdir / "samples_raw.pth")
-        
+
         if log_wandb_stats:
             if not self.is_wandb_setup:
                 self._wandb_setup()
-            wandb.log({"sampled_latent_mean": x_0.mean(), "sampled_latent_std": x_0.std(), "step": self.config.model_step})
+            wandb.log(
+                {
+                    "sampled_latent_mean": x_0.mean(),
+                    "sampled_latent_std": x_0.std(),
+                    "raw_sampled_latent_mean": x_0_raw.mean(),
+                    "raw_sampled_latent_std": x_0_raw.std(),
+                    "step": self.config.model_step,
+                }
+            )
         return x_0
 
     def _save_setup(self):
@@ -144,12 +152,17 @@ class SampleCallback:
         self.is_perplexity_setup = True
 
     def _fid_setup(self):
-        cached_tensors_path = Path(os.environ['KD_PROJECT_HOME']) / "cached_tensors/holdout_esmfold_feats.st"
+        cached_tensors_path = (
+            Path(os.environ["KD_PROJECT_HOME"])
+            / "cached_tensors/holdout_esmfold_feats.st"
+        )
 
         def load_saved_features(location, device="cpu"):
             return st.load_file(location)["features"].to(device=device)
 
-        self.real_features = load_saved_features(cached_tensors_path, device=self.device)
+        self.real_features = load_saved_features(
+            cached_tensors_path, device=self.device
+        )
 
     def calculate_fid(self, sampled_latent, log_to_wandb=False):
         if not self.is_fid_setup:
@@ -293,15 +306,22 @@ def main(
 
     # sample latent and calculate KID/FID to the saved known distribution
     print("Sampling latent...")
-    sampled_latent = sampler.sample_latent(save=True, log_wandb_stats=config.log_to_wandb)
+    sampled_latent = sampler.sample_latent(
+        save=True, log_wandb_stats=config.log_to_wandb
+    )
 
     if config.calc_fid:
         print("Calculating FID/KID...")
-        fid, kid = sampler.calculate_fid(sampled_latent, log_to_wandb=config.log_to_wandb)
+        fid, kid = sampler.calculate_fid(
+            sampled_latent, log_to_wandb=config.log_to_wandb
+        )
+        print("FID:", fid, "KID:", kid)
 
     # potentially take a smaller subset to decode into structure/sequence and evaluate
     if not config.n_to_construct == -1:
-        sampled_latent = sampled_latent[torch.randperm(sampled_latent.shape[0])][:config.n_to_construct]
+        sampled_latent = sampled_latent[torch.randperm(sampled_latent.shape[0])][
+            : config.n_to_construct
+        ]
 
     print("Constructing sequences...")
     _, _, strs = sampler.construct_sequence(
