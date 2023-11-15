@@ -45,9 +45,11 @@ def freq_weight_nd(shape, scales=0, dtype=None, device=None):
 class Denoiser(nn.Module):
     """A Karras et al. preconditioner for denoising diffusion models."""
 
-    def __init__(self, inner_model, sigma_data=1., weighting='karras', scales=1):
+    def __init__(self, inner_model, sigma_data=1., loss_distance="mse", weighting='karras', scales=1):
         super().__init__()
+        assert loss_distance in ['mse', 'huber']
         self.inner_model = inner_model
+        self.loss_distance = loss_distance
         self.sigma_data = sigma_data
         self.scales = scales
         if callable(weighting):
@@ -79,13 +81,17 @@ class Denoiser(nn.Module):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
-        if self.scales == 1:
-            loss = ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
-        else:
-            sq_error = dct(model_output - target) ** 2
-            f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
-            loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
         
+        if self.loss_distance == "huber":
+            loss = F.huber_loss(model_output, target, reduction="mean") * c_weight
+        else:
+            if self.scales == 1:
+                loss = ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
+            else:
+                sq_error = dct(model_output - target) ** 2
+                f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
+                loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
+            
         if return_model_output:
             return loss, model_output
         else:
@@ -98,6 +104,7 @@ class Denoiser(nn.Module):
 
 class DenoiserWithVariance(Denoiser):
     def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
+        assert self.loss_distance == "mse"
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
@@ -118,7 +125,13 @@ class SimpleLossDenoiser(Denoiser):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         denoised = self(noised_input, sigma, **kwargs)
         eps = sampling.to_d(noised_input, sigma, denoised)
-        loss = (eps - noise).pow(2).flatten(1).mean(1)
+        if self.loss_distance == "mse":
+            loss = (eps - noise).pow(2).flatten(1).mean(1)
+        elif self.loss_distance == "huber":
+            loss = F.huber_loss(eps, noise, reduction="mean")
+        else:
+            raise ValueError(f"Unknown loss type {self.loss_distance}")
+        
         if return_model_output:
             return loss, denoised
         else:
@@ -130,7 +143,13 @@ class SimpleVanilla(Denoiser):
     def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input, sigma, **kwargs)
-        loss = (model_output - noise).pow(2).flatten(1).mean(1)
+        if self.loss_distance == "mse":
+            loss = (model_output - noise).pow(2).flatten(1).mean(1)
+        elif self.loss_distance == "huber":
+            loss = F.huber_loss(model_output, noise, reduction="mean")
+        else:
+            raise ValueError(f"Unknown loss type {self.loss_distance}")
+            
         if return_model_output:
             return loss, model_output
         else:

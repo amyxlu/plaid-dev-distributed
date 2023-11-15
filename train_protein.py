@@ -48,6 +48,7 @@ def main(args: K.config.TrainArgs):
     
     checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
     ckpt = None
+    print("Saving to", checkpoints_dir)
     if not checkpoints_dir.exists():
         checkpoints_dir.mkdir(parents=True, exist_ok=True)
     state_path = checkpoints_dir / "state.json"
@@ -124,11 +125,10 @@ def main(args: K.config.TrainArgs):
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and not debug_mode
     if use_wandb:
-
         log_config = K.config.dataclass_to_dict(args)
         log_config["parameters"] = num_parameters
         wandb.init(
-            resume=True,
+            resume="allow",
             project=args.wandb_project,
             entity=args.wandb_entity,
             group=args.wandb_group,
@@ -234,9 +234,11 @@ def main(args: K.config.TrainArgs):
         assert not ckpt is None
         unwrap(model.inner_model).load_state_dict(ckpt["model"])
         unwrap(model_ema.inner_model).load_state_dict(ckpt["model_ema"])
-        opt.load_state_dict(ckpt["opt"])
-        sched.load_state_dict(ckpt["sched"])
-        ema_sched.load_state_dict(ckpt["ema_sched"])
+        if opt_config.resume_from_saved_state:
+            opt.load_state_dict(ckpt["opt"])
+            sched.load_state_dict(ckpt["sched"])
+            ema_sched.load_state_dict(ckpt["ema_sched"])
+        
         ema_stats = ckpt.get("ema_stats", ema_stats)
         epoch = ckpt["epoch"] + 1
         step = ckpt["step"] + 1
@@ -248,7 +250,7 @@ def main(args: K.config.TrainArgs):
     else:
         epoch = 0
         step = 0
-
+    
     if args.reset_ema:
         unwrap(model.inner_model).load_state_dict(
             unwrap(model_ema.inner_model).state_dict()
@@ -366,7 +368,7 @@ def main(args: K.config.TrainArgs):
                     ema_decay = ema_sched.get_value()
                     K.utils.ema_update_dict(
                         ema_stats,
-                        {"loss": loss},
+                        {"loss": loss, "step": step, "epoch": epoch},
                         ema_decay ** (1 / args.grad_accum_steps),
                     )
                     if accelerator.sync_gradients:

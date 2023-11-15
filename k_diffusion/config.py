@@ -78,7 +78,7 @@ class SigmaDensityConfig:
 @dataclass
 class ModelConfig:
     type: str = "protein_transformer_v1"
-    n_layers: int = 12
+    n_layers: int = 11
     d_model: int = 512
     d_ff: int = 256
     d_head: int = 128
@@ -88,7 +88,8 @@ class ModelConfig:
     min_len: int = 32
     num_classes: int = 0
     dropout: float = 0.0
-    loss_config: str = "simple"
+    loss_config: str = "karras"
+    loss_distance: str = "huber"
     loss_weighting: str = "soft-min-snr"
     dropout_rate: float = 0.05
     augment_prob: float = 0.0
@@ -111,15 +112,16 @@ class DatasetConfig:
 @dataclass
 class OptimizerConfig:
     type: str = "adamw"
-    lr: float = 8e-5
+    lr: float = 1e-4 
     betas: List[float] = field(default_factory=lambda: [0.9, 0.99])
     eps: float = 1e-6
     weight_decay: float = 1e-2
+    resume_from_saved_state: bool = True 
 
 
 @dataclass
 class LRSchedulerConfig:
-    type: str = "cosine"
+    type: str = "inverse_sqrt"
     warmup_steps: int = 10000
     num_cycles: float = 0.5
 
@@ -165,7 +167,7 @@ class TrainArgs:
     sample_config: SampleCallbackConfig = field(default_factory=SampleCallbackConfig)
 
     artifacts_dir: str = "/shared/amyxlu/kdplaid"
-    batch_size: int = 64
+    batch_size: int = 128 
     checkpointing: bool = False
     compile: bool = False
     config: str = ""
@@ -178,7 +180,7 @@ class TrainArgs:
     gns: bool = False
     grad_accum_steps: int = 1
     mixed_precision: Optional[str] = "bf16"
-    clip_norm: Optional[float] = 1.0
+    clip_norm: Optional[float] = 0.5 
     clip_value: Optional[float] = None
     name: str = ""
     num_workers: int = 8
@@ -187,7 +189,7 @@ class TrainArgs:
     resume: Optional[str] = None
     resume_inference: Optional[str] = None
     sample_n: int = 64
-    log_every: int = 10
+    log_every: int = 25
     save_every: int = 5000
     seed: Optional[int] = None
     start_method: str = "spawn"
@@ -234,6 +236,7 @@ def make_denoiser_wrapper(config: ModelConfig):
     sigma_data = getattr(config, "sigma_data", 1.0)
     has_variance = getattr(config, "has_variance", False)
     loss_config = getattr(config, "loss_config", "karras")
+    loss_distance = getattr(config, "loss_distance", "mse")
 
     if loss_config == "karras":
         weighting = getattr(config, "loss_weighting", "karras")
@@ -245,6 +248,7 @@ def make_denoiser_wrapper(config: ModelConfig):
                 sigma_data=sigma_data,
                 weighting=weighting,
                 scales=scales,
+                loss_distance=loss_distance,
             )
         return partial(
             layers.DenoiserWithVariance,
@@ -255,18 +259,12 @@ def make_denoiser_wrapper(config: ModelConfig):
     if loss_config == "simple":
         if has_variance:
             raise ValueError("Simple loss config does not support a variance output")
-        return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data)
+        return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data, loss_distance=loss_distance)
 
     if loss_config == "vanilla":
         if has_variance:
             raise ValueError("Vanilla loss config does not support a variance output")
-        return partial(layers.SimpleVanilla, sigma_data=sigma_data)
-
-    # if loss_config == "vdiffusion":
-    #     return external.VDenoiser
-
-    # if loss_config == "openai":
-    #     return external.OpenAIDenoiser
+        return partial(layers.SimpleVanilla, sigma_data=sigma_data, loss_distance=loss_distance)
     
     raise ValueError("Unknown loss config type")
 
