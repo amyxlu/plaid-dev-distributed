@@ -20,7 +20,7 @@ from k_diffusion.models.esmfold import ESMFold
 import einops
 
 esmfold = ESMFold()
-device = torch.device("cuda:1")
+device = torch.device("cuda:5")
 esmfold.to(device)
 esmfold.eval()
 # esmfold.set_chunk_size(128)

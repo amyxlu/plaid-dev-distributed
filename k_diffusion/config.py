@@ -96,6 +96,7 @@ class ModelConfig:
     sigma_data: float = 1.0
     sigma_min: float = 1e-2
     sigma_max: float = 80
+    seq_loss_weight: float = 0.0
     normalize_latent_by: str = "channel_minmaxnorm"
     sigma_sample_density: SigmaDensityConfig = field(default_factory=SigmaDensityConfig)
 

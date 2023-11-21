@@ -62,3 +62,8 @@ $ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME
 ## To do
 
 - Latent diffusion
+
+
+## Useful:
+`find . -type f -mtime +XXX -exec rm {} \;`
+`find . -type f -mtime +4`

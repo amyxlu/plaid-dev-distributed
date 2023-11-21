@@ -87,7 +87,7 @@ class SampleCallback:
         )
         return x_0, x_0_raw
 
-    def sample_latent(self, save=True, log_wandb_stats=False):
+    def sample_latent(self, save=True, log_wandb_stats=False, return_raw=False):
         all_samples, all_raw_samples, n_samples = [], [], 0
         while n_samples < self.config.n_to_sample:
             sample, raw_sample = self.batch_sample_fn(self.config.batch_size)
@@ -118,7 +118,10 @@ class SampleCallback:
                     "step": self.config.model_step,
                 }
             )
-        return x_0
+        if return_raw:
+            return x_0, x_0_raw
+        else:
+            return x_0
 
     def _save_setup(self):
         base_artifact_dir = Path(self.config.base_artifact_dir)
@@ -137,14 +140,12 @@ class SampleCallback:
         config = K.config.dataclass_to_dict(self.config)
         wandb.init(
             id=self.uid,
-            name=self.model_id,
+            name=f"{self.model_id}_{str(self.config.solver_type)}",
             project=PROJECT_NAME,
             entity="amyxlu",
             config=config,
             # resume="allow",
         )
-        # config.pop("model_config")
-        # wandb.config.update(config)
         self.is_wandb_setup = True
 
     def _perplexity_setup(self):
@@ -164,7 +165,7 @@ class SampleCallback:
             cached_tensors_path, device=self.device
         )
 
-    def calculate_fid(self, sampled_latent, log_to_wandb=False):
+    def calculate_fid(self, sampled_latent, log_to_wandb=False, wandb_prefix: str = ""):
         if not self.is_fid_setup:
             self._fid_setup()
         fake_features = sampled_latent.mean(dim=1)
@@ -182,7 +183,7 @@ class SampleCallback:
         if log_to_wandb:
             if not self._wandb_setup:
                 self._wandb_setup()
-            wandb.log({"fid": fid, "kid": kid, "step": self.config.model_step})
+            wandb.log({f"{wandb_prefix}fid": fid, f"{wandb_prefix}kid": kid, "step": self.config.model_step})
         return fid, kid
 
     def construct_sequence(
@@ -191,6 +192,7 @@ class SampleCallback:
         calc_perplexity: bool = True,
         save_to_disk: bool = False,
         log_to_wandb: bool = False,
+        wandb_prefix: str = "",
     ):
         if self.sequence_constructor is None:
             self.sequence_constructor = K.proteins.LatentToSequence(
@@ -223,8 +225,8 @@ class SampleCallback:
                 self._wandb_setup()
             wandb.log(
                 {
-                    "sequences": wandb.Table(dataframe=sequence_results),
-                    "batch_perplexity": perplexity,
+                    f"{wandb_prefix}sequences": wandb.Table(dataframe=sequence_results),
+                    f"{wandb_prefix}batch_perplexity": perplexity,
                     "step": self.config.model_step,
                 }
             )
@@ -306,9 +308,10 @@ def main(
 
     # sample latent and calculate KID/FID to the saved known distribution
     print("Sampling latent...")
-    sampled_latent = sampler.sample_latent(
-        save=True, log_wandb_stats=config.log_to_wandb
+    sampled_latent, sampled_raw = sampler.sample_latent(
+        save=True, log_wandb_stats=config.log_to_wandb, return_raw=True
     )
+    sampled_raw_expanded = inner_model.project_to_input_dim(sampled_raw.to(device))
 
     if config.calc_fid:
         print("Calculating FID/KID...")
@@ -316,6 +319,11 @@ def main(
             sampled_latent, log_to_wandb=config.log_to_wandb
         )
         print("FID:", fid, "KID:", kid)
+
+        print("Calculating unnormalized FID/KID...")
+        fid, kid = sampler.calculate_fid(
+            sampled_raw_expanded, log_to_wandb=config.log_to_wandb, wandb_prefix="raw_unnormalized_"
+        )
 
     # potentially take a smaller subset to decode into structure/sequence and evaluate
     if not config.n_to_construct == -1:
@@ -331,13 +339,23 @@ def main(
         log_to_wandb=config.log_to_wandb,
     )
 
+    print("Constructing sequences from unnormalized latent...")
+    _, _, strs = sampler.construct_sequence(
+        sampled_raw_expanded,
+        calc_perplexity=config.calc_perplexity,
+        save_to_disk=config.save_to_disk,
+        log_to_wandb=config.log_to_wandb,
+        wandb_prefix="raw_unnormalized_"
+    )
+
     print("Constructing structures...")
-    pdb_strs, metrics = sampler.construct_structure(
+    _, metrics = sampler.construct_structure(
         sampled_latent,
         strs,
         save_to_disk=config.save_to_disk,
         log_to_wandb=config.log_to_wandb,
     )
+    print(metrics)
 
 
 if __name__ == "__main__":
