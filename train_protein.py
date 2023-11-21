@@ -298,6 +298,12 @@ def main(args: K.config.TrainArgs):
     # ==============================================================================
     # main train loop
     # ==============================================================================
+    if step > 0:
+        print("Skipping batches...")
+        for _ in trange(step):
+            iter(train_dl)
+    
+    print("Starting training at step", step)
     losses_since_last_print = []
     pbar = tqdm(
         total=len(train_dl),
@@ -308,7 +314,7 @@ def main(args: K.config.TrainArgs):
     )
     try:
         while True:
-            for batch in train_dl:
+            for batch in enumerate(train_dl):
                 with accelerator.accumulate(model):
                     sequences = batch[1]
                     x, mask = unwrap(model.inner_model).embed_from_sequences(
