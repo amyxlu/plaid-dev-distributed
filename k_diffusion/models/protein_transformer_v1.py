@@ -19,8 +19,7 @@ import torch._dynamo
 from torch.nn import functional as F
 
 from . import flags
-from .. import layers
-from .. import utils
+from .. import layers, utils, normalization 
 
 # from .axial_rope import AxialRoPE, make_axial_pos
 from .rope import RotaryEmbedding
@@ -405,6 +404,14 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         assert x.shape[-1] == self.d_model, "x must have the same last dimension as d_model"
         return x @ self.latent_in_proj.weight.data  # (batch_size, d_model) @ (d_model, input_dim)
 
+    def raw_to_latent(self, x: torch.Tensor, normalization_mode: str = "channel_minmax"):
+        # 2) Upproject latent space, maybe
+        if self.model_config.d_model != self.model_config.input_dim:
+            x = self.model.inner_model.project_to_input_dim(x)
+        # 1) Normalize, maybe
+        x = normalization.undo_scale_embedding(x, normalization_mode) 
+        return x
+    
     def forward(
         self,
         x: torch.Tensor,
