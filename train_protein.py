@@ -314,7 +314,7 @@ def main(args: K.config.TrainArgs):
     )
     try:
         while True:
-            for batch in enumerate(train_dl):
+            for batch in train_dl:
                 with accelerator.accumulate(model):
                     sequences = batch[1]
                     x, mask = unwrap(model.inner_model).embed_from_sequences(
