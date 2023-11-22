@@ -1,0 +1,37 @@
+name: kdif
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - pip
+  - python=3.11
+  - numpy=1.25.*
+  - pytorch=2.1.0=py3.11_cuda12.1_cudnn8.9.2_0
+  - pytorch-cuda=12.1=ha16c6d3_5
+  - pytorch-mutex=1.0=cuda
+  - cudatoolkit=12.1
+  - cuda-nvcc=12.1
+  - cudnn
+  - pip:
+    - accelerate
+    - dctorch
+    - einops
+    - jsonmerge
+    - kornia
+    - safetensors
+    - scipy
+    - torch>=2.0
+    - torchdiffeq
+    - torchsde
+    - torchvision
+    - tqdm
+    - wandb
+    - dm-tree
+    - modelcif
+    - ml_collections
+    - biopython
+    - omegaconf
+    - fair-esm
+    - git+https://github.com/amyxlu/evo.git
