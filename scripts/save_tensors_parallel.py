@@ -8,7 +8,7 @@ from torch.multiprocessing import Process, Queue, Lock, Value, set_start_method
 import os
 import k_diffusion as K
 import safetensors
-import k_diffusion as K
+import h5py
 from k_diffusion.models.esmfold import ESMFold
 
 
@@ -16,16 +16,22 @@ from evo.dataset import FastaDataset
 import time
 import dataclasses
 
+# "/shared/amyxlu/data/uniref90/uniref90.fasta"
+# "/shared/amyxlu/data/uniref90/shards/uniref90"
+
+# /shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa
+
 
 @dataclasses.dataclass
 class ShardConfig:
-    fasta_file: str = "/shared/amyxlu/data/uniref90/uniref90.fasta"
-    output_dir: str = "/shared/amyxlu/data/uniref90/shards/uniref90"
-    batch_size: int = 256 
-    max_seq_len: int = 512
+    fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+    output_dir: str = "/shared/amyxlu/data/cath/shards/"
+    batch_size: int = 512 
+    max_seq_len: int = 256
     min_seq_len: int = 30
     num_workers: int = 4
-    num_batches_per_shard: int = 500
+    num_batches_per_shard: int = 100
+    compression: str = "safetensors"  # "safetensors", "hdf5"
 
 
 def make_fasta_dataloader(fasta_file, batch_size, num_workers=4):
@@ -81,7 +87,7 @@ def worker(model, num_batches_per_shard, input_queue, output_queue, gpu_lock, co
             progress_counter.value += 1
 
 
-def save_embeddings(output_queue, outdir):
+def save_safetensor_embeddings(output_queue, outdir):
     while True:
         item = output_queue.get()
         if item is None:  # Poison pill means shutdown
@@ -95,9 +101,22 @@ def save_embeddings(output_queue, outdir):
             }, outdir / f"shard{shard_number:04}.pt"
         )
         print(f"saved {embs.shape[0]} sequences to shard {shard_number}")
-
     del embs, seq_lens
 
+
+def save_h5_embeddings(output_queue, outdir):
+    while True:
+        item = output_queue.get()
+        if item is None:  # Poison pill means shutdown
+            break
+
+        embs, seq_lens, shard_number = item
+        with open(outdir / f"shard{shard_number:04}.h5", "w") as f:
+            f.create_dataset("embeddings", data=embs.numpy())
+            f.create_dataset("seq_len", data=seq_lens.numpt())
+        print(f"saved {embs.shape[0]} sequences to shard {shard_number} as f5 file")
+
+    del embs, seq_lens
 
 def make_esmfold():
     start = time.time()
@@ -135,7 +154,7 @@ def main(cfg: ShardConfig):
 
     dataloader = make_fasta_dataloader(cfg.fasta_file, cfg.batch_size, cfg.num_workers)
     num_batches = len(dataloader)
-    outdir = Path(cfg.output_dir) / f"max_len_{cfg.max_seq_len}"
+    outdir = Path(cfg.output_dir) / f"seqlen{cfg.max_seq_len}"
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
@@ -150,7 +169,8 @@ def main(cfg: ShardConfig):
         processes.append(p)
 
     # Start a process for saving embeddings
-    save_process = Process(target=save_embeddings, args=(output_queue, outdir))
+    save_fn = save_safetensor_embeddings if cfg.compression == "safetensors" else save_h5_embeddings
+    save_process = Process(target=save_fn, args=(output_queue, outdir))
     save_process.start()
 
     # Feed data to the input queue
@@ -160,7 +180,7 @@ def main(cfg: ShardConfig):
     # Update tqdm in the main process
     while progress_counter.value < num_batches:
         pbar.update(progress_counter.value - pbar.n)
-        time.sleep(0.1)
+        time.sleep(3)
 
     # Send poison pills to shut down workers
     for i in range(cfg.num_workers):
@@ -191,5 +211,6 @@ def main(cfg: ShardConfig):
     print(f"done in {end - start:.2f} seconds.")
 
 if __name__ == "__main__":
-    cfg = ShardConfig()
+    import tyro
+    cfg = tyro.cli(ShardConfig)
     main(cfg)

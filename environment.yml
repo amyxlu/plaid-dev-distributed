@@ -1,4 +1,4 @@
-name: kdif
+name: plaid 
 channels:
   - pytorch
   - nvidia
@@ -6,11 +6,11 @@ channels:
   - defaults
 dependencies:
   - pip
-  - python=3.11
+  - python=3.11.*
   - numpy=1.25.*
   - pytorch=2.1.0=py3.11_cuda12.1_cudnn8.9.2_0
-  - pytorch-cuda=12.1=ha16c6d3_5
-  - pytorch-mutex=1.0=cuda
+  - pytorch-cuda=12.1
+  - pytorch-mutex=1.0
   - cudatoolkit=12.1
   - cuda-nvcc=12.1
   - cudnn

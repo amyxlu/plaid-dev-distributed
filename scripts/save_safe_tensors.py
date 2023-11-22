@@ -23,12 +23,14 @@
 
 import torch
 import safetensors
-from tqdm import tqdm
+from tqdm import tqdm, trange
+import json
 
 from evo.dataset import FastaDataset
 from torch.utils.data import random_split
 import torch
 from pathlib import Path
+import h5py
 
 import dataclasses
 
@@ -53,13 +55,14 @@ esmfold.requires_grad_(False)
 
 @dataclasses.dataclass
 class ShardConfig:
-    fasta_file: str = "/shared/amyxlu/data/uniref90/partial.fasta"
-    output_dir: str = "/shared/amyxlu/data/uniref90/shards/partial"
-    batch_size: int = 128
-    max_seq_len: int = 512
+    fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+    output_dir: str = "/shared/amyxlu/data/cath/shards/"
+    batch_size: int = 256 
+    max_seq_len: int = 256
     min_seq_len: int = 30
     num_workers: int = 4
-    n_batches_per_shard: int = 100
+    num_batches_per_shard: int = 20
+    compression: str = "safetensors"  # "safetensors", "hdf5"
 
 
 def make_fasta_dataloader(fasta_file, batch_size, num_workers=4):
@@ -77,89 +80,76 @@ def embed_batch(sequences, max_len=512, min_len=30):
         )
         seq_lens = [len(seq) for seq in sequences]
         embed_results = esmfold.infer_embedding(sequences)
-        feats = embed_results["s"].detach().cpu()  # (N, L, 1024)
-        feats = feats.to(dtype=torch.float16)
+        feats = embed_results["s"].detach()  # (N, L, 1024)
+        seq_lens = torch.tensor(seq_lens, device="cpu", dtype=torch.int16)
     return feats, seq_lens
 
 
-def make_shard(dataloader, n_batches_per_shard):
+def make_shard(dataloader, n_batches_per_shard, max_seq_len, min_seq_len):
     cur_shard_tensors = []
-    seq_lens = []
+    cur_shard_lens = []
 
-    for i, batch in tqdm(
-        enumerate(dataloader),
-        desc="Batches within shard",
-        total=n_batches_per_shard,
-        leave=False,
-    ):
+    for _ in trange(n_batches_per_shard, leave=False):
+        batch = next(iter(dataloader))
         sequences = batch[1]
-        feats, seq_lens = embed_batch(sequences, cfg.max_seq_len, cfg.min_seq_len)
+        feats, seq_lens = embed_batch(sequences, max_seq_len, min_seq_len)
+        feats, seq_lens = feats.cpu(), seq_lens.cpu()
         cur_shard_tensors.append(feats)
-        seq_lens.extend(seq_lens)
-        # n_seq_in_shard = len(seq_lens)
+        cur_shard_lens.append(seq_lens)
 
-        # if n_seq_in_shard >= num_seq_per_shard:
-        if i % cfg.batches_per_shard == 0:
-            yield torch.cat(cur_shard_tensors, dim=0), torch.tensor(
-                seq_lens, dtype=torch.int32
-            )
-            cur_shard_tensors = []
-            seq_lens = []
-            # n_seq_in_shard = 0
+    cur_shard_tensors = torch.cat(cur_shard_tensors, dim=0)
+    cur_seq_lens = torch.cat(cur_shard_lens, dim=0)
+    return cur_shard_tensors, cur_seq_lens
+
+
+def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir):
+    embs = embs.to(dtype=torch.bfloat16)
+    seq_lens = seq_lens.to(dtype=torch.int16)
+    safetensors.torch.save_file(
+        {
+            "embeddings": embs,
+            "seq_len": seq_lens,
+        }, outdir / f"shard{shard_number:04}.pt"
+    )
+    print(f"saved {embs.shape[0]} sequences to shard {shard_number}")
+
+
+def save_h5_embeddings(embs, seq_lens, shard_number, outdir):
+    embs = embs.to(dtype=torch.float32)
+    seq_lens = seq_lens.to(dtype=torch.int16)
+    with h5py.File(str(outdir / f"shard{shard_number:04}.h5"), "w") as f:
+        f.create_dataset("embeddings", data=embs.numpy())
+        f.create_dataset("seq_len", data=seq_lens.numpy())
+        print(f"saved {embs.shape[0]} sequences to shard {shard_number} as h5 file")
+    del embs, seq_lens
 
 
 def main(cfg: ShardConfig):
     print("making dataloader")
     dataloader = make_fasta_dataloader(cfg.fasta_file, cfg.batch_size, cfg.num_workers)
-    num_samples = len(dataloader.dataset)
-    num_shards = len(dataloader) // cfg.batches_per_shard + 1
+    num_shards = len(dataloader) // cfg.num_batches_per_shard + 1
 
-    shard_generator = make_shard(dataloader, cfg.n_batches_per_shard)
-    outdir = Path(cfg.output_dir) / f"max_len_{cfg.max_seq_len}"
-    print(f"making shards, expected {num_shards} shards in {str(outdir)}")
+    outdir = Path(cfg.output_dir) / f"seqlen_{cfg.max_seq_len}"
     if not outdir.exists():
         outdir.mkdir(parents=True)
+    
+    argsdict = dataclasses.asdict(cfg)
+    with open(outdir / "config.json", "w") as f:
+        json.dump(argsdict, f, indent=2)
 
-
-    cur_shard_tensors = []
-    seq_lens = []
-
-    for batch_idx, batch in tqdm(
-        enumerate(dataloader),
-    ):
-        sequences = batch[1]
-        feats, seq_lens = embed_batch(sequences, cfg.max_seq_len, cfg.min_seq_len)
-        cur_shard_tensors.append(feats)
-        seq_lens.extend(seq_lens)
-        # n_seq_in_shard = len(seq_lens)
-
-        # if n_seq_in_shard >= num_seq_per_shard:
-        if i % cfg.batches_per_shard == 0:
-            yield torch.cat(cur_shard_tensors, dim=0), torch.tensor(
-                seq_lens, dtype=torch.int32
-            )
-            cur_shard_tensors = []
-            seq_lens = []
-            # n_seq_in_shard = 0
-
-
-
-
-    for shard, seq_lens in tqdm(
-        shard_generator,
-        desc="Shards",
-        total=num_shards
-    ):
-        safetensors.torch.save_file(
-            {
-                "features": shard,
-                "seq_len": seq_lens,
-            }, outdir / "shard{i:03}.pt"
-        )
+    for shard_number in tqdm(range(num_shards), desc="Shards"):
+        emb_shard, seq_lens = make_shard(dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        if cfg.compression == "safetensors":
+            save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir)
+        elif cfg.compression == "hdf5":
+            save_h5_embeddings(emb_shard, seq_lens, shard_number, outdir)
+        else:
+            raise ValueError(f"invalid compression type {cfg.compression}")
 
 
 if __name__ == "__main__":
-    cfg = ShardConfig()
+    import tyro
+    cfg = tyro.cli(ShardConfig) 
     main(cfg)
 
 # esmfold.set_chunk_size(128)
