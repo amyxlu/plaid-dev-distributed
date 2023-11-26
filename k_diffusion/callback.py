@@ -59,7 +59,7 @@ class SampleCallback:
     def update_model_id(self, model_id):
         self.model_id = model_id
 
-    def batch_sample_fn(self, n):
+    def batch_sample_fn(self, n, clip_range=None):
         cfg = self.config
         size = (n, cfg.seq_len, self.model_config.d_model)
         x = torch.randn(size, device=self.device) * cfg.sigma_max
@@ -74,7 +74,7 @@ class SampleCallback:
             device=self.device,
         )
         sample_fn = K.config.make_sample_solver_fn(cfg.solver_type)
-        sample_fn_kwargs = {"sigmas": sigmas, "extra_args": extra_args}
+        sample_fn_kwargs = {"sigmas": sigmas, "clip_range": clip_range, "extra_args": extra_args}
         x_0_raw = sample_fn(model_fn, x, **sample_fn_kwargs)
 
         # 2) Downproject latent space, maybe
@@ -87,10 +87,10 @@ class SampleCallback:
         )
         return x_0, x_0_raw
 
-    def sample_latent(self, save=True, log_wandb_stats=False, return_raw=False):
+    def sample_latent(self, clip_range=None, save=True, log_wandb_stats=False, return_raw=False):
         all_samples, all_raw_samples, n_samples = [], [], 0
         while n_samples < self.config.n_to_sample:
-            sample, raw_sample = self.batch_sample_fn(self.config.batch_size)
+            sample, raw_sample = self.batch_sample_fn(self.config.batch_size, clip_range=clip_range)
             all_samples.append(sample.detach().cpu())
             all_raw_samples.append(raw_sample.detach().cpu())
             n_samples += sample.shape[0]
@@ -263,14 +263,10 @@ class SampleCallback:
         return pdb_strs, metrics
 
 
-def main(
-    config: SampleCallbackConfig,
-):
-    # Load checkpoint from model_id and step
-    base_artifact_dir = Path(config.base_artifact_dir)
-    if not config.model_step:
-        assert not config.model_id is None
-        state_path = base_artifact_dir / "checkpoints" / config.model_id / "state.json"
+def load_model(model_id, model_dir, model_step=-1):
+    base_artifact_dir = Path(model_dir)
+    if model_step == -1:
+        state_path = base_artifact_dir / "checkpoints" / model_id / "state.json"
         state = json.load(open(state_path))
         filename = state["latest_checkpoint"]
         config.model_step = int(state["latest_checkpoint"].split("/")[-1].split(".")[0])
@@ -285,17 +281,23 @@ def main(
     print("Loading checkpoint from", filename)
     ckpt = torch.load(filename, map_location="cpu")
     model_config = K.config.ModelConfig(**ckpt["config"]["model_config"])
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     inner_model = (
-        K.config.make_model(model_config).eval().requires_grad_(False).to(device)
+        K.config.make_model(model_config).eval().requires_grad_(False)
     )
     if config.use_ema:
         inner_model.load_state_dict(ckpt["model_ema"])
     else:
         inner_model.load_state_dict(ckpt["model"])
     model = K.config.make_denoiser_wrapper(model_config)(inner_model)
+    return model, inner_model, model_config
 
+
+def main(
+    config: SampleCallbackConfig,
+):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model, inner_model, model_config = load_model(config.model_id, config.model_dir, config.model_step) 
     # instantiate sampler object
     print("Instantiating sampler callback object...")
     sampler = SampleCallback(
@@ -306,10 +308,11 @@ def main(
         device=device,
     )
 
+    # Load checkpoint from model_id and step
     # sample latent and calculate KID/FID to the saved known distribution
     print("Sampling latent...")
     sampled_latent, sampled_raw = sampler.sample_latent(
-        save=True, log_wandb_stats=config.log_to_wandb, return_raw=True
+        clip_range=config.clip_range, save=True, log_wandb_stats=config.log_to_wandb, return_raw=True
     )
     sampled_raw_expanded = inner_model.project_to_input_dim(sampled_raw.to(device))
 

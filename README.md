@@ -2,32 +2,23 @@
 
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
+## Useful Commands
+`find . -type f -mtime +XXX -exec rm {} \;`
+`find . -type f -mtime +4`
+
+singularity exec 
+
+To build a docker container that mounts locally (on DGX5):
+```
+docker run --name unique-name-here --gpus all --mount type=bind,source="/home/amyxlu/kdiffusion",target=/mnt/kdiffusion -t -a stdin -a stdout -i ef9c0699e29a /bin/bash
+```
+
 ```
 pip install "fair-esm[esmfold]"
 # OpenFold and its remaining dependency
 pip install 'dllogger @ git+https://github.com/NVIDIA/dllogger.git'
 pip install 'openfold @ git+https://github.com/aqlaboratory/openfold.git@4b41059694619831a7db195b7e0988fc4ff3a307'
 ```
-
-## Installation
-
-`k-diffusion` can be installed via PyPI (`pip install k-diffusion`) but it will not include training and inference scripts, only library code that others can depend on. To run the training and inference scripts, clone this repository and run `pip install -e <path to repository>`.
-
-## Training
-
-To train models:
-
-```sh
-$ ./train.py --config CONFIG_FILE --name RUN_NAME
-```
-
-For instance, to train a model on MNIST:
-
-```sh
-$ ./train.py --config configs/config_mnist_transformer.json --name RUN_NAME
-```
-
-The configuration file allows you to specify the dataset type. Currently supported types are `"imagefolder"` (finds all images in that folder and its subfolders, recursively), `"cifar10"` (CIFAR-10), and `"mnist"` (MNIST). `"huggingface"` [Hugging Face Datasets](https://huggingface.co/docs/datasets/index) is also supported.
 
 Multi-GPU and multi-node training is supported with [Hugging Face Accelerate](https://huggingface.co/docs/accelerate/index). You can configure Accelerate by running:
 
@@ -41,7 +32,7 @@ then running:
 $ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME
 ```
 
-## Enhancements/additional features
+## Enhancements/additional features (h/t Katherine Crowson)
 
 - k-diffusion has support for training transformer-based diffusion models (like [DiT](https://arxiv.org/abs/2212.09748) but improved).
 
@@ -59,11 +50,4 @@ $ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME
 
 - k-diffusion can calculate, during training, the gradient noise scale (1 / SNR), from _An Empirical Model of Large-Batch Training_, https://arxiv.org/abs/1812.06162).
 
-## To do
 
-- Latent diffusion
-
-
-## Useful:
-`find . -type f -mtime +XXX -exec rm {} \;`
-`find . -type f -mtime +4`

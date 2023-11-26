@@ -9,6 +9,7 @@ from copy import deepcopy
 import json
 from pathlib import Path
 
+import einops
 import accelerate
 from accelerate import DistributedDataParallelKwargs
 import safetensors.torch as safetorch
@@ -45,7 +46,7 @@ def main(args: K.config.TrainArgs):
     debug_mode = args.debug_mode
     if args.name == "":
         args.name = wandb.util.generate_id()
-    
+
     checkpoints_dir = Path(args.artifacts_dir) / "checkpoints" / args.name
     ckpt = None
     print("Saving to", checkpoints_dir)
@@ -68,9 +69,9 @@ def main(args: K.config.TrainArgs):
         # if a JSON config is saved, use it -- allows us to hack configs but use past checkpoints
         if (checkpoints_dir / "config.json").exists():
             argsdict = json.load(open(checkpoints_dir / "config.json"))
-            args = K.config.dataclass_from_dict(K.config.TrainArgs, argsdict) 
+            args = K.config.dataclass_from_dict(K.config.TrainArgs, argsdict)
         args = K.config.dataclass_from_dict(K.config.TrainArgs, ckpt["config"])
-    
+
     # save the config if it isn't already done
     config_path = checkpoints_dir / "config.json"
     if not config_path.exists():
@@ -108,7 +109,7 @@ def main(args: K.config.TrainArgs):
         torch.randint(-(2**63), 2**63 - 1, ()).item()
     )
 
-    inner_model = K.config.make_model(model_config)
+    inner_model = K.config.make_model(model_config, max_seq_len=args.max_seq_len)
     inner_model_ema = deepcopy(inner_model)
     num_parameters = K.utils.count_parameters(inner_model, require_grad_only=True)
 
@@ -165,49 +166,22 @@ def main(args: K.config.TrainArgs):
     )
     ema_stats = {}
 
-    # dataset specification
-    if dataset_config.type == "uniref":
-        from torch.utils.data import random_split
-        from evo.dataset import FastaDataset
-
-        fasta_file = dataset_config.path
-        if args.toy:
-            fasta_file = dataset_config.toy_data_path
-
-        ds = FastaDataset(fasta_file, cache_indices=True)
-        n_val = int(dataset_config.num_holdout)
-        n_train = len(ds) - n_val  # 153,726,820
-        train_set, val_set = random_split(
-            ds,
-            [n_train, n_val],
-            generator=torch.Generator().manual_seed(
-                int(dataset_config.random_split_seed)
-            ),
-        )
-    else:
-        raise ValueError("Invalid dataset type")
-
-    if accelerator.is_main_process:
-        try:
-            print(f"Number of items in dataset: {len(train_set):,}")
-        except TypeError:
-            pass
-
-    # num_classes = getattr(dataset_config, 'num_classes', 0)
-    # cond_dropout_rate = getattr(dataset_config, 'cond_dropout_rate', 0.1)
-    # class_key = getattr(dataset_config, 'class_key', 1)
-
-    train_dl = data.DataLoader(
-        train_set,
-        args.batch_size,
-        shuffle=True,
-        drop_last=True,
+    train_dl, _ = K.config.make_dataset(
+        dataset_config,
+        batch_size=args.batch_size,
         num_workers=args.num_workers,
-        persistent_workers=True,
+        max_seq_len=args.max_seq_len,
+        toy=debug_mode,
     )
 
+    if dataset_config.dataset == "cath":
+        num_samples = 35840  # can't do len of an iterable dataset, so write this here
+        num_train_batches = math.ceil(num_samples / args.batch_size)
+    else:
+        num_train_batches = len(train_dl)
+
     sched = K.config.make_lr_sched(
-        sched_config, opt, len(train_dl) // args.grad_accum_steps
+        sched_config, opt, num_train_batches // args.grad_accum_steps
     )
 
     train_dl, opt = accelerator.prepare(train_dl, opt)
@@ -225,7 +199,7 @@ def main(args: K.config.TrainArgs):
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
-    sample_density = K.config.make_sample_density(model_config)
+    sample_density = K.config.make_sample_density(model_config, args.max_seq_len)
 
     model = K.config.make_denoiser_wrapper(model_config)(inner_model)
     model_ema = K.config.make_denoiser_wrapper(model_config)(inner_model_ema)
@@ -238,7 +212,7 @@ def main(args: K.config.TrainArgs):
             opt.load_state_dict(ckpt["opt"])
             sched.load_state_dict(ckpt["sched"])
             ema_sched.load_state_dict(ckpt["ema_sched"])
-        
+
         ema_stats = ckpt.get("ema_stats", ema_stats)
         epoch = ckpt["epoch"] + 1
         step = ckpt["step"] + 1
@@ -250,7 +224,7 @@ def main(args: K.config.TrainArgs):
     else:
         epoch = 0
         step = 0
-    
+
     if args.reset_ema:
         unwrap(model.inner_model).load_state_dict(
             unwrap(model_ema.inner_model).state_dict()
@@ -302,46 +276,65 @@ def main(args: K.config.TrainArgs):
         print("Skipping batches...")
         for _ in trange(step):
             iter(train_dl)
-    
+
     print("Starting training at step", step)
     losses_since_last_print = []
     pbar = tqdm(
-        total=len(train_dl),
+        total=num_train_batches,
         initial=step,
         smoothing=0.1,
         disable=not accelerator.is_main_process,
         desc="Training",
     )
+
+    def prepare_latent_from_fasta(batch):
+        sequences = batch[1]
+        x, mask = unwrap(model.inner_model).embed_from_sequences(
+            sequences
+        )  # (N, L, input_dim=1024)
+        return x, mask
+
+    def prepare_latent_from_shards(batch):
+        x, seqlen = batch
+        mask = (
+            einops.repeat(
+                torch.arange(x.shape[1], device=device)[None, :],
+                "1 L -> N L",
+                N=x.shape[0],
+            )
+            < seqlen[:, None]
+        )
+        return x, mask
+
     try:
         while True:
             for batch in train_dl:
                 with accelerator.accumulate(model):
-                    sequences = batch[1]
-                    x, mask = unwrap(model.inner_model).embed_from_sequences(
-                        sequences
-                    )  # (N, L, input_dim=1024)
+                    if (
+                        K.config.DATASET_TO_PATH[dataset_config.dataset]['loader']
+                        == "FastaDataset"
+                    ):
+                        x, mask = prepare_latent_from_fasta(batch)
+                    elif (
+                        K.config.DATASET_TO_PATH[dataset_config.dataset]['loader']
+                        == "ShardedTensorDataset"
+                    ):
+                        x, mask = prepare_latent_from_shards(batch)
+                    else:
+                        raise ValueError(f"Invalid dataset {dataset_config.dataset}")
 
-                    # 1) Normalize, maybe
-                    K.normalization.scale_embedding(x, model_config.normalize_latent_by)
-
-                    # 2) Downproject latent space, maybe
-                    if model_config.d_model != model_config.input_dim:
-                        x = unwrap(model.inner_model).project_to_d_model(
-                            x
-                        )  # (N, L, d_model)
-
-                    class_cond, extra_args, N = None, {"mask": mask}, x.shape[0]
-                    # if num_classes:
-                    # class_cond = batch[class_key]
-                    # drop = torch.rand(class_cond.shape, device=class_cond.device)
-                    # class_cond.masked_fill_(drop < cond_dropout_rate, num_classes)
-                    # extra_args['class_cond'] = class_cond
+                    # Normalize, maybe
+                    x = K.normalization.scale_embedding(
+                        x, model_config.normalize_latent_by
+                    )
+                    extra_args, N = {"mask": mask}, x.shape[0]
                     noise = torch.randn_like(x)  # (N, L, d_model)
 
                     with K.utils.enable_stratified_accelerate(
                         accelerator, disable=args.gns
                     ):
                         sigma = sample_density([N], device=device)
+
                     with K.models.checkpointing(args.checkpointing):
                         losses, model_output = model.loss(
                             x, noise, sigma, return_model_output=True, **extra_args

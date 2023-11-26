@@ -1,9 +1,13 @@
 from functools import partial
 import enum
 import math
+import torch
+from pathlib import Path
 
 from dataclasses import dataclass, field, fields, is_dataclass
-from typing import Optional, List
+from typing import Optional, List, Tuple
+from torch.utils.data import random_split
+from evo.dataset import FastaDataset
 
 from transformers import (
     get_scheduler,
@@ -63,6 +67,27 @@ class SampleSolverType(str, enum.Enum):
     DPMPP_3M_SDE = "dpmpp_3m_sde" 
 
 
+DATASET_TO_PATH = {
+    "uniref": {
+        "loader": "FastaDataset",
+        "full": "/shared/amyxlu/data/uniref90/uniref90.fasta",
+        "toy": "/shared/amyxlu/data/uniref90/partial.fasta",
+        "num_holdout": 50000,
+    },
+    "cath": {
+        "loader": "ShardedTensorDataset",
+        "full": "/shared/amyxlu/data/cath/shards/",
+        "toy": "/shared/amyxlu/data/cath/shards/",
+        "num_holdout": 5120,  # 1 shard
+    },
+    "pfam": {
+        "loader": None,
+        "full": None, 
+        "toy": None
+    }
+}
+
+
 @dataclass
 class SigmaDensityConfig:
     type: str = "cosine-interpolated"
@@ -78,11 +103,10 @@ class SigmaDensityConfig:
 @dataclass
 class ModelConfig:
     type: str = "protein_transformer_v1"
-    n_layers: int = 11
-    d_model: int = 512
+    n_layers: int = 5 
+    d_model: int = 1024 
     d_ff: int = 256
     d_head: int = 128
-    input_size: int = 512
     input_dim: int = 1024
     skip_connect: bool = True
     min_len: int = 32
@@ -103,11 +127,12 @@ class ModelConfig:
 
 @dataclass
 class DatasetConfig:
-    type: str = "uniref"
-    path: str = "/shared/amyxlu/data/uniref90/uniref90.fasta"
-    toy_data_path: Optional[str] = "/shared/amyxlu/data/uniref90/partial.fasta"
+    dataset: str = "uniref"
     random_split_seed: int = 42
     num_holdout: int = 50000
+    path = DATASET_TO_PATH[dataset]["full"]
+    toy_data_path = DATASET_TO_PATH[dataset]["toy"] 
+    num_holdout = DATASET_TO_PATH[dataset]["num_holdout"]
 
 
 @dataclass
@@ -156,6 +181,7 @@ class SampleCallbackConfig:
     base_artifact_dir: str = "/shared/amyxlu/kdplaid"
     sequence_decode_temperature: float = 1.0
     calc_fid: bool = False
+    clip_range: Optional[Tuple[float]] = None  # (min, max)
 
 
 @dataclass
@@ -181,6 +207,7 @@ class TrainArgs:
     gns: bool = False
     grad_accum_steps: int = 1
     mixed_precision: Optional[str] = "bf16"
+    max_seq_len: int = 256 
     clip_norm: Optional[float] = 0.5 
     clip_value: Optional[float] = None
     name: str = ""
@@ -213,7 +240,7 @@ def round_to_power_of_two(x, tol):
     return approxs[0]
 
 
-def make_model(config: ModelConfig):
+def make_model(config: ModelConfig, max_seq_len: int):
     if config.type == "protein_transformer_v1":
         model = models.ProteinTransformerDenoiserModelV1(
             n_layers=config.n_layers,
@@ -221,7 +248,7 @@ def make_model(config: ModelConfig):
             d_ff=config.d_ff,
             d_head=config.d_head,
             skip_connect=getattr(config, "skip_connect", False),
-            input_size=config.input_size,
+            input_size=max_seq_len,
             input_dim=config.input_dim,
             min_len=config.min_len,
             num_classes=0,
@@ -270,7 +297,7 @@ def make_denoiser_wrapper(config: ModelConfig):
     raise ValueError("Unknown loss config type")
 
 
-def make_sample_density(config: ModelConfig):
+def make_sample_density(config: ModelConfig, input_size):
     sd_config = config.sigma_sample_density
     sigma_data = config.sigma_data
 
@@ -318,9 +345,9 @@ def make_sample_density(config: ModelConfig):
     if sd_config.type == "cosine-interpolated":
         min_value = getattr(sd_config, "min_value", min(config.sigma_min, 1e-3))
         max_value = getattr(sd_config, "max_value", max(config.sigma_max, 1e3))
-        image_d = getattr(sd_config, "image_d", config.input_size)
+        image_d = getattr(sd_config, "image_d", input_size)
         noise_d_low = getattr(sd_config, "noise_d_low", 32)
-        noise_d_high = getattr(sd_config, "noise_d_high", config.input_size)
+        noise_d_high = getattr(sd_config, "noise_d_high", input_size)
         return partial(
             utils.rand_cosine_interpolated,
             image_d=image_d,
@@ -387,3 +414,55 @@ def make_sample_solver_fn(solver_type: SampleSolverType):
         return sample_dpmpp_3m_sde
     else:
         raise ValueError(f"Unknown solver type")
+
+def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False):
+    if DATASET_TO_PATH[dataset_config.dataset]["loader"] == "FastaDataset":
+        fasta_file = dataset_config.path
+        if toy:
+            fasta_file = dataset_config.toy_data_path
+        ds = FastaDataset(fasta_file, cache_indices=True)
+        n_val = int(dataset_config.num_holdout)
+        n_train = len(ds) - n_val  # 153,726,820 for UniRef
+        train_ds, val_ds = random_split(
+            ds,
+            [n_train, n_val],
+            generator=torch.Generator().manual_seed(
+                int(dataset_config.random_split_seed)
+            ),
+        )
+        shuffle = True
+    
+    elif DATASET_TO_PATH[dataset_config.dataset]["loader"] == "ShardedTensorDataset":
+        from . datasets import ShardedTensorDataset
+        shard_dir = Path(DATASET_TO_PATH[dataset_config.dataset]["full"]) / f"seqlen_{max_seq_len}"
+        # train_ds = ShardedTensorDataset(shard_dir, split="train")
+        # val_ds = ShardedTensorDataset(shard_dir, split="val")
+        train_ds = ShardedTensorDataset(shard_dir, split=None)
+        val_ds = None
+        shuffle = False
+    
+    else:
+        return ValueError(f"Unknown dataset loader type {DATASET_TO_PATH[dataset_config.dataset]}")
+    
+    train_dl = torch.utils.data.DataLoader(
+        train_ds,
+        batch_size,
+        shuffle=shuffle,
+        drop_last=True,
+        num_workers=num_workers,
+        persistent_workers=True,
+    )
+
+    if val_ds is None:
+        val_dl = None
+    else:
+        val_dl = torch.utils.data.DataLoader(
+            val_ds,
+            batch_size,
+            shuffle=shuffle,
+            drop_last=True,
+            num_workers=num_workers,
+            persistent_workers=True,
+        )
+    
+    return train_dl, val_dl
