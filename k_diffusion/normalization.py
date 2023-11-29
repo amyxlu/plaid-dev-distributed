@@ -8,7 +8,9 @@ from . import utils
 
 ArrayLike = T.Union[np.ndarray, T.List[float], torch.Tensor]
 
-cache_dir = Path(os.path.dirname(__file__)) / "../cached_tensors/subset_5000_oct24"
+DEFAULT_CACHE_DIR = (
+    Path(os.path.dirname(__file__)) / "../cached_tensors/"
+)
 
 GLOBAL_SEQEMB_STATS = {
     "uniref": {
@@ -25,14 +27,18 @@ GLOBAL_SEQEMB_STATS = {
     },
 }
 
-CHANNELWISE_NPY_PATHS = {
-    "uniref": {
-        "max": cache_dir / "channel_max.pkl.npy", 
-        "min": cache_dir / "channel_min.pkl.npy", 
-        "mean": cache_dir / "channel_mean.pkl.npy",
-        "std": cache_dir / "channel_std.pkl.npy", 
+
+def _get_npy_path(cache_dir, dataset="uniref", lm_embedder_type="esmfold"):
+    assert dataset in ["uniref", "cath"]
+    cache_dir = Path(cache_dir)
+    # TODO: have a separate one for CATH
+    paths = {
+        "max": cache_dir / lm_embedder_type / "subset_5000_nov28" / "channel_max.pkl.npy",
+        "min": cache_dir / lm_embedder_type / "subset_5000_nov28" / "channel_min.pkl.npy",
+        "mean": cache_dir / lm_embedder_type / "subset_5000_nov28" / "channel_mean.pkl.npy",
+        "std": cache_dir / lm_embedder_type / "subset_5000_nov28" / "channel_std.pkl.npy",
     }
-}
+    return paths
 
 
 def _array_conversion(
@@ -147,87 +153,6 @@ def _check_valid_origin_dataset(origin_dataset: str):
     return origin_dataset in ["uniref", "cath"]
 
 
-def load_channelwise_stats(origin_dataset: str = "uniref"):
-    NPY_PATHS = CHANNELWISE_NPY_PATHS[origin_dataset]
-    return {
-        "max": np.load(NPY_PATHS["max"]),
-        "min": np.load(NPY_PATHS["min"]),
-        "mean": np.load(NPY_PATHS["mean"]),
-        "std": np.load(NPY_PATHS["std"]),
-    }
-
-
-def scale_embedding(
-    x: ArrayLike, mode: str = "channel_standardize", origin_dataset: str = "uniref"
-):
-    if (mode is None) or (mode == "none"):
-        return x
-
-    assert _check_valid_mode(mode), f"Invalid mode {mode}."
-    assert _check_valid_origin_dataset(origin_dataset)
-
-    if "channel_" in mode:
-        stat_dict = load_channelwise_stats(origin_dataset)
-    else:
-        stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
-    maxv, minv, meanv, stdv = (
-        stat_dict["max"],
-        stat_dict["min"],
-        stat_dict["mean"],
-        stat_dict["std"],
-    )
-
-    with torch.no_grad():
-        if mode == "global_minmaxnorm":
-            x_scaled = _minmax_scaling(x, minv, maxv)
-        elif mode == "global_standardize":
-            x_scaled = _standardize(x, meanv, stdv)
-        elif mode == "channel_minmaxnorm":
-            x_scaled = _minmax_scaling(x, minv, maxv)
-        elif mode == "channel_standardize":
-            x_scaled = _standardize(x, meanv, stdv)
-        else:
-            raise NotImplementedError
-
-    return x_scaled
-
-
-def undo_scale_embedding(
-    x_scaled: ArrayLike,
-    mode: str = "channel_standardize",
-    origin_dataset: str = "uniref",
-):
-    if (mode is None) or (mode == "none"):
-        return x_scaled
-
-    assert _check_valid_mode(mode), f"Invalid mode {mode}."
-    assert _check_valid_origin_dataset(origin_dataset)
-
-    if "channel_" in mode:
-        stat_dict = load_channelwise_stats(origin_dataset)
-    else:
-        stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
-    maxv, minv, meanv, stdv = (
-        stat_dict["max"],
-        stat_dict["min"],
-        stat_dict["mean"],
-        stat_dict["std"],
-    )
-
-    with torch.no_grad():
-        if mode == "global_minmaxnorm":
-            x_scaled = _undo_minmax_scaling(x_scaled, minv, maxv)
-        elif mode == "global_standardize":
-            x_scaled = _undo_standardize(x_scaled, meanv, stdv)
-        elif mode == "channel_minmaxnorm":
-            x_scaled = _undo_minmax_scaling(x_scaled, minv, maxv)
-        elif mode == "channel_standardize":
-            x_scaled = _undo_standardize(x_scaled, meanv, stdv)
-        else:
-            raise NotImplementedError
-    return x_scaled
-
-
 def _clamp(tensor: ArrayLike, min_values: ArrayLike, max_values: ArrayLike):
     """
     Clamp values to min/max values defined by an array.
@@ -240,25 +165,72 @@ def _clamp(tensor: ArrayLike, min_values: ArrayLike, max_values: ArrayLike):
     )
 
 
-def clamp_embedding(
-    x: ArrayLike, mode: str = "channel_standardize", origin_dataset: str = "uniref"
-):
-    if (mode is None) or (mode == "none"):
-        return x
+def load_channelwise_stats(cache_dir, lm_embedder_type="esmfold"):
+    npy_paths = _get_npy_path(cache_dir, lm_embedder_type)
+    return {
+        "max": np.load(npy_paths["max"]),
+        "min": np.load(npy_paths["min"]),
+        "mean": np.load(npy_paths["mean"]),
+        "std": np.load(npy_paths["std"]),
+    }
 
-    assert _check_valid_origin_dataset(origin_dataset)
-    if "channel_" in mode:
-        stat_dict = load_channelwise_stats(origin_dataset)
-    else:
-        raise NotImplementedError("Use native functions instead.")
-    
-    maxv, minv, meanv, stdv = (
-        stat_dict["max"],
-        stat_dict["min"],
-        stat_dict["mean"],
-        stat_dict["std"],
-    )
 
-    with torch.no_grad():
-        x = _clamp(x, minv, maxv)
-    return x 
+class LatentScaler:
+    def __init__(
+        self,
+        mode: T.Optional[str] = "channel_standardize",
+        cache_dir: str = DEFAULT_CACHE_DIR,
+        origin_dataset: str = "uniref",
+        lm_embedder_type: str = "esmfold",
+    ):
+        assert _check_valid_mode(mode), f"Invalid mode {mode}."
+        assert _check_valid_origin_dataset(origin_dataset)
+        self.mode = mode
+        self.origin_dataset = origin_dataset
+        self.lm_embedder_type = lm_embedder_type
+
+        if "channel_" in mode:
+            stat_dict = load_channelwise_stats(DEFAULT_CACHE_DIR, origin_dataset)
+        else:
+            stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
+
+        self.maxv, self.minv, self.meanv, self.stdv = (
+            stat_dict["max"],
+            stat_dict["min"],
+            stat_dict["mean"],
+            stat_dict["std"],
+        )
+
+    def scale(self, x: ArrayLike):
+        if (self.mode is None) or (self.mode == "none"):
+            return x
+        else:
+            with torch.no_grad():
+                if self.mode == "global_minmaxnorm":
+                    x_scaled = _minmax_scaling(x, self.minv, self.maxv)
+                elif self.mode == "global_standardize":
+                    x_scaled = _standardize(x, self.meanv, self.stdv)
+                elif self.mode == "channel_minmaxnorm":
+                    x_scaled = _minmax_scaling(x, self.minv, self.maxv)
+                elif self.mode == "channel_standardize":
+                    x_scaled = _standardize(x, self.meanv, self.stdv)
+                else:
+                    raise NotImplementedError
+            return x_scaled
+
+    def undo_scale_embedding(self, x_scaled: ArrayLike):
+        if (self.mode is None) or (self.mode == "none"):
+            return x_scaled
+        else:
+            with torch.no_grad():
+                if self.mode == "global_minmaxnorm":
+                    x_scaled = _undo_minmax_scaling(x_scaled, self.minv, self.maxv)
+                elif self.mode == "global_standardize":
+                    x_scaled = _undo_standardize(x_scaled, self.meanv, self.stdv)
+                elif self.mode == "channel_minmaxnorm":
+                    x_scaled = _undo_minmax_scaling(x_scaled, self.minv, self.maxv)
+                elif self.mode == "channel_standardize":
+                    x_scaled = _undo_standardize(x_scaled, self.meanv, self.stdv)
+                else:
+                    raise NotImplementedError
+            return x_scaled

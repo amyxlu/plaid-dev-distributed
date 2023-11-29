@@ -173,6 +173,9 @@ def main(args: K.config.TrainArgs):
         max_seq_len=args.max_seq_len,
         toy=debug_mode,
     )
+    scaler = K.normalization.LatentScaler(
+        mode=model_config.normalize_latent_by, origin_dataset=dataset_config.dataset, lm_embedder_type=model_config.lm_embedder_type
+    )
 
     if dataset_config.dataset == "cath":
         num_samples = 35840  # can't do len of an iterable dataset, so write this here
@@ -311,12 +314,12 @@ def main(args: K.config.TrainArgs):
             for batch in train_dl:
                 with accelerator.accumulate(model):
                     if (
-                        K.config.DATASET_TO_PATH[dataset_config.dataset]['loader']
+                        K.config.DATASET_TO_PATH[dataset_config.dataset]["loader"]
                         == "FastaDataset"
                     ):
                         x, mask = prepare_latent_from_fasta(batch)
                     elif (
-                        K.config.DATASET_TO_PATH[dataset_config.dataset]['loader']
+                        K.config.DATASET_TO_PATH[dataset_config.dataset]["loader"]
                         == "ShardedTensorDataset"
                     ):
                         x, mask = prepare_latent_from_shards(batch)
@@ -324,9 +327,7 @@ def main(args: K.config.TrainArgs):
                         raise ValueError(f"Invalid dataset {dataset_config.dataset}")
 
                     # Normalize, maybe
-                    x = K.normalization.scale_embedding(
-                        x, model_config.normalize_latent_by
-                    )
+                    x = scaler.scale(x)
                     extra_args, N = {"mask": mask}, x.shape[0]
                     noise = torch.randn_like(x)  # (N, L, d_model)
 

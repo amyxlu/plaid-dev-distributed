@@ -13,11 +13,11 @@ import argparse
 
 
 ACCEPTED_LM_EMBEDDER_TYPES = [
-    # "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
+    "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
     "esm2_t48_15B_UR50D",  # 5120 
     "esm2_t36_3B_UR50D",  # 2560
     "esm2_t33_650M_UR50D",  # 1280
-    "esm2_t30_150M_UR50D",  # 640
+    "esm2_t30_150M_UR50D",  # 64e $EMBED
     "esm2_t12_35M_UR50D",  # dim=480
     "esm2_t6_8M_UR50D"  # dim=320
 ]
@@ -36,8 +36,6 @@ def parse_args():
 
 def check_model_type(lm_embedder_type):
     assert lm_embedder_type in ACCEPTED_LM_EMBEDDER_TYPES
-    if lm_embedder_type == "esmfold":
-        raise NotImplementedError("already calculated previously, not in this script")
 
 
 def get_dataloader(fasta_file, batch_size=64, n_val=5000):
@@ -53,9 +51,12 @@ def get_dataloader(fasta_file, batch_size=64, n_val=5000):
 
 def make_embedder(lm_embedder_type):
     if lm_embedder_type == "esmfold":
+        print("making esmfold model")
         from k_diffusion.models.esmfold import ESMFold
         embedder = ESMFold(make_trunk=False)
+        alphabet = None
     else:
+        print('loading LM from torch hub')
         embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
     
     embedder = embedder.eval().to("cuda")
@@ -80,24 +81,29 @@ def calc_stats(x, mask):
     return channel_max, channel_min, channel_means, channel_stds
 
 
-def save_npy_pkl(outdir, channel_means, channel_stds, channel_max, challen_min, lm_embedder_type):
+def save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min, lm_embedder_type):
     outdir = Path(outdir)
-    print("save means"); np.save(outdir / f"{lm_embedder_type}_channel_mean.pkl.npy", channel_means, allow_pickle=True)
-    print("save std"); np.save(outdir / f"{lm_embedder_type}_channel_std.pkl.npy", channel_stds, allow_pickle=True)
-    print("save max"); np.save(outdir / f"{lm_embedder_type}_channel_max.pkl.npy", channel_max, allow_pickle=True)
-    print("save min"); np.save(outdir / f"{lm_embedder_type}_channel_min.pkl.npy", challen_min, allow_pickle=True)
+    print("save means"); np.save(outdir / "channel_mean.pkl.npy", channel_means, allow_pickle=True)
+    print("save std"); np.save(outdir / "channel_std.pkl.npy", channel_stds, allow_pickle=True)
+    print("save max"); np.save(outdir / "channel_max.pkl.npy", channel_max, allow_pickle=True)
+    print("save min"); np.save(outdir / "channel_min.pkl.npy", channel_min, allow_pickle=True)
 
 
 def main():
     args = parse_args()
-    dataloader = get_dataloader(args.fasta_file, args.batch_size, args.n_val)
-    repr_layer = int(args.lm_embedder_type.split("_")[1][1:])
+    check_model_type(args.lm_embedder_type)
+    if not args.lm_embedder_type == "esmfold":
+        repr_layer = int(args.lm_embedder_type.split("_")[1][1:])
+    else:
+        repr_layer = None
     embedder, alphabet = make_embedder(args.lm_embedder_type)
+
+    dataloader = get_dataloader(args.fasta_file, args.batch_size, args.n_val)
     outdir = Path(os.path.dirname(__file__)) / f"../cached_tensors/{args.lm_embedder_type}/subset_{args.n_val}_nov28"
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
-    def embed_batch(sequences):
+    def embed_batch(sequences, batch_converter):
         batch = [("", seq) for seq in sequences]
         _, _, tokens = batch_converter(batch)
         device = K.utils.get_model_device(embedder)
@@ -118,14 +124,14 @@ def main():
     xs, masks = [], [] 
 
     for batch in tqdm(dataloader):
-        batch_converter = alphabet.get_batch_converter()
         _, sequences = batch
         sequences = K.utils.get_random_sequence_crop_batch(sequences, args.seq_len, args.min_len)
 
         if args.lm_embedder_type == "esmfold":
             x, mask = embed_batch_esmfold(sequences)
         else:
-            x, mask = embed_batch(sequences)
+            batch_converter = alphabet.get_batch_converter()
+            x, mask = embed_batch(sequences, batch_converter)
 
         xs.append(x.detach().cpu())
         masks.append(mask.detach().cpu())

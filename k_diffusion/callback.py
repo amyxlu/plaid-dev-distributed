@@ -23,6 +23,7 @@ class SampleCallback:
         model: K.Denoiser,
         config: SampleCallbackConfig,
         model_config: ModelConfig,
+        origin_dataset: str = "uniref",
         is_wandb_setup: bool = False,
         device: T.Optional[torch.device] = None,
     ):
@@ -50,6 +51,12 @@ class SampleCallback:
         self.cur_model_step = config.model_step
         self.model_id = config.model_id
         self.uid = str(K.utils.timestamp())
+        self.origin_dataset = origin_dataset
+        self.latent_scaler = K.normalization.LatentScaler(
+            mode=model_config.normalize_latent_by,
+            origin_dataset=origin_dataset,
+            lm_embedder_type=getattr(model_config, "lm_embedder_type", "esmfold")
+        )
 
         self.sequence_constructor, self.structure_constructor = None, None
 
@@ -82,9 +89,7 @@ class SampleCallback:
             x_0 = self.model.inner_model.project_to_input_dim(x_0_raw)
 
         # 1) Normalize, maybe
-        x_0 = K.normalization.undo_scale_embedding(
-            x_0, self.model_config.normalize_latent_by
-        )
+        x_0 = self.latent_scaler.unscale(x_0)
         return x_0, x_0_raw
 
     def sample_latent(self, clip_range=None, save=True, log_wandb_stats=False, return_raw=False):

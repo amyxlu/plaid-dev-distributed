@@ -78,7 +78,7 @@ DATASET_TO_PATH = {
         "loader": "ShardedTensorDataset",
         "full": "/shared/amyxlu/data/cath/shards/",
         "toy": "/shared/amyxlu/data/cath/shards/",
-        "num_holdout": 5120,  # 1 shard
+        "num_holdout": 0  # ignored
     },
     "pfam": {
         "loader": None,
