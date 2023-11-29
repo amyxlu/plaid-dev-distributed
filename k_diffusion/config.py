@@ -103,6 +103,7 @@ class SigmaDensityConfig:
 @dataclass
 class ModelConfig:
     type: str = "protein_transformer_v1"
+    lm_embedder_type: str = "esmfold"  # esm2_t6_8M_UR50D / esm2_t12_35M_UR50D / esm2_t30_150M_UR50D / etc.
     n_layers: int = 5 
     d_model: int = 1024 
     d_ff: int = 256
@@ -130,9 +131,9 @@ class DatasetConfig:
     dataset: str = "uniref"
     random_split_seed: int = 42
     num_holdout: int = 50000
-    path = DATASET_TO_PATH[dataset]["full"]
-    toy_data_path = DATASET_TO_PATH[dataset]["toy"] 
-    num_holdout = DATASET_TO_PATH[dataset]["num_holdout"]
+    path: str = DATASET_TO_PATH[dataset]["full"]
+    toy_data_path: str = DATASET_TO_PATH[dataset]["toy"] 
+    num_holdout: int = DATASET_TO_PATH[dataset]["num_holdout"]
 
 
 @dataclass
@@ -248,6 +249,7 @@ def make_model(config: ModelConfig, max_seq_len: int):
             d_ff=config.d_ff,
             d_head=config.d_head,
             skip_connect=getattr(config, "skip_connect", False),
+            lm_embedder_type=getattr(config, "lm_embedder_type", "esmfold"),
             input_size=max_seq_len,
             input_dim=config.input_dim,
             min_len=config.min_len,
@@ -434,7 +436,7 @@ def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False
     
     elif DATASET_TO_PATH[dataset_config.dataset]["loader"] == "ShardedTensorDataset":
         from . datasets import ShardedTensorDataset
-        shard_dir = Path(DATASET_TO_PATH[dataset_config.dataset]["full"]) / f"seqlen_{max_seq_len}"
+        shard_dir = Path(dataset_config.path) / f"seqlen_{max_seq_len}"
         # train_ds = ShardedTensorDataset(shard_dir, split="train")
         # val_ds = ShardedTensorDataset(shard_dir, split="val")
         train_ds = ShardedTensorDataset(shard_dir, split=None)

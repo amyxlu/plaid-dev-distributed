@@ -7,12 +7,10 @@ import threading
 import urllib
 import warnings
 
-from PIL import Image
 import safetensors
 import torch
 from torch import nn, optim
 from torch.utils import data
-from torchvision.transforms import functional as TF
 import typing as T
 import random
 from pathlib import Path
@@ -20,30 +18,6 @@ from datetime import datetime
 
 import numpy as np
 import torch
-
-
-def from_pil_image(x):
-    """Converts from a PIL image to a tensor."""
-    x = TF.to_tensor(x)
-    if x.ndim == 2:
-        x = x[..., None]
-    return x * 2 - 1
-
-
-def to_pil_image(x):
-    """Converts from a tensor to a PIL image."""
-    if x.ndim == 4:
-        assert x.shape[0] == 1
-        x = x[0]
-    if x.shape[0] == 1:
-        x = x[0]
-    return TF.to_pil_image((x.clamp(-1, 1) + 1) / 2)
-
-
-def hf_datasets_augs_helper(examples, transform, image_key, mode='RGB'):
-    """Apply passed in transforms for HuggingFace Datasets."""
-    images = [transform(image.convert(mode)) for image in examples[image_key]]
-    return {image_key: images}
 
 
 def append_dims(x, target_dims):

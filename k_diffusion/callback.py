@@ -154,8 +154,7 @@ class SampleCallback:
 
     def _fid_setup(self):
         cached_tensors_path = (
-            Path(os.environ["KD_PROJECT_HOME"])
-            / "cached_tensors/holdout_esmfold_feats.st"
+            Path(os.path.dirname(__file__)) / "../cached_tensors/holdout_esmfold_feats.st"
         )
 
         def load_saved_features(location, device="cpu"):

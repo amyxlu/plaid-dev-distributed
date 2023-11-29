@@ -7,6 +7,7 @@
 Model inputs are 1D instead of 2D.
 Attention shapes are mostly the same, except that an attention mask is used for variable lengths. 
 """
+import os
 
 import math
 import typing as T
@@ -24,6 +25,17 @@ from .. import layers, utils, normalization
 # from .axial_rope import AxialRoPE, make_axial_pos
 from .rope import RotaryEmbedding
 from .esmfold import ESMFold, ESMFOLD_S_DIM
+
+
+ACCEPTED_LM_EMBEDDER_TYPES = [
+    "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
+    "esm2_t48_15B_UR50D",  # 5120 
+    "esm2_t36_3B_UR50D",  # 2560
+    "esm2_t33_650M_UR50D",  # 1280
+    "esm2_t30_150M_UR50D",  # 640
+    "esm2_t12_35M_UR50D",  # dim=480
+    "esm2_t6_8M_UR50D"  # dim=320
+]
 
 
 if flags.get_use_compile():
@@ -283,6 +295,7 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         d_ff,
         d_head,
         skip_connect: bool = False,
+        lm_embedder_type: str = "esmfold",
         input_size: int = 512,
         input_dim: int = 1024, 
         min_len: int = 32,
@@ -303,13 +316,20 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         self.d_model = d_model
         self.min_len = min_len
 
+        assert lm_embedder_type in ACCEPTED_LM_EMBEDDER_TYPES
+        self.lm_embedder_type = lm_embedder_type
+        if lm_embedder_type == "esmfold":
+            self.repr_layer = None
+        else:
+            self.repr_layer = int(lm_embedder_type.split("_")[1][1:])
+
+        self.embedder, self.lm_alphabet = self._make_lm_embedder(lm_embedder_type)
+        self.embedder.eval()
+        for param in self.embedder.parameters():
+            param.requires_grad = False
+
         # project from the ESMFold latent to the actual dimension for latent diffusion
         self.latent_in_proj = nn.Linear(input_dim, d_model, bias=False)
-
-        self.esmfold_embedder = ESMFold(make_trunk=False)
-        self.esmfold_embedder.eval()
-        if not self.esmfold_embedder.trunk is None:
-            self.esmfold_embedder.set_chunk_size(128)
 
         # TODO: what are these constants in the architecture for the initial codebase?
         self.time_emb = layers.FourierFeatures(1, d_model)
@@ -358,6 +378,20 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         self.out_norm = RMSNorm(d_model)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
 
+    def _make_lm_embedder(self, lm_embedder_type: str):
+        if lm_embedder_type == "esmfold":
+            embedder = ESMFold(make_trunk=False)
+            embedder.eval()
+            if not embedder.trunk is None:
+                embedder.set_chunk_size(128)
+            alphabet = None
+        else:
+            try:
+                embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
+            except:
+                raise ValueError("Expected lm_embedder_type to be one of: ", ACCEPTED_LM_EMBEDDER_TYPES, " but got ", lm_embedder_type)
+        return embedder, alphabet
+
     def proj_(self):
         for block in self.blocks:
             block.self_attn.qk_norm.proj_()
@@ -391,10 +425,20 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         Used for training only.
         """
         sequences = utils.get_random_sequence_crop_batch(sequences, self.input_size, self.min_len)
-
         with torch.no_grad():
-            embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)
-        return embeddings_dict["s"], embeddings_dict["mask"]
+            if self.lm_embedder_type == "esmfold":
+                embeddings_dict = self.embedder.infer_embedding(sequences)
+                return embeddings_dict["s"], embeddings_dict["mask"]
+            else:
+                batch_converter = self.lm_alphabet.get_batch_converter()
+                batch = [("", seq) for seq in sequences]
+                _, _, tokens = batch_converter(batch)
+                device = utils.get_model_device(self.embedder)
+                tokens = tokens.to(device)
+                mask = (tokens != self.lm_alphabet.padding_idx)
+                with torch.no_grad():
+                    results = self.embedder(tokens, repr_layers=[self.repr_layer], return_contacts=False)
+                return results["representations"][self.repr_layer], mask
     
     def project_to_d_model(self, x: torch.Tensor):
         assert x.shape[-1] == self.input_dim, "x must have the same last dimension as input_dim"

@@ -6,12 +6,17 @@ An implementation of [Elucidating the Design Space of Diffusion-Based Generative
 `find . -type f -mtime +XXX -exec rm {} \;`
 `find . -type f -mtime +4`
 
-singularity exec 
 
-To build a docker container that mounts locally (on DGX5):
+To run an image that mounts locally (on DGX5) as root user:
 ```
-docker run --name unique-name-here --gpus all --mount type=bind,source="/home/amyxlu/kdiffusion",target=/mnt/kdiffusion -t -a stdin -a stdout -i ef9c0699e29a /bin/bash
+docker run -it --net=host --user root --mount type=bind,source="/home/amyxlu/kdiffusion",target=/mnt/kdiffusion mambaorg/micromamba:jammy-cuda-12.2.0 /bin/bash
+
+# if nvidia-container-toolkit is installed
+docker run -it --name mambacuda --gpus all --net=host --user root --mount type=bind,source="/home/amyxlu/kdiffusion",target=/mnt/kdiffusion mambaorg/micromamba:jammy-cuda-12.2.0 /bin/bash
 ```
+Replace `source="..."` with the source directory on your local machine.
+
+This base image will use `micromamba` instead of `conda`, but most common conda commands can be used by directly swapping out `conda` for `micromamba`.
 
 ```
 pip install "fair-esm[esmfold]"

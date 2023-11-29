@@ -35,7 +35,8 @@ PROTEINMPNN_AACHAR_TO_AAIDX_ARR = list("ARNDCQEGHILKMFPSTWYV-")
 PROTEINMPNN_AAIDX_TO_AACHAR = {idx: char for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
 PROTEINMPNN_AACHAR_TO_AAIDX = {char: idx for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
 
-DECODER_CKPT_PATH = Path(os.environ['KD_PROJECT_HOME']) / "cached_tensors" / "decoder_vocab_21.ckpt"
+cache_dir = Path(os.path.dirname(__file__)) / "../cached_tensors/subset_5000_oct24"
+DECODER_CKPT_PATH = Path(os.path.dirname(__file__)) / "../cached_tensors/decoder_vocab_21.ckpt"
 
 
 def load_sequence_decoder(ckpt_path=None, device=None, eval_mode=True):

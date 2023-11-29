@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import typing as T
 import torch
@@ -7,6 +8,7 @@ from . import utils
 
 ArrayLike = T.Union[np.ndarray, T.List[float], torch.Tensor]
 
+cache_dir = Path(os.path.dirname(__file__)) / "../cached_tensors/subset_5000_oct24"
 
 GLOBAL_SEQEMB_STATS = {
     "uniref": {
@@ -25,10 +27,10 @@ GLOBAL_SEQEMB_STATS = {
 
 CHANNELWISE_NPY_PATHS = {
     "uniref": {
-        "max": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_max.pkl.npy",
-        "min": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_min.pkl.npy",
-        "mean": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_mean.pkl.npy",
-        "std": f"{os.environ['KD_PROJECT_HOME']}/cached_tensors/subset_5000_oct24/channel_std.pkl.npy",
+        "max": cache_dir / "channel_max.pkl.npy", 
+        "min": cache_dir / "channel_min.pkl.npy", 
+        "mean": cache_dir / "channel_mean.pkl.npy",
+        "std": cache_dir / "channel_std.pkl.npy", 
     }
 }
 
