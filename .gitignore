@@ -9,6 +9,6 @@ wandb/*
 *.csv
 .env
 *.safetensors
-cached_tensors
+cached_tensors/holdout_esmfold_feats.st
 artifacts
 .vscode
