@@ -6,10 +6,12 @@
 #SBATCH --time=12:00:00
 #SBATCH --cpus-per-task=4
 #SBATCH --gres=gpu:A5000:1
+export SCRATCH=/global/scratch/users/amyxlu
+export WANDB_API_KEY=1c948549adbe36ba6bba1087e9209b287c7cccd8
 
-singularity exec /global/scratch/amyxlu/images/plaid.sif \
+singularity exec --nv $SCRATCH/images/plaid.sif \
     python train_protein.py \
     --dataset-config.dataset cath \
-    --dataset-config.path /global/scratch/amyxlu/data/cath/shards/ \
-    --artifacts-dir /global/scratch/amyxlu/artifacts/plaid/ \
+    --dataset-config.path $SCRATCH/data/cath/shards/ \
+    --artifacts-dir $SCRATCH/artifacts/plaid/ \
     --name BRC_$SLURM_JOB_ID

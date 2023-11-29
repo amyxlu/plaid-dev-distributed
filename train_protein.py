@@ -39,6 +39,7 @@ def main(args: K.config.TrainArgs):
         torch._dynamo.config.automatic_dynamic_shapes = False
     except AttributeError:
         pass
+    torch.hub.set_dir(args.artifacts_dir)
 
     # ==============================================================================
     # set up config

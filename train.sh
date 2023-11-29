@@ -3,6 +3,7 @@
 #     --dataset-config.path /root/data/cath/shards/ \
 #     --artifacts-dir /root/artifacts \
 #     --name test_docker
+
 CUDA_VISIBLE_DEVICES=2 python train_protein.py \
     --dataset-config.dataset cath \
     --dataset-config.path /shared/amyxlu/data/cath/shards/ \
