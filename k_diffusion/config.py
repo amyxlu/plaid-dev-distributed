@@ -218,7 +218,7 @@ class TrainArgs:
     resume_inference: Optional[str] = None
     sample_n: int = 64
     log_every: int = 25
-    sample_every: int = 10
+    sample_every: int = 1000
     save_every: int = 5000
     seed: Optional[int] = None
     start_method: str = "spawn"
