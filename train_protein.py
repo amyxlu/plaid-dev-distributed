@@ -272,7 +272,7 @@ def main(args: K.config.TrainArgs):
         should_we_log = sample_config.log_to_wandb and (not debug_mode)
         sample_config.model_step = step
 
-        sampler = SampleCallback(
+        sampler = K.callback.SampleCallback(
             model=model,
             config=sample_config,
             model_config=model_config,
@@ -284,15 +284,15 @@ def main(args: K.config.TrainArgs):
         # sample latent and calculate KID/FID to the saved known distribution
         print("Sampling latent...")
         sampled_latent, stats_dict = sampler.sample_latent(
-            clip_range=config.clip_range, save=True, log_wandb_stats=should_we_log, return_raw=False,
+            clip_range=sample_config.clip_range, save=True, log_wandb_stats=should_we_log, return_raw=False,
         )
         print(stats_dict)
 
         print("Constructing sequences...")
         _, _, strs, _ = sampler.construct_sequence(
             sampled_latent,
-            calc_perplexity=config.calc_perplexity,
-            save_to_disk=config.save_to_disk,
+            calc_perplexity=sample_config.calc_perplexity,
+            save_to_disk=sample_config.save_to_disk,
             log_to_wandb=should_we_log,
         )
 

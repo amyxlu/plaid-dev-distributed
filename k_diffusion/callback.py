@@ -7,10 +7,9 @@ from dataclasses import dataclass, field
 import torch
 import enum
 
-# import accelerate
-import k_diffusion as K
-from k_diffusion.model_loading_utils import load_model, infer_ckpt_path
-from k_diffusion.config import ModelConfig, SampleCallbackConfig
+from .model_loading_utils import load_model, infer_ckpt_path
+from .config import ModelConfig, SampleCallbackConfig, make_sample_solver_fn, dataclass_to_dict
+from . import utils, normalization, sampling, proteins, evaluation, layers 
 import pandas as pd
 import safetensors.torch as st
 
@@ -21,7 +20,7 @@ PROJECT_NAME = "kdplaid_sample"
 class SampleCallback:
     def __init__(
         self,
-        model: K.Denoiser,
+        model: layers.Denoiser,
         config: SampleCallbackConfig,
         model_config: ModelConfig,
         origin_dataset: str = "uniref",
@@ -52,9 +51,9 @@ class SampleCallback:
         self.is_fid_setup = False
         self.cur_model_step = config.model_step
         self.model_id = config.model_id
-        self.uid = str(K.utils.timestamp())
+        self.uid = str(utils.timestamp())
         self.origin_dataset = origin_dataset
-        self.latent_scaler = K.normalization.LatentScaler(
+        self.latent_scaler = normalization.LatentScaler(
             mode=model_config.normalize_latent_by,
             origin_dataset=origin_dataset,
             lm_embedder_type=getattr(model_config, "lm_embedder_type", "esmfold")
@@ -75,14 +74,14 @@ class SampleCallback:
         model_fn, extra_args = self.model, {
             "mask": torch.ones(n, cfg.seq_len, device=self.device).long(),
         }
-        sigmas = K.sampling.get_sigmas_karras(
+        sigmas = sampling.get_sigmas_karras(
             cfg.n_steps,
             cfg.sigma_min,
             cfg.sigma_max,
             rho=cfg.rho,
             device=self.device,
         )
-        sample_fn = K.config.make_sample_solver_fn(cfg.solver_type)
+        sample_fn = make_sample_solver_fn(cfg.solver_type)
         sample_fn_kwargs = {"sigmas": sigmas, "clip_range": clip_range, "extra_args": extra_args}
         x_0_raw = sample_fn(model_fn, x, **sample_fn_kwargs)
 
@@ -140,7 +139,7 @@ class SampleCallback:
             self.outdir.mkdir(parents=True)
             print("Created directory", self.outdir)
 
-        args_dict = (K.config.dataclass_to_dict(self.config),)
+        args_dict = (dataclass_to_dict(self.config),)
         with open(self.outdir / "config.json", "w") as f:
             f.write(json.dumps(args_dict))
         self.is_save_setup = True
@@ -148,7 +147,7 @@ class SampleCallback:
     def _wandb_setup(self):
         print(f"Setting up wandb logging for model {self.model_id}...")
         print("Warning: this should only be used if you're NOT using the class as a Trainer callback.")
-        config = K.config.dataclass_to_dict(self.config)
+        config = dataclass_to_dict(self.config)
         wandb.init(
             id=self.uid,
             name=f"{self.model_id}_{str(self.config.solver_type)}",
@@ -160,7 +159,7 @@ class SampleCallback:
         self.is_wandb_setup = True
 
     def _perplexity_setup(self):
-        self.perplexity_calc = K.evaluation.RITAPerplexity(self.device)
+        self.perplexity_calc = evaluation.RITAPerplexity(self.device)
         self.is_perplexity_setup = True
 
     def _fid_setup(self):
@@ -188,8 +187,8 @@ class SampleCallback:
         real_features = real_features.to(device=self.device)
         assert real_features.ndim == fake_features.ndim == 2
 
-        fid = K.evaluation.fid(fake_features, real_features)
-        kid = K.evaluation.kid(fake_features, real_features)
+        fid = evaluation.fid(fake_features, real_features)
+        kid = evaluation.kid(fake_features, real_features)
 
         log_dict = {f"{wandb_prefix}fid": fid, f"{wandb_prefix}kid": kid, "step": self.config.model_step}
         if log_to_wandb:
@@ -207,7 +206,7 @@ class SampleCallback:
         wandb_prefix: str = "",
     ):
         if self.sequence_constructor is None:
-            self.sequence_constructor = K.proteins.LatentToSequence(
+            self.sequence_constructor = proteins.LatentToSequence(
                 device=self.device, temperature=self.config.sequence_decode_temperature
             )
 
@@ -228,7 +227,7 @@ class SampleCallback:
         if save_to_disk:
             if not self.is_save_setup:
                 self._save_setup()
-            K.utils.write_to_fasta(strs, self.outdir / "sequences.fasta")
+            utils.write_to_fasta(strs, self.outdir / "sequences.fasta")
             with open(self.outdir / "batch_perplexity.txt", "w") as f:
                 f.write(f"{perplexity:.3f}")
 
@@ -245,7 +244,7 @@ class SampleCallback:
 
     def construct_structure(self, x_0, seq_str, save_to_disk=True, log_to_wandb=False, wandb_prefix: str = ""):
         if self.structure_constructor is None:
-            self.structure_constructor = K.proteins.LatentToStructure(
+            self.structure_constructor = proteins.LatentToStructure(
                 device=self.device
             )
         pdb_strs, metrics = self.structure_constructor.to_structure(
@@ -258,7 +257,7 @@ class SampleCallback:
             if not self.is_save_setup:
                 self._save_setup()
             for i, pdb_str in enumerate(pdb_strs):
-                K.utils.write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
+                utils.write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
             metrics.to_csv(self.outdir / "structure_metrics.csv")
 
         log_dict = {

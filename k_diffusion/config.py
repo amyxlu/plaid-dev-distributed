@@ -128,7 +128,7 @@ class ModelConfig:
 
 @dataclass
 class DatasetConfig:
-    dataset: str = "uniref"
+    dataset: str = "cath"
     random_split_seed: int = 42
     num_holdout: int = 50000
     path: str = DATASET_TO_PATH[dataset]["full"]
@@ -204,7 +204,6 @@ class TrainArgs:
     demo_every: int = 0
     end_step: Optional[int] = None
     embedding_n: Optional[int] = None
-    evaluate_every: int = 1000
     gns: bool = False
     grad_accum_steps: int = 1
     mixed_precision: Optional[str] = "bf16"
@@ -219,6 +218,7 @@ class TrainArgs:
     resume_inference: Optional[str] = None
     sample_n: int = 64
     log_every: int = 25
+    sample_every: int = 10
     save_every: int = 5000
     seed: Optional[int] = None
     start_method: str = "spawn"
