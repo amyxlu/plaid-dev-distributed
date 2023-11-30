@@ -218,7 +218,7 @@ class LatentScaler:
                     raise NotImplementedError
             return x_scaled
 
-    def undo_scale_embedding(self, x_scaled: ArrayLike):
+    def unscale(self, x_scaled: ArrayLike):
         if (self.mode is None) or (self.mode == "none"):
             return x_scaled
         else:

@@ -7,6 +7,8 @@
 Model inputs are 1D instead of 2D.
 Attention shapes are mostly the same, except that an attention mask is used for variable lengths. 
 """
+from pathlib import Path 
+import json
 import os
 
 import math
@@ -20,7 +22,7 @@ import torch._dynamo
 from torch.nn import functional as F
 
 from . import flags
-from .. import layers, utils, normalization 
+from .. import layers, utils, normalization, config 
 
 # from .axial_rope import AxialRoPE, make_axial_pos
 from .rope import RotaryEmbedding
@@ -323,9 +325,9 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         else:
             self.repr_layer = int(lm_embedder_type.split("_")[1][1:])
 
-        self.embedder, self.lm_alphabet = self._make_lm_embedder(lm_embedder_type)
-        self.embedder.eval()
-        for param in self.embedder.parameters():
+        self.esmfold_embedder, self.lm_alphabet = self._make_lm_embedder(lm_embedder_type)
+        self.esmfold_embedder.eval()
+        for param in self.esmfold_embedder.parameters():
             param.requires_grad = False
 
         # project from the ESMFold latent to the actual dimension for latent diffusion
@@ -427,17 +429,17 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         sequences = utils.get_random_sequence_crop_batch(sequences, self.input_size, self.min_len)
         with torch.no_grad():
             if self.lm_embedder_type == "esmfold":
-                embeddings_dict = self.embedder.infer_embedding(sequences)
+                embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)
                 return embeddings_dict["s"], embeddings_dict["mask"]
             else:
                 batch_converter = self.lm_alphabet.get_batch_converter()
                 batch = [("", seq) for seq in sequences]
                 _, _, tokens = batch_converter(batch)
-                device = utils.get_model_device(self.embedder)
+                device = utils.get_model_device(self.esmfold_embedder)
                 tokens = tokens.to(device)
                 mask = (tokens != self.lm_alphabet.padding_idx)
                 with torch.no_grad():
-                    results = self.embedder(tokens, repr_layers=[self.repr_layer], return_contacts=False)
+                    results = self.esmfold_embedder(tokens, repr_layers=[self.repr_layer], return_contacts=False)
                 return results["representations"][self.repr_layer], mask
     
     def project_to_d_model(self, x: torch.Tensor):
@@ -447,14 +449,6 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
     def project_to_input_dim(self, x: torch.Tensor):
         assert x.shape[-1] == self.d_model, "x must have the same last dimension as d_model"
         return x @ self.latent_in_proj.weight.data  # (batch_size, d_model) @ (d_model, input_dim)
-
-    def raw_to_latent(self, x: torch.Tensor, normalization_mode: str = "channel_minmax"):
-        # 2) Upproject latent space, maybe
-        if self.model_config.d_model != self.model_config.input_dim:
-            x = self.model.inner_model.project_to_input_dim(x)
-        # 1) Normalize, maybe
-        x = normalization.undo_scale_embedding(x, normalization_mode) 
-        return x
     
     def forward(
         self,

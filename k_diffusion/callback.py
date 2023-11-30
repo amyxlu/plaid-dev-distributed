@@ -9,6 +9,7 @@ import enum
 
 # import accelerate
 import k_diffusion as K
+from k_diffusion.model_loading_utils import load_model, infer_ckpt_path
 from k_diffusion.config import ModelConfig, SampleCallbackConfig
 import pandas as pd
 import safetensors.torch as st
@@ -32,7 +33,7 @@ class SampleCallback:
         TODO: If using this during training and wanting to mulitprocess, need to use accelerate.Accelerator to wrap the model and the callback.
 
         Args:
-            model (torch.nn.Module): _description_
+            model (torch.nn.Module): _description
             config (SampleCallbackConfig): _description_
             use_wandb (bool, optional): _description_. Defaults to False.
         """
@@ -43,6 +44,7 @@ class SampleCallback:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = device
+        self.model.to(self.device)
 
         self.is_save_setup = False
         self.is_wandb_setup = is_wandb_setup
@@ -87,6 +89,8 @@ class SampleCallback:
         # 2) Downproject latent space, maybe
         if self.model_config.d_model != self.model_config.input_dim:
             x_0 = self.model.inner_model.project_to_input_dim(x_0_raw)
+        else:
+            x_0 = x_0_raw
 
         # 1) Normalize, maybe
         x_0 = self.latent_scaler.unscale(x_0)
@@ -110,23 +114,24 @@ class SampleCallback:
                 self._save_setup()
             torch.save(x_0, self.outdir / "samples.pth")
             torch.save(x_0_raw, self.outdir / "samples_raw.pth")
+        
+        log_dict = {
+            "sampled_latent_mean": x_0.mean(),
+            "sampled_latent_std": x_0.std(),
+            "raw_sampled_latent_mean": x_0_raw.mean(),
+            "raw_sampled_latent_std": x_0_raw.std(),
+            "step": self.config.model_step,
+        }
 
         if log_wandb_stats:
             if not self.is_wandb_setup:
                 self._wandb_setup()
-            wandb.log(
-                {
-                    "sampled_latent_mean": x_0.mean(),
-                    "sampled_latent_std": x_0.std(),
-                    "raw_sampled_latent_mean": x_0_raw.mean(),
-                    "raw_sampled_latent_std": x_0_raw.std(),
-                    "step": self.config.model_step,
-                }
-            )
+            wandb.log(log_dict)
+        
         if return_raw:
-            return x_0, x_0_raw
+            return x_0, x_0_raw, log_dict
         else:
-            return x_0
+            return x_0, log_dict
 
     def _save_setup(self):
         base_artifact_dir = Path(self.config.base_artifact_dir)
@@ -142,6 +147,7 @@ class SampleCallback:
 
     def _wandb_setup(self):
         print(f"Setting up wandb logging for model {self.model_id}...")
+        print("Warning: this should only be used if you're NOT using the class as a Trainer callback.")
         config = K.config.dataclass_to_dict(self.config)
         wandb.init(
             id=self.uid,
@@ -168,6 +174,7 @@ class SampleCallback:
         self.real_features = load_saved_features(
             cached_tensors_path, device=self.device
         )
+        self.real_features = self.real_features[torch.randperm(self.real_features.size(0))[:self.config.n_to_sample]]
 
     def calculate_fid(self, sampled_latent, log_to_wandb=False, wandb_prefix: str = ""):
         if not self.is_fid_setup:
@@ -184,11 +191,12 @@ class SampleCallback:
         fid = K.evaluation.fid(fake_features, real_features)
         kid = K.evaluation.kid(fake_features, real_features)
 
+        log_dict = {f"{wandb_prefix}fid": fid, f"{wandb_prefix}kid": kid, "step": self.config.model_step}
         if log_to_wandb:
             if not self._wandb_setup:
                 self._wandb_setup()
-            wandb.log({f"{wandb_prefix}fid": fid, f"{wandb_prefix}kid": kid, "step": self.config.model_step})
-        return fid, kid
+            wandb.log(log_dict)
+        return fid, kid, log_dict
 
     def construct_sequence(
         self,
@@ -224,19 +232,18 @@ class SampleCallback:
             with open(self.outdir / "batch_perplexity.txt", "w") as f:
                 f.write(f"{perplexity:.3f}")
 
+        log_dict = {
+            f"{wandb_prefix}sequences": wandb.Table(dataframe=sequence_results),
+            f"{wandb_prefix}batch_perplexity": perplexity,
+            "step": self.config.model_step,
+        }
         if log_to_wandb:
             if not self.is_wandb_setup:
                 self._wandb_setup()
-            wandb.log(
-                {
-                    f"{wandb_prefix}sequences": wandb.Table(dataframe=sequence_results),
-                    f"{wandb_prefix}batch_perplexity": perplexity,
-                    "step": self.config.model_step,
-                }
-            )
-        return probs, idxs, strs
+            wandb.log(log_dict)
+        return probs, idxs, strs, log_dict
 
-    def construct_structure(self, x_0, seq_str, save_to_disk=True, log_to_wandb=False):
+    def construct_structure(self, x_0, seq_str, save_to_disk=True, log_to_wandb=False, wandb_prefix: str = ""):
         if self.structure_constructor is None:
             self.structure_constructor = K.proteins.LatentToStructure(
                 device=self.device
@@ -254,54 +261,26 @@ class SampleCallback:
                 K.utils.write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
             metrics.to_csv(self.outdir / "structure_metrics.csv")
 
+        log_dict = {
+                f"{wandb_prefix}plddt_mean": metrics["plddt"].mean(),
+                f"{wandb_prefix}plddt_std": metrics["plddt"].std(),
+                f"{wandb_prefix}plddt_min": metrics["plddt"].min(),
+                f"{wandb_prefix}plddt_max": metrics["plddt"].max(),
+                f"step": self.config.model_step,
+            }
         if log_to_wandb:
-            wandb.log(
-                {
-                    "plddt_mean": metrics["plddt"].mean(),
-                    "plddt_std": metrics["plddt"].std(),
-                    "plddt_min": metrics["plddt"].min(),
-                    "plddt_max": metrics["plddt"].max(),
-                    "step": self.config.model_step,
-                }
-            )
-        return pdb_strs, metrics
-
-
-def load_model(model_id, model_dir, model_step=-1):
-    base_artifact_dir = Path(model_dir)
-    if model_step == -1:
-        state_path = base_artifact_dir / "checkpoints" / model_id / "state.json"
-        state = json.load(open(state_path))
-        filename = state["latest_checkpoint"]
-        config.model_step = int(state["latest_checkpoint"].split("/")[-1].split(".")[0])
-    else:
-        filename = str(
-            base_artifact_dir
-            / "checkpoints"
-            / config.model_id
-            / f"{config.model_step:08}.pth"
-        )
-
-    print("Loading checkpoint from", filename)
-    ckpt = torch.load(filename, map_location="cpu")
-    model_config = K.config.ModelConfig(**ckpt["config"]["model_config"])
-
-    inner_model = (
-        K.config.make_model(model_config).eval().requires_grad_(False)
-    )
-    if config.use_ema:
-        inner_model.load_state_dict(ckpt["model_ema"])
-    else:
-        inner_model.load_state_dict(ckpt["model"])
-    model = K.config.make_denoiser_wrapper(model_config)(inner_model)
-    return model, inner_model, model_config
+            wandb.log(log_dict)
+        return pdb_strs, metrics, log_dict
 
 
 def main(
     config: SampleCallbackConfig,
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, inner_model, model_config = load_model(config.model_id, config.model_dir, config.model_step) 
+    ckpt_path = infer_ckpt_path(config.model_dir, config.model_id, config.model_step)
+    model, inner_model, model_config = load_model(ckpt_path, config.use_ema)
+    config.model_step = int(Path(ckpt_path).name.split(".")[0])
+
     # instantiate sampler object
     print("Instantiating sampler callback object...")
     sampler = SampleCallback(
@@ -315,7 +294,7 @@ def main(
     # Load checkpoint from model_id and step
     # sample latent and calculate KID/FID to the saved known distribution
     print("Sampling latent...")
-    sampled_latent, sampled_raw = sampler.sample_latent(
+    sampled_latent, sampled_raw, _ = sampler.sample_latent(
         clip_range=config.clip_range, save=True, log_wandb_stats=config.log_to_wandb, return_raw=True
     )
     sampled_raw_expanded = inner_model.project_to_input_dim(sampled_raw.to(device))
@@ -327,10 +306,10 @@ def main(
         )
         print("FID:", fid, "KID:", kid)
 
-        print("Calculating unnormalized FID/KID...")
-        fid, kid = sampler.calculate_fid(
-            sampled_raw_expanded, log_to_wandb=config.log_to_wandb, wandb_prefix="raw_unnormalized_"
-        )
+        # print("Calculating unnormalized FID/KID...")
+        # fid, kid, _ = sampler.calculate_fid(
+        #     sampled_raw_expanded, log_to_wandb=config.log_to_wandb, wandb_prefix="raw_unnormalized_"
+        # )
 
     # potentially take a smaller subset to decode into structure/sequence and evaluate
     if not config.n_to_construct == -1:
@@ -339,24 +318,24 @@ def main(
         ]
 
     print("Constructing sequences...")
-    _, _, strs = sampler.construct_sequence(
+    _, _, strs, _ = sampler.construct_sequence(
         sampled_latent,
         calc_perplexity=config.calc_perplexity,
         save_to_disk=config.save_to_disk,
         log_to_wandb=config.log_to_wandb,
     )
 
-    print("Constructing sequences from unnormalized latent...")
-    _, _, strs = sampler.construct_sequence(
-        sampled_raw_expanded,
-        calc_perplexity=config.calc_perplexity,
-        save_to_disk=config.save_to_disk,
-        log_to_wandb=config.log_to_wandb,
-        wandb_prefix="raw_unnormalized_"
-    )
+    # print("Constructing sequences from unnormalized latent...")
+    # _, _, strs = sampler.construct_sequence(
+    #     sampled_raw_expanded,
+    #     calc_perplexity=config.calc_perplexity,
+    #     save_to_disk=config.save_to_disk,
+    #     log_to_wandb=config.log_to_wandb,
+    #     wandb_prefix="raw_unnormalized_"
+    # )
 
     print("Constructing structures...")
-    _, metrics = sampler.construct_structure(
+    _, metrics. _ = sampler.construct_structure(
         sampled_latent,
         strs,
         save_to_disk=config.save_to_disk,

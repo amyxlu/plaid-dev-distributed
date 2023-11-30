@@ -39,10 +39,10 @@ def main(args: K.config.TrainArgs):
         torch._dynamo.config.automatic_dynamic_shapes = False
     except AttributeError:
         pass
-    torch.hub.set_dir(args.artifacts_dir)
+    torch.hub.set_dir(Path(args.artifacts_dir) / "torch_hub")
 
     # ==============================================================================
-    # set up config
+    # maybe set up configs resume
     # ==============================================================================
     debug_mode = args.debug_mode
     if args.name == "":
@@ -84,8 +84,15 @@ def main(args: K.config.TrainArgs):
     sched_config = args.sched_config
     ema_sched_config = args.ema_sched_config
 
+    # override some things in sample_config
+    sample_config = args.sample_config
+    sample_config.sigma_max = model_config.sigma_max
+    sample_config.sigma_min = model_config.sigma_min
+    sample_config.batch_size = args.batch_size
+    sample_config.model_id = args.name
+
     # ==============================================================================
-    # initialize objects and set up distributed training
+    # set distributed training
     # ==============================================================================
     ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=True)
     accelerator = accelerate.Accelerator(
@@ -110,6 +117,9 @@ def main(args: K.config.TrainArgs):
         torch.randint(-(2**63), 2**63 - 1, ()).item()
     )
 
+    # ==============================================================================
+    # make models 
+    # ==============================================================================
     inner_model = K.config.make_model(model_config, max_seq_len=args.max_seq_len)
     inner_model_ema = deepcopy(inner_model)
     num_parameters = K.utils.count_parameters(inner_model, require_grad_only=True)
@@ -124,7 +134,9 @@ def main(args: K.config.TrainArgs):
     # models must be prepared before optimizer creation if using FSDP
     inner_model, inner_model_ema = accelerator.prepare(inner_model, inner_model_ema)
 
-    # If logging to wandb, initialize the run
+    # ==============================================================================
+    # wandb 
+    # ==============================================================================
     use_wandb = accelerator.is_main_process and not debug_mode
     if use_wandb:
         log_config = K.config.dataclass_to_dict(args)
@@ -139,7 +151,9 @@ def main(args: K.config.TrainArgs):
             save_code=True,
         )
 
-    # optimizer
+    # ==============================================================================
+    # optimizer and EMA 
+    # ==============================================================================
     lr = opt_config.lr
     groups = unwrap(inner_model).param_groups(lr)
     if opt_config.type == "adamw":
@@ -167,6 +181,9 @@ def main(args: K.config.TrainArgs):
     )
     ema_stats = {}
 
+    # ==============================================================================
+    # dataset and latent scaler 
+    # ==============================================================================
     train_dl, _ = K.config.make_dataset(
         dataset_config,
         batch_size=args.batch_size,
@@ -245,7 +262,50 @@ def main(args: K.config.TrainArgs):
         unwrap(model.inner_model).load_state_dict(ckpt)
         unwrap(model_ema.inner_model).load_state_dict(ckpt)
         del ckpt
+    
 
+    # ==============================================================================
+    # sample / eval function 
+    # ==============================================================================
+    def sample(step):
+        print("Instantiating sampler callback object...")
+        should_we_log = sample_config.log_to_wandb and (not debug_mode)
+        sample_config.model_step = step
+
+        sampler = SampleCallback(
+            model=model,
+            config=sample_config,
+            model_config=model_config,
+            is_wandb_setup=True, # skip setting up
+            device=device,
+        )
+
+        # Load checkpoint from model_id and step
+        # sample latent and calculate KID/FID to the saved known distribution
+        print("Sampling latent...")
+        sampled_latent, stats_dict = sampler.sample_latent(
+            clip_range=config.clip_range, save=True, log_wandb_stats=should_we_log, return_raw=False,
+        )
+        print(stats_dict)
+
+        print("Constructing sequences...")
+        _, _, strs, _ = sampler.construct_sequence(
+            sampled_latent,
+            calc_perplexity=config.calc_perplexity,
+            save_to_disk=config.save_to_disk,
+            log_to_wandb=should_we_log,
+        )
+
+        print("Calculating FID/KID...")
+        fid, kid, _ = sampler.calculate_fid(
+            sampled_latent, log_to_wandb=should_we_log
+        )
+        print("FID:", fid, "KID:", kid)
+        
+
+    # ==============================================================================
+    # save function
+    # ==============================================================================
     def save():
         accelerator.wait_for_everyone()
         filename = str(checkpoints_dir / f"{step:08}.pth")
@@ -410,6 +470,9 @@ def main(args: K.config.TrainArgs):
 
                 if step == args.end_step or (step > 0 and step % args.save_every == 0):
                     save()
+                
+                if step > 0 and step % args.sample_every == 0:
+                    sample(step)
 
                 if step == args.end_step:
                     if accelerator.is_main_process:

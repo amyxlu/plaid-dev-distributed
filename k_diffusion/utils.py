@@ -588,6 +588,7 @@ def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
         sequence_batch = list(filter(lambda s: len(s) >= min_len, sequence_batch))
     return [_get_random_sequence_crop(seq, max_len) for seq in sequence_batch]
 
+
 def print_cuda_memory_usage():
     if torch.cuda.is_available():
         print(f'Current CUDA memory allocated: {torch.cuda.memory_allocated() / 1024 ** 2} MB')

@@ -162,11 +162,11 @@ class EMASchedulerConfig:
 
 @dataclass
 class SampleCallbackConfig:
-    solver_type: SampleSolverType = SampleSolverType.DPMPP_2M_SDE
+    solver_type: SampleSolverType = SampleSolverType.LMS
     seq_len: int = 128
     use_ema: bool = True
     batch_size: int = 32
-    n_to_sample: int = 32
+    n_to_sample: int = 128 
     n_to_construct: int = -1
     num_recycles: int = 4
     sigma_max: float = 1e-2
@@ -175,14 +175,15 @@ class SampleCallbackConfig:
     n_steps: int = 15
     model_id: Optional[str] = None
     model_step: Optional[int] = None
+    model_dir: str = "/shared/amyxlu/kdplaid"
     device_id: int = 0
-    save_to_disk: bool = True
-    log_to_wandb: bool = False
+    save_to_disk: bool = False 
+    log_to_wandb: bool = True 
     calc_perplexity: bool = True
     base_artifact_dir: str = "/shared/amyxlu/kdplaid"
     sequence_decode_temperature: float = 1.0
-    calc_fid: bool = False
-    clip_range: Optional[Tuple[float]] = None  # (min, max)
+    calc_fid: bool = True 
+    clip_range: Optional[Tuple[float]] = (-1, 1)  # (min, max)
 
 
 @dataclass
@@ -204,7 +205,6 @@ class TrainArgs:
     end_step: Optional[int] = None
     embedding_n: Optional[int] = None
     evaluate_every: int = 1000
-    evaluate_with: str = "esmfold_embed"
     gns: bool = False
     grad_accum_steps: int = 1
     mixed_precision: Optional[str] = "bf16"

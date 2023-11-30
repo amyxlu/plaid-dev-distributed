@@ -373,14 +373,17 @@ class DPMSolver(nn.Module):
             self.eps_callback()
         return eps, {key: eps, **eps_cache}
 
-    def dpm_solver_1_step(self, x, t, t_next, eps_cache=None):
+    def dpm_solver_1_step(self, x, t, t_next, eps_cache=None, clip_range=None):
         eps_cache = {} if eps_cache is None else eps_cache
         h = t_next - t
         eps, eps_cache = self.eps(eps_cache, 'eps', x, t)
         x_1 = x - self.sigma(t_next) * h.expm1() * eps
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x_1 = x_1.clamp(clip_min, clip_max)
         return x_1, eps_cache
 
-    def dpm_solver_2_step(self, x, t, t_next, r1=1 / 2, eps_cache=None):
+    def dpm_solver_2_step(self, x, t, t_next, r1=1 / 2, eps_cache=None, clip_range=None):
         eps_cache = {} if eps_cache is None else eps_cache
         h = t_next - t
         eps, eps_cache = self.eps(eps_cache, 'eps', x, t)
@@ -388,9 +391,12 @@ class DPMSolver(nn.Module):
         u1 = x - self.sigma(s1) * (r1 * h).expm1() * eps
         eps_r1, eps_cache = self.eps(eps_cache, 'eps_r1', u1, s1)
         x_2 = x - self.sigma(t_next) * h.expm1() * eps - self.sigma(t_next) / (2 * r1) * h.expm1() * (eps_r1 - eps)
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x_2 = x_2.clamp(clip_min, clip_max)
         return x_2, eps_cache
 
-    def dpm_solver_3_step(self, x, t, t_next, r1=1 / 3, r2=2 / 3, eps_cache=None):
+    def dpm_solver_3_step(self, x, t, t_next, r1=1 / 3, r2=2 / 3, eps_cache=None, clip_range=None):
         eps_cache = {} if eps_cache is None else eps_cache
         h = t_next - t
         eps, eps_cache = self.eps(eps_cache, 'eps', x, t)
@@ -401,9 +407,12 @@ class DPMSolver(nn.Module):
         u2 = x - self.sigma(s2) * (r2 * h).expm1() * eps - self.sigma(s2) * (r2 / r1) * ((r2 * h).expm1() / (r2 * h) - 1) * (eps_r1 - eps)
         eps_r2, eps_cache = self.eps(eps_cache, 'eps_r2', u2, s2)
         x_3 = x - self.sigma(t_next) * h.expm1() * eps - self.sigma(t_next) / r2 * (h.expm1() / h - 1) * (eps_r2 - eps)
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x_3 = x_3.clamp(clip_min, clip_max)
         return x_3, eps_cache
 
-    def dpm_solver_fast(self, x, t_start, t_end, nfe, eta=0., s_noise=1., noise_sampler=None):
+    def dpm_solver_fast(self, x, t_start, t_end, nfe, eta=0., s_noise=1., noise_sampler=None, clip_range=None):
         noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
         if not t_end > t_start and eta:
             raise ValueError('eta must be 0 for reverse sampling')
@@ -432,17 +441,17 @@ class DPMSolver(nn.Module):
                 self.info_callback({'x': x, 'i': i, 't': ts[i], 't_up': t, 'denoised': denoised})
 
             if orders[i] == 1:
-                x, eps_cache = self.dpm_solver_1_step(x, t, t_next_, eps_cache=eps_cache)
+                x, eps_cache = self.dpm_solver_1_step(x, t, t_next_, eps_cache=eps_cache, clip_range=clip_range)
             elif orders[i] == 2:
-                x, eps_cache = self.dpm_solver_2_step(x, t, t_next_, eps_cache=eps_cache)
+                x, eps_cache = self.dpm_solver_2_step(x, t, t_next_, eps_cache=eps_cache, clip_range=clip_range)
             else:
-                x, eps_cache = self.dpm_solver_3_step(x, t, t_next_, eps_cache=eps_cache)
+                x, eps_cache = self.dpm_solver_3_step(x, t, t_next_, eps_cache=eps_cache, clip_range=clip_range)
 
             x = x + su * s_noise * noise_sampler(self.sigma(t), self.sigma(t_next))
 
         return x
 
-    def dpm_solver_adaptive(self, x, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., noise_sampler=None):
+    def dpm_solver_adaptive(self, x, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., noise_sampler=None, clip_range=None):
         noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
         if order not in {2, 3}:
             raise ValueError('order should be 2 or 3')
@@ -472,11 +481,11 @@ class DPMSolver(nn.Module):
             denoised = x - self.sigma(s) * eps
 
             if order == 2:
-                x_low, eps_cache = self.dpm_solver_1_step(x, s, t_, eps_cache=eps_cache)
-                x_high, eps_cache = self.dpm_solver_2_step(x, s, t_, eps_cache=eps_cache)
+                x_low, eps_cache = self.dpm_solver_1_step(x, s, t_, eps_cache=eps_cache, clip_range=clip_range)
+                x_high, eps_cache = self.dpm_solver_2_step(x, s, t_, eps_cache=eps_cache, clip_range=clip_range)
             else:
-                x_low, eps_cache = self.dpm_solver_2_step(x, s, t_, r1=1 / 3, eps_cache=eps_cache)
-                x_high, eps_cache = self.dpm_solver_3_step(x, s, t_, eps_cache=eps_cache)
+                x_low, eps_cache = self.dpm_solver_2_step(x, s, t_, r1=1 / 3, eps_cache=eps_cache, clip_range=clip_range)
+                x_high, eps_cache = self.dpm_solver_3_step(x, s, t_, eps_cache=eps_cache, clip_range=clip_range)
             delta = torch.maximum(atol, rtol * torch.maximum(x_low.abs(), x_prev.abs()))
             error = torch.linalg.norm((x_low - x_high) / delta) / x.numel() ** 0.5
             accept = pid.propose_step(error)
@@ -497,7 +506,7 @@ class DPMSolver(nn.Module):
 
 
 @torch.no_grad()
-def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1., noise_sampler=None):
+def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1., noise_sampler=None, clip_range=None):
     """DPM-Solver-Fast (fixed step size). See https://arxiv.org/abs/2206.00927."""
     if sigma_min <= 0 or sigma_max <= 0:
         raise ValueError('sigma_min and sigma_max must not be 0')
@@ -505,11 +514,11 @@ def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback
         dpm_solver = DPMSolver(model, extra_args, eps_callback=pbar.update)
         if callback is not None:
             dpm_solver.info_callback = lambda info: callback({'sigma': dpm_solver.sigma(info['t']), 'sigma_hat': dpm_solver.sigma(info['t_up']), **info})
-        return dpm_solver.dpm_solver_fast(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), n, eta, s_noise, noise_sampler)
+        return dpm_solver.dpm_solver_fast(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), n, eta, s_noise, noise_sampler, clip_range=clip_range)
 
 
 @torch.no_grad()
-def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callback=None, disable=None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., noise_sampler=None, return_info=False):
+def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callback=None, disable=None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., noise_sampler=None, return_info=False, clip_range=None):
     """DPM-Solver-12 and 23 (adaptive step size). See https://arxiv.org/abs/2206.00927."""
     if sigma_min <= 0 or sigma_max <= 0:
         raise ValueError('sigma_min and sigma_max must not be 0')
@@ -517,14 +526,14 @@ def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callbac
         dpm_solver = DPMSolver(model, extra_args, eps_callback=pbar.update)
         if callback is not None:
             dpm_solver.info_callback = lambda info: callback({'sigma': dpm_solver.sigma(info['t']), 'sigma_hat': dpm_solver.sigma(info['t_up']), **info})
-        x, info = dpm_solver.dpm_solver_adaptive(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), order, rtol, atol, h_init, pcoeff, icoeff, dcoeff, accept_safety, eta, s_noise, noise_sampler)
+        x, info = dpm_solver.dpm_solver_adaptive(x, dpm_solver.t(torch.tensor(sigma_max)), dpm_solver.t(torch.tensor(sigma_min)), order, rtol, atol, h_init, pcoeff, icoeff, dcoeff, accept_safety, eta, s_noise, noise_sampler, clip_range)
     if return_info:
         return x, info
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
+def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, clip_range=None):
     """Ancestral sampling with DPM-Solver++(2S) second-order steps."""
     extra_args = {} if extra_args is None else extra_args
     noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
@@ -554,11 +563,14 @@ def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, 
         # Noise addition
         if sigmas[i + 1] > 0:
             x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x = x.clamp(clip_min, clip_max)
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, r=1 / 2):
+def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, r=1 / 2, clip_range=None):
     """DPM-Solver++ (stochastic)."""
     sigma_min, sigma_max = sigmas[sigmas > 0].min(), sigmas.max()
     noise_sampler = BrownianTreeNoiseSampler(x, sigma_min, sigma_max) if noise_sampler is None else noise_sampler
@@ -596,11 +608,14 @@ def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=N
             denoised_d = (1 - fac) * denoised + fac * denoised_2
             x = (sigma_fn(t_next_) / sigma_fn(t)) * x - (t - t_next_).expm1() * denoised_d
             x = x + noise_sampler(sigma_fn(t), sigma_fn(t_next)) * s_noise * su
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x = x.clamp(clip_min, clip_max)
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=None):
+def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=None, clip_range=None):
     """DPM-Solver++(2M)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -622,11 +637,14 @@ def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=No
             denoised_d = (1 + 1 / (2 * r)) * denoised - (1 / (2 * r)) * old_denoised
             x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised_d
         old_denoised = denoised
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x = x.clamp(clip_min, clip_max)
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, solver_type='heun'):
+def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, solver_type='heun', clip_range=None):
     """DPM-Solver++(2M) SDE."""
 
     if solver_type not in {'heun', 'midpoint'}:
@@ -667,11 +685,14 @@ def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
 
         old_denoised = denoised
         h_last = h
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x = x.clamp(clip_min, clip_max)
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
+def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, clip_range=None):
     """DPM-Solver++(3M) SDE."""
 
     sigma_min, sigma_max = sigmas[sigmas > 0].min(), sigmas.max()
@@ -717,4 +738,7 @@ def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
 
         denoised_1, denoised_2 = denoised, denoised_1
         h_1, h_2 = h, h_1
+        if clip_range:
+            clip_min, clip_max = clip_range
+            x = x.clamp(clip_min, clip_max)
     return x
