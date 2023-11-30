@@ -166,8 +166,8 @@ class SampleCallbackConfig:
     seq_len: int = 128
     use_ema: bool = True
     batch_size: int = 32
-    n_to_sample: int = 128 
-    n_to_construct: int = -1
+    n_to_sample: int = 512 
+    n_to_construct: int = 32 
     num_recycles: int = 4
     sigma_max: float = 1e-2
     sigma_min: float = 1e3

@@ -288,6 +288,9 @@ def main(args: K.config.TrainArgs):
         )
         print(stats_dict)
 
+        if not sample_config.n_to_construct == -1:
+            sampled_latent = sampled_latent[torch.randperm(sampled_latent.shape[0])][:sample_config.n_to_construct]
+
         print("Constructing sequences...")
         _, _, strs, _ = sampler.construct_sequence(
             sampled_latent,

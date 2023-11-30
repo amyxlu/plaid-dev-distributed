@@ -14,10 +14,12 @@ singularity exec --nv $SCRATCH/images/plaid.sif \
     python $SCRATCH/kdiffusion/train_protein.py \
     --dataset-config.dataset cath \
     --dataset-config.path $SCRATCH/data/cath/shards/ \
+    --sample-config.model-dir $SCRATCH/artifacts/plaid \
+    --sample-config.base-artifact-dir $SCRATCH/artifacts/plaid \
     --artifacts-dir $SCRATCH/artifacts/plaid/ \
     --name BRC_$SLURM_JOB_ID \
     --opt-config.lr $1 \
     --sched-config.type $2 \
     --sched-config.warmup-steps $3 \
     --model-config.loss-config $4 \
-    --model-config.no-skip-connect
+    --model-config.sigma-sample-density.type $5
