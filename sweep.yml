@@ -1,0 +1,23 @@
+project: kdplaid
+description: sigma tuning for the 'cosine-interpolated' schedule.
+run_cap: 100
+program: train_protein.py
+method: bayes
+early_terminate: hyperband
+metric:
+  goal: minimize
+  name: fid
+  target: 0.0
+parameters:
+  model_config.sigma-sample-density.min-value:
+    max: 0.5
+    min: 0.0001
+    distribution: uniform
+  model_config.sigma-sample-density.max-value:
+    max: 160
+    min: 40
+    distribution: uniform
+  model_config.sigma-sample-density.noise-d-low:
+    max: 128
+    min: 16
+    distribution: int_uniform

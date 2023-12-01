@@ -32,6 +32,7 @@ from .sampling import (
     sample_dpmpp_3m_sde,
 )
 
+import wandb
 
 def dataclass_to_dict(obj):
     outdict = {}
@@ -118,7 +119,7 @@ class ModelConfig:
     loss_weighting: str = "soft-min-snr"
     dropout_rate: float = 0.05
     augment_prob: float = 0.0
-    sigma_data: float = 1.0
+    sigma_data: float = 0.22  # channel minmaxnorm std 
     sigma_min: float = 1e-2
     sigma_max: float = 80
     seq_loss_weight: float = 0.0
@@ -345,11 +346,14 @@ def make_sample_density(config: ModelConfig, input_size):
         )
 
     if sd_config.type == "cosine-interpolated":
-        min_value = getattr(sd_config, "min_value", min(config.sigma_min, 1e-3))
-        max_value = getattr(sd_config, "max_value", max(config.sigma_max, 1e3))
-        image_d = getattr(sd_config, "image_d", input_size)
-        noise_d_low = getattr(sd_config, "noise_d_low", 32)
+        # min_value = getattr(sd_config, "min_value", min(config.sigma_min, 1e-3))
+        # max_value = getattr(sd_config, "max_value", max(config.sigma_max, 1e3))
+        # noise_d_low = getattr(sd_config, "noise_d_low", 32)
+        min_value = getattr(wandb.config, "model_config.sigma-sample-density.min-value") 
+        max_value = getattr(wandb.config, "model_config.sigma-sample-density.max-value")
+        noise_d_low = getattr(wandb.config, "model_config.sigma-sample-density.noise-d-low")
         noise_d_high = getattr(sd_config, "noise_d_high", input_size)
+        image_d = getattr(sd_config, "image_d", input_size)
         return partial(
             utils.rand_cosine_interpolated,
             image_d=image_d,

@@ -2,6 +2,14 @@
 
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
+
+To run a wandb sweep:
+```
+wandb sweep --project kdplaid sweep.yml  # this will launch the sweep agent; note the sweep ID for reference.
+wandb agent amyxlu/kdplaid/k7vetvty
+```
+
+
 ## Useful Commands
 `find . -type f -mtime +XXX -exec rm {} \;`
 `find . -type f -mtime +4`
