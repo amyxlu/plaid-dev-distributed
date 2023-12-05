@@ -9,6 +9,7 @@
 
 export SCRATCH=/global/scratch/users/amyxlu
 export WANDB_API_KEY=1c948549adbe36ba6bba1087e9209b287c7cccd8
+export TIMESTAMP=$(date +%s)
 
 singularity exec --nv $SCRATCH/images/plaid.sif \
     python $SCRATCH/kdiffusion/train_protein.py \

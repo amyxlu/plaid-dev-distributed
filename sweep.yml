@@ -1,23 +1,76 @@
 project: kdplaid
-description: sigma tuning for the 'cosine-interpolated' schedule.
+description: sigma tuning for the cosine-interpolated schedule.
 run_cap: 100
 program: train_protein.py
 method: bayes
-early_terminate: hyperband
+early_terminate:
+  type: hyperband
+  min_iter: 1000
 metric:
   goal: minimize
   name: fid
   target: 0.0
 parameters:
-  model_config.sigma-sample-density.min-value:
-    max: 0.5
-    min: 0.0001
+  model-config.sigma-sample-density.min-value:
+    max: 1e-2
+    min: 1e-4 
     distribution: uniform
-  model_config.sigma-sample-density.max-value:
-    max: 160
-    min: 40
+  model-config.sigma-sample-density.max-value:
+    max: 400
+    min: 100
     distribution: uniform
-  model_config.sigma-sample-density.noise-d-low:
-    max: 128
-    min: 16
+  model-config.sigma-sample-density.noise-d-low:
+    max: 40
+    min: 5
     distribution: int_uniform
+  model-config.loss-config:
+    values:
+      - "karras"
+      - "simple"
+    distribution: categorical
+  model-config.loss-weighting:
+    values:
+      - soft-min-snr
+      - karras
+    distribution: categorical
+  opt-config.lr:
+    max: 1e-4
+    min: 1e-5
+    distribution: uniform
+  opt-config.weight-decay:
+    max: 5e-3
+    min: 1e-5
+    distribution: uniform
+  sched-config.warmup-steps:
+    max: 10000
+    min: 100
+    distribution: int_uniform
+  sched-config.type:
+    values:
+      - constant 
+      - cosine
+      - inverse_sqrt
+    distribution: categorical
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - "--dataset-config.dataset"
+  - "cath"
+  - "--toy"
+  - "--max-seq-len"
+  - "64"
+  - "--dataset-config.path"
+  - "/global/scratch/users/amyxlu/data/cath/shards/"
+  - "--dataset-config.toy-data-path"
+  - "/global/scratch/users/amyxlu/data/cath/shards/toy"
+  - "--sample-config.model-dir"
+  - "/global/scratch/users/amyxlu/artifacts/plaid"
+  - "--sample-config.base-artifact-dir"
+  - "/global/scratch/users/amyxlu/artifacts/plaid"
+  - "--artifacts-dir"
+  - "/global/scratch/users/amyxlu/artifacts/plaid/"
+  - "--sample-every"
+  - "500"
+  - "--sample-config.n-to-sample"
+  - "128"

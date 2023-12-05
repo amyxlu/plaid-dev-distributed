@@ -18,17 +18,6 @@ from k_diffusion.models.esmfold import ESMFold
 import einops
 import time
 
-start = time.time()
-print("making esmfold...")
-esmfold = ESMFold(make_trunk=False)
-end = time.time()
-print(f"done making esmfold in {end - start:.2f} seconds.")
-
-device = torch.device("cuda")
-esmfold.to(device)
-esmfold.eval()
-esmfold.requires_grad_(False)
-
 
 @dataclasses.dataclass
 class ShardConfig:
@@ -50,7 +39,7 @@ def make_fasta_dataloader(fasta_file, batch_size, num_workers=4):
     )
 
 
-def embed_batch(sequences, max_len=512, min_len=30):
+def embed_batch(esmfold, sequences, max_len=512, min_len=30):
     with torch.no_grad():
         sequences = K.utils.get_random_sequence_crop_batch(
             sequences, max_len=max_len, min_len=min_len
@@ -62,7 +51,7 @@ def embed_batch(sequences, max_len=512, min_len=30):
     return feats, seq_lens
 
 
-def make_shard(dataloader, n_batches_per_shard, max_seq_len, min_seq_len):
+def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_len):
     # TODO: also save aatype / sequence
     cur_shard_tensors = []
     cur_shard_lens = []
@@ -70,7 +59,7 @@ def make_shard(dataloader, n_batches_per_shard, max_seq_len, min_seq_len):
     for _ in trange(n_batches_per_shard, leave=False):
         batch = next(iter(dataloader))
         sequences = batch[1]
-        feats, seq_lens = embed_batch(sequences, max_seq_len, min_seq_len)
+        feats, seq_lens = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
         cur_shard_tensors.append(feats)
         cur_shard_lens.append(seq_lens)
@@ -104,6 +93,18 @@ def save_h5_embeddings(embs, seq_lens, shard_number, outdir):
 
 
 def main(cfg: ShardConfig):
+    start = time.time()
+    print("making esmfold...")
+    esmfold = ESMFold(make_trunk=False)
+    end = time.time()
+    print(f"done making esmfold in {end - start:.2f} seconds.")
+
+    device = torch.device("cuda")
+    esmfold.to(device)
+    esmfold.eval()
+    esmfold.requires_grad_(False)
+
+
     print("making dataloader")
     dataloader = make_fasta_dataloader(cfg.fasta_file, cfg.batch_size, cfg.num_workers)
     num_shards = len(dataloader) // cfg.num_batches_per_shard + 1
@@ -117,7 +118,7 @@ def main(cfg: ShardConfig):
         json.dump(argsdict, f, indent=2)
 
     for shard_number in tqdm(range(num_shards), desc="Shards"):
-        emb_shard, seq_lens = make_shard(dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        emb_shard, seq_lens = make_shard(esmfold, dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
         if cfg.compression == "safetensors":
             save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir)
         elif cfg.compression == "hdf5":
