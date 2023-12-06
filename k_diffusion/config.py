@@ -96,9 +96,9 @@ class SigmaDensityConfig:
     std: Optional[float] = None
     loc: Optional[float] = None
     scale: Optional[float] = None
-    min_value: float = 1e-3
+    min_value: float = 1e-4
     max_value: float = 1e3
-    noise_d_low: int = 32
+    noise_d_low: int = 16 
 
 
 @dataclass
@@ -107,6 +107,7 @@ class ModelConfig:
     lm_embedder_type: str = "esmfold"  # esm2_t6_8M_UR50D / esm2_t12_35M_UR50D / esm2_t30_150M_UR50D / etc.
     n_layers: int = 5 
     d_model: int = 1024 
+    d_model_intermediate: int = 3072 
     d_ff: int = 256
     d_head: int = 128
     input_dim: int = 1024
@@ -120,8 +121,6 @@ class ModelConfig:
     dropout_rate: float = 0.05
     augment_prob: float = 0.0
     sigma_data: float = 0.22  # channel minmaxnorm std 
-    sigma_min: float = 1e-2
-    sigma_max: float = 80
     seq_loss_weight: float = 0.0
     normalize_latent_by: str = "channel_minmaxnorm"
     sigma_sample_density: SigmaDensityConfig = field(default_factory=SigmaDensityConfig)
@@ -258,6 +257,17 @@ def make_model(config: ModelConfig, max_seq_len: int):
             dropout=config.dropout,
             sigma_data=config.sigma_data,
         )
+    elif config.type == "bert_hf":
+        assert config.d_model % config.d_head == 0
+        n_heads = int(config.d_model / config.d_head)
+        model = models.ProteinBertEncoder(
+            max_seq_len=max_seq_len,
+            min_len=config.min_len,
+            num_hidden_layers=config.n_layers,
+            num_attention_heads=n_heads,
+            hidden_size=config.d_model,
+            intermediate_size=config.d_model_intermediate,
+        )
     else:
         raise ValueError(f'unsupported model type {config["type"]}')
     return model
@@ -346,12 +356,12 @@ def make_sample_density(config: ModelConfig, input_size):
         )
 
     if sd_config.type == "cosine-interpolated":
-        # min_value = getattr(sd_config, "min_value", min(config.sigma_min, 1e-3))
-        # max_value = getattr(sd_config, "max_value", max(config.sigma_max, 1e3))
-        # noise_d_low = getattr(sd_config, "noise_d_low", 32)
-        min_value = getattr(wandb.config, "model_config.sigma-sample-density.min-value") 
-        max_value = getattr(wandb.config, "model_config.sigma-sample-density.max-value")
-        noise_d_low = getattr(wandb.config, "model_config.sigma-sample-density.noise-d-low")
+        min_value = getattr(sd_config, "min_value", 1e-3)
+        max_value = getattr(sd_config, "max_value", 1e3)
+        noise_d_low = getattr(sd_config, "noise_d_low", 32)
+        # min_value = getattr(wandb.config, "model_config.sigma-sample-density.min-value") 
+        # max_value = getattr(wandb.config, "model_config.sigma-sample-density.max-value")
+        # noise_d_low = getattr(wandb.config, "model_config.sigma-sample-density.noise-d-low")
         noise_d_high = getattr(sd_config, "noise_d_high", input_size)
         image_d = getattr(sd_config, "image_d", input_size)
         return partial(

@@ -86,8 +86,8 @@ def main(args: K.config.TrainArgs):
 
     # override some things in sample_config
     sample_config = args.sample_config
-    sample_config.sigma_max = model_config.sigma_max
-    sample_config.sigma_min = model_config.sigma_min
+    sample_config.sigma_max = model_config.sigma_sample_density.max_value
+    sample_config.sigma_min = model_config.sigma_sample_density.min_value
     sample_config.batch_size = args.batch_size
     sample_config.model_id = args.name
 
@@ -372,6 +372,9 @@ def main(args: K.config.TrainArgs):
             < seqlen[:, None]
         )
         return x, mask
+    
+    def run_batch(batch):
+        pass
 
     try:
         while True:

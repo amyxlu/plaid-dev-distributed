@@ -303,14 +303,12 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         min_len: int = 32,
         num_classes: int = 0,
         dropout: float = 0.0,
-        sigma_data: float = 1.0,
     ):
         """Transformer denoiser model for proteins.
         input_dim: the dimension of the actual embedding needed for the frozen decoders (i.e. for ESMFold, this is 1024)
         d_model: the dimension of the latent embedding we will generate; might be a downprojection.
         """
         super().__init__()
-        self.sigma_data = sigma_data  # i.e. the noise scale
         self.num_classes = num_classes # not used
         self.input_size = input_size  # i.e. length of protein
         self.input_dim = input_dim # i.e. the actual latent dimension for ESMFold
