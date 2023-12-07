@@ -15,7 +15,8 @@ from transformers import (
     get_cosine_with_hard_restarts_schedule_with_warmup,
 )
 
-from . import layers, models, utils, external
+from . import layers, models, utils 
+from .diffusion import get_default_diffusion
 from .sampling import (
     sample_euler,
     sample_euler_ancestral,
@@ -91,7 +92,8 @@ DATASET_TO_PATH = {
 
 @dataclass
 class SigmaDensityConfig:
-    type: str = "cosine-interpolated"
+    # continuous time
+    type: str = "cosine-interpolated"  # "cosine-interpolated" / "discrete-cosine"
     mean: Optional[float] = None
     std: Optional[float] = None
     loc: Optional[float] = None
@@ -100,10 +102,15 @@ class SigmaDensityConfig:
     max_value: float = 1e3
     noise_d_low: int = 16 
 
+    # discrete time
+    T: int = 500
+    noise_scale: float = 1.0
+
 
 @dataclass
 class ModelConfig:
     type: str = "protein_transformer_v1"
+    use_continuous_time: bool = True
     lm_embedder_type: str = "esmfold"  # esm2_t6_8M_UR50D / esm2_t12_35M_UR50D / esm2_t30_150M_UR50D / etc.
     n_layers: int = 5 
     d_model: int = 1024 
@@ -148,8 +155,8 @@ class OptimizerConfig:
 
 @dataclass
 class LRSchedulerConfig:
-    type: str = "inverse_sqrt"
-    warmup_steps: int = 10000
+    type: str = "constant"
+    warmup_steps: int = 1000
     num_cycles: float = 0.5
 
 
@@ -255,12 +262,11 @@ def make_model(config: ModelConfig, max_seq_len: int):
             min_len=config.min_len,
             num_classes=0,
             dropout=config.dropout,
-            sigma_data=config.sigma_data,
         )
     elif config.type == "bert_hf":
         assert config.d_model % config.d_head == 0
         n_heads = int(config.d_model / config.d_head)
-        model = models.ProteinBertEncoder(
+        model = models.ProteinBertDenoiser(
             max_seq_len=max_seq_len,
             min_len=config.min_len,
             num_hidden_layers=config.n_layers,
@@ -269,7 +275,7 @@ def make_model(config: ModelConfig, max_seq_len: int):
             intermediate_size=config.d_model_intermediate,
         )
     else:
-        raise ValueError(f'unsupported model type {config["type"]}')
+        raise ValueError(f'unsupported model type {config.type}')
     return model
 
 
@@ -307,10 +313,16 @@ def make_denoiser_wrapper(config: ModelConfig):
             raise ValueError("Vanilla loss config does not support a variance output")
         return partial(layers.SimpleVanilla, sigma_data=sigma_data, loss_distance=loss_distance)
     
-    raise ValueError("Unknown loss config type")
+    if "discrete_" in loss_config:
+        loss_config = loss_config.replace("discrete_", "")
+        diffusion = get_default_diffusion(loss_config.replace("discrete_", ""), T=config.sigma_sample_density.T)
+        return partial(layers.DiscreteDenoiser, diffusion=diffusion)
+
+    else:
+        raise ValueError(f"Unknown loss config type {loss_config}")
 
 
-def make_sample_density(config: ModelConfig, input_size):
+def make_sample_density(config: ModelConfig, input_size, **kwargs):
     sd_config = config.sigma_sample_density
     sigma_data = config.sigma_data
 
@@ -374,8 +386,10 @@ def make_sample_density(config: ModelConfig, input_size):
             max_value=max_value,
         )
 
-    raise ValueError("Unknown sample density type")
-
+    if "discrete" in sd_config.type:
+        return None
+    else:
+        raise ValueError("Unknown sample density type")
 
 def make_lr_sched(lr_config: LRSchedulerConfig, optimizer, num_training_steps: int):
     if lr_config.type == "cosine_with_restarts":

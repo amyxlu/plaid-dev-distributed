@@ -593,3 +593,34 @@ def print_cuda_memory_usage():
     if torch.cuda.is_available():
         print(f'Current CUDA memory allocated: {torch.cuda.memory_allocated() / 1024 ** 2} MB')
         print(f'Current CUDA memory reserved: {torch.cuda.memory_reserved() / 1024 ** 2} MB')
+
+
+######
+# The following is adapted from pseudocode in Chen et al.,
+# https://arxiv.org/abs/2301.10972
+######
+
+def sigmoid(x):
+  return 1 / (1 + math.exp(-x))
+
+def simple_linear_schedule(t, clip_min=1e-9):
+    # A gamma function that simply is 1-t.
+    return np.clip(1 - t, clip_min, 1.)
+
+def sigmoid_schedule(t, start=-3, end=3, tau=1.0, clip_min=1e-9):
+    # A gamma function based on sigmoid function.
+    v_start = sigmoid(start / tau)
+    v_end = sigmoid(end / tau)
+    output = sigmoid((t * (end - start) + start) / tau)
+    output = (v_end - output) / (v_end - v_start)
+    return np.clip(output, clip_min, 1.)
+
+def cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
+    # A gamma function based on cosine function.
+    v_start = math.cos(start * math.pi / 2) ** (2 * tau)
+    v_end = math.cos(end * math.pi / 2) ** (2 * tau)
+    output = math.cos((t * (end - start) + start) * math.pi / 2) ** (2 * tau)
+    output = (v_end - output) / (v_end - v_start)
+    return np.clip(output, clip_min, 1.)
+
+######

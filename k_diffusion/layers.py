@@ -159,7 +159,28 @@ class SimpleVanilla(Denoiser):
         return self.inner_model(input, sigma, **kwargs)
 
 
-# Residual blocks
+# class DiscreteDenoiser:
+#     def __init__(self, inner_model, diffusion, **kwargs):
+#         self.diffusion = diffusion
+#         self.inner_model = inner_model
+
+#     def loss_epsilon(self, input, noise, ts, return_model_output=False, **kwargs):
+#         import pdb; pdb.set_trace()
+#         noised_input = self.diffusion.q_sample(input, ts, noise)
+#         print(noised_input)
+#         epsilon = self.inner_model(noised_input, ts, **kwargs)
+#         print(epsilon)
+#         if self.loss_distance == "mse":
+#             loss = (epsilon - noise).pow(2).flatten(1).mean(1)
+#         elif self.loss_distance == "huber":
+#             loss = F.huber_loss(epsilon, noise, reduction="mean")
+#         else:
+#             raise ValueError(f"Unknown loss type {self.loss_distance}")
+#         if return_model_output:
+#             return loss, epsilon
+#         else:
+#             return loss
+    
 
 class ResidualBlock(nn.Module):
     def __init__(self, *main, skip=None):
