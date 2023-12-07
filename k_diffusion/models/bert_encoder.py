@@ -95,7 +95,7 @@ class ProteinBertDenoiser(nn.Module):
             attention_mask=mask,
         )
         denoised = output['last_hidden_state'][:, :-1, :]
-        assert denoised.shape[1] == self.max_seq_len
+        # assert denoised.shape[1] == self.max_seq_len, f"{denoised.shape}"
         return denoised
 
 

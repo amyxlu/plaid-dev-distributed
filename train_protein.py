@@ -83,13 +83,18 @@ def main(args: K.config.TrainArgs):
     opt_config = args.opt_config
     sched_config = args.sched_config
     ema_sched_config = args.ema_sched_config
+    sd_config = model_config.sigma_sample_density
 
     # override some things in sample_config
     sample_config = args.sample_config
-    sample_config.sigma_max = model_config.sigma_sample_density.max_value
-    sample_config.sigma_min = model_config.sigma_sample_density.min_value
+    sample_config.sigma_max = sd_config.max_value
+    sample_config.sigma_min = sd_config.min_value
     sample_config.batch_size = args.batch_size
     sample_config.model_id = args.name
+
+    IS_DISCRETE_DIFFUSION = False
+    if "discrete" in sd_config.type:
+        IS_DISCRETE_DIFFUSION = True
 
     # ==============================================================================
     # set distributed training
@@ -155,7 +160,8 @@ def main(args: K.config.TrainArgs):
     # optimizer and EMA 
     # ==============================================================================
     lr = opt_config.lr
-    groups = unwrap(inner_model).param_groups(lr)
+    # groups = unwrap(inner_model).param_groups(lr)
+    groups = unwrap(inner_model).parameters()
     if opt_config.type == "adamw":
         opt = optim.AdamW(
             groups,
@@ -220,9 +226,9 @@ def main(args: K.config.TrainArgs):
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
-    sample_density = K.config.make_sample_density(model_config, args.max_seq_len)
-
-    model = K.config.make_denoiser_wrapper(model_config)(inner_model)
+    
+    sample_density = K.config.make_sample_density(model_config, args.max_seq_len)  # only for continuous time
+    model = K.config.make_denoiser_wrapper(model_config)(inner_model)  # diffusion module is created inside here
     model_ema = K.config.make_denoiser_wrapper(model_config)(inner_model_ema)
 
     if RESUME:
@@ -372,9 +378,9 @@ def main(args: K.config.TrainArgs):
             < seqlen[:, None]
         )
         return x, mask
-    
-    def run_batch(batch):
-        pass
+
+    def sample_discrete_time(N, device):
+        return torch.randint(0, sd_config.T, (N,)).long().to(device)
 
     try:
         while True:
@@ -396,17 +402,25 @@ def main(args: K.config.TrainArgs):
                     # Normalize, maybe
                     x = scaler.scale(x)
                     extra_args, N = {"mask": mask}, x.shape[0]
-                    noise = torch.randn_like(x)  # (N, L, d_model)
+                    noise = torch.randn_like(x) * sd_config.noise_scale # (N, L, d_model)
 
                     with K.utils.enable_stratified_accelerate(
                         accelerator, disable=args.gns
                     ):
-                        sigma = sample_density([N], device=device)
+                        if IS_DISCRETE_DIFFUSION:
+                            ts = sample_discrete_time(N, device)
+                        else:
+                            sigma = sample_density([N], device=device)
 
                     with K.models.checkpointing(args.checkpointing):
-                        losses, model_output = model.loss(
-                            x, noise, sigma, return_model_output=True, **extra_args
-                        )
+                        if IS_DISCRETE_DIFFUSION:
+                            losses, model_output = model.loss_epsilon(
+                                x, noise, ts, return_model_output=True, **extra_args
+                            )
+                        else:
+                            losses, model_output = model.loss(
+                                x, noise, sigma, return_model_output=True, **extra_args
+                            )
                     loss = accelerator.gather(losses).mean().item()
                     model_output = accelerator.gather(model_output)
                     mean, std = model_output.mean(), model_output.std()
@@ -442,7 +456,7 @@ def main(args: K.config.TrainArgs):
                         K.utils.ema_update(model, model_ema, ema_decay)
                         ema_sched.step()
 
-                del batch, x, mask, noise, sigma, model_output
+                del batch, x, mask, noise, model_output
 
                 if step % 25 == 0:
                     loss_disp = sum(losses_since_last_print) / len(

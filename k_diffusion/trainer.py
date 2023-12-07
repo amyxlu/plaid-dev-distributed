@@ -35,7 +35,6 @@ class Trainer:
         self.debug_mode = (
             args.debug_mode
         )  # persists as specified on CLI even if resuming
-        self.checkpoints_dir = Path(self.args.artifacts_dir) / "checkpoints" / args.name
         if self.args.name == "":
             self.args.name = wandb.util.generate_id()
 
@@ -47,15 +46,20 @@ class Trainer:
         self.opt_config = args.opt_config
         self.sched_config = args.sched_config
         self.ema_sched_config = args.ema_sched_config
+        self.sd_config = args.model_config.sigma_sample_density
 
         self.is_discrete_diffusion = False
-        if "discrete-" in self.model_config.sigma_sample_density.type:
+        if "discrete" in self.sd_config.type:
             self.is_discrete_diffusion = True
 
         self.setup_backend()  # creates accelerator
         self.setup_models()
-        self.setup_optimizer()
         self.setup_dataset()
+        self.setup_optimizer()
+        if self.is_discrete_diffusion:
+            pass
+        else:
+            self.setup_sample_density()
 
         self.setup_gns()
         self.setup_ema()
@@ -107,6 +111,7 @@ class Trainer:
         self.ema_stats = {}
 
     def setup_artifact_dirs(self):
+        self.checkpoints_dir = Path(self.args.artifacts_dir) / "checkpoints" / self.args.name
         print("Saving to", self.checkpoints_dir)
         if not self.checkpoints_dir.exists():
             self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
@@ -172,18 +177,18 @@ class Trainer:
             )
 
         if self.use_wandb:
-            wandb.watch(self.inner_model)
-            log_config = K.config.dataclass_to_dict(args)
+            log_config = K.config.dataclass_to_dict(self.args)
             log_config["parameters"] = num_parameters
             wandb.init(
                 resume="allow",
-                project=args.wandb_project,
-                entity=args.wandb_entity,
-                group=args.wandb_group,
+                project=self.args.wandb_project,
+                entity=self.args.wandb_entity,
+                group=self.args.wandb_group,
                 config=log_config,
-                id=args.name,
+                id=self.args.name,
                 save_code=True,
             )
+            wandb.watch(self.inner_model)
 
     def setup_optimizer(self):
         # optimizer
@@ -212,7 +217,7 @@ class Trainer:
         else:
             raise ValueError("Invalid optimizer type")
 
-        self.lr_sched = K.config.make_lr_sched(
+        self.sched = K.config.make_lr_sched(
             self.sched_config,
             self.opt,
             self.num_train_batches // self.args.grad_accum_steps,
@@ -236,7 +241,7 @@ class Trainer:
             self.num_samples = (
                 35840  # can't do len of an iterable dataset, so write this here
             )
-            self.num_train_batches = math.ceil(self.num_samples / args.batch_size)
+            self.num_train_batches = math.ceil(self.num_samples / self.args.batch_size)
         else:
             self.num_train_batches = len(self.train_dl)
 
@@ -250,7 +255,7 @@ class Trainer:
             self.gns_stats = None
 
     def resume_states(self):
-        if self.resume:
+        if self.is_resume:
             assert not self.ckpt is None
             self.unwrap(self.model.inner_model).load_state_dict(self.ckpt["model"])
             self.unwrap(self.model_ema.inner_model).load_state_dict(
@@ -336,54 +341,21 @@ class Trainer:
         return x, mask
     
     def sample_discrete_time(self, N):
-        return torch.randint(0, self.model_config.sigma_sample_density.T, (N,)).long().to(self.device)
+        return torch.randint(0, self.sd_config.T, (N,)).long().to(self.device)
     
-    def continuous_forward_diffusion_step(self, x, mask):
-        extra_args, N = {"mask": mask}, x.shape[0]
-        noise = torch.randn_like(x)  # (N, L, d_model)
-
-        with K.utils.enable_stratified_accelerate(
-            self.accelerator, disable=self.args.gns
-        ):
-            if self.is_discrete_diffusion:
-                sigma = self.sample_discrete_time(N)
-            else:
-                sigma = self.sample_density([N], device=self.device)
-            
-            with K.models.checkpointing(self.args.checkpointing):
-                losses, model_output = self.model.loss(
-                    x, noise, sigma, return_model_output=True, **extra_args
-                )
-            loss = self.accelerator.gather(losses).mean().item()
-            model_output = self.accelerator.gather(model_output)
-            mean, std = model_output.mean(), model_output.std()
-            self.accelerator.backward(losses.mean())
-            return loss, mean, std
-
-    def discrete_forward_diffusion_step(self, x, mask):
-        extra_args, N = {"mask": mask}, x.shape[0]
-        noise = torch.randn_like(x) * self.model_config.sigma_sample_density.noise_scale
-        ts = torch.randint(0, self.model_config.sigma_sample_density.T, (noise[0],))
-        ts = ts.long().to(self.device)
-        with K.models.checkpointing(self.args.checkpointing):
-            losses, model_output = self.model.loss(
-                x, noise, ts, return_model_output=True, **extra_args
-            ) 
-        return losses, model_output
-
-    def run_batch(self, batch, step, epoch):
+    def run_batch(self, batch):
         with self.accelerator.accumulate(self.model):
             if self.dataset_config.dataset == "cath":
-                x, mask = self.prepare_latent_from_fasta(batch)
-            elif self.dataset_config.dataset == "uniref":
                 x, mask = self.prepare_latent_from_shards(batch)
+            elif self.dataset_config.dataset == "uniref":
+                x, mask = self.prepare_latent_from_fasta(batch)
             else:
                 raise ValueError(f"Invalid dataset {self.dataset_config.dataset}")
 
             # Normalize, maybe
             x = self.scaler.scale(x)
             extra_args, N = {"mask": mask}, x.shape[0]
-            noise = torch.randn_like(x) * self.model_config.sigma_sample_density.noise_scale
+            noise = torch.randn_like(x) * self.sd_config.noise_scale
 
             with K.utils.enable_stratified_accelerate(
                 self.accelerator, disable=self.args.gns
@@ -417,11 +389,11 @@ class Trainer:
         ema_decay = self.ema_sched.get_value()
         K.utils.ema_update_dict(
             self.ema_stats,
-            {"loss": loss, "step": step, "epoch": epoch},
+            {"loss": loss, "step": self.step, "epoch": self.epoch},
             ema_decay ** (1 / self.args.grad_accum_steps),
         )
         if self.accelerator.sync_gradients:
-            K.utils.ema_update(self.model, self.model_ema, self.ema_decay)
+            K.utils.ema_update(self.model, self.model_ema, ema_decay)
             self.ema_sched.step()
         return loss, mean, std, ema_decay
 
@@ -432,7 +404,6 @@ class Trainer:
                 iter(self.train_dl)
 
         print("Starting training at step", self.step)
-        losses_since_last_print = []
         pbar = tqdm(
             total=self.num_train_batches,
             initial=self.step,
@@ -446,20 +417,16 @@ class Trainer:
                 for batch in self.train_dl:
                     loss, mean, std, ema_decay = self.run_batch(batch)
 
-                    if self.step % 25 == 0:
-                        loss_disp = sum(losses_since_last_print) / len(
-                            losses_since_last_print
-                        )
-                        losses_since_last_print.clear()
+                    if (self.step % 25 == 0):
                         avg_loss = self.ema_stats["loss"]
                         if self.accelerator.is_main_process:
                             if self.args.gns:
                                 tqdm.write(
-                                    f"Epoch: {self.epoch}, step: {self.step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}, gns: {self.gns_stats.get_gns():g}"
+                                    f"Epoch: {self.epoch}, step: {self.step}, loss: {loss:g}, avg loss: {avg_loss:g}, gns: {self.gns_stats.get_gns():g}"
                                 )
                             else:
                                 tqdm.write(
-                                    f"Epoch: {self.epoch}, step: {self.step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}"
+                                    f"Epoch: {self.epoch}, step: {self.step}, loss: {loss:g}, avg loss: {avg_loss:g}"
                                 )
                     if self.step % self.args.log_every == 0:
                         if self.use_wandb:
@@ -491,28 +458,3 @@ class Trainer:
 
         except KeyboardInterrupt:
             pass
-
-
-def main(args: K.config.TrainArgs):
-    trainer = Trainer(args)
-    trainer.run()
-
-
-if __name__ == "__main__":
-    import tyro
-    import pprint
-
-    # Parse config with overrides from command line; otherwise uses defaults.
-    args = tyro.cli(K.config.TrainArgs)
-
-    if args.debug_mode:
-        try:
-            main(args)
-        except:
-            import pdb, sys, traceback
-
-            extype, value, tb = sys.exc_info()
-            traceback.print_exc()
-            pdb.post_mortem(tb)
-    else:
-        main(args)
