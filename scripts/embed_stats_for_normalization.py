@@ -22,15 +22,22 @@ ACCEPTED_LM_EMBEDDER_TYPES = [
     "esm2_t6_8M_UR50D"  # dim=320
 ]
 
+DATASET_TO_FASTA_FILE = {
+    "uniref": "/shared/amyxlu/data/uniref90/uniref90.fasta",
+    "cath": "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+    "pfam": "/shared/amyxlu/data/pfam/Pfam-A.fasta",
+}
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lm_embedder_type", type=str, default="esm2_t6_8M_UR50D")
-    parser.add_argument("--fasta_file", type=str, default="/shared/amyxlu/data/uniref90/uniref90.fasta")
+    parser.add_argument("--lm_embedder_type", type=str, default="esmfold")
+    parser.add_argument("--dataset", type=str, default="uniref")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--n_val", type=int, default=5000)
     parser.add_argument("--seq_len", type=int, default=512)
     parser.add_argument("--min_len", type=int, default=32)
+    parser.add_argument("--suffix", type=str, default="dec1")
     return parser.parse_args()
 
 
@@ -38,8 +45,10 @@ def check_model_type(lm_embedder_type):
     assert lm_embedder_type in ACCEPTED_LM_EMBEDDER_TYPES
 
 
-def get_dataloader(fasta_file, batch_size=64, n_val=5000):
+def get_dataloader(dataset, batch_size=64, n_val=5000):
     print("Making dataloader")
+    fasta_file = DATASET_TO_FASTA_FILE[dataset]
+
     ds = FastaDataset(fasta_file, cache_indices=True)
     n_train = len(ds) - n_val  # 153,726,820
     train_set, val_set = random_split(
@@ -81,7 +90,7 @@ def calc_stats(x, mask):
     return channel_max, channel_min, channel_means, channel_stds
 
 
-def save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min, lm_embedder_type):
+def save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min):
     outdir = Path(outdir)
     print("save means"); np.save(outdir / "channel_mean.pkl.npy", channel_means, allow_pickle=True)
     print("save std"); np.save(outdir / "channel_std.pkl.npy", channel_stds, allow_pickle=True)
@@ -98,8 +107,8 @@ def main():
         repr_layer = None
     embedder, alphabet = make_embedder(args.lm_embedder_type)
 
-    dataloader = get_dataloader(args.fasta_file, args.batch_size, args.n_val)
-    outdir = Path(os.path.dirname(__file__)) / f"../cached_tensors/{args.lm_embedder_type}/subset_{args.n_val}_nov28"
+    dataloader = get_dataloader(args.dataset, args.batch_size, args.n_val)
+    outdir = Path(os.path.dirname(__file__)) / f"../cached_tensors/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}"
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
@@ -142,7 +151,7 @@ def main():
     for arr in channel_max, channel_min, channel_means, channel_stds:
         assert arr.shape == (xs.shape[-1],)  
 
-    save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min, args.lm_embedder_type)
+    save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min)
 
 
 if __name__ == "__main__":
