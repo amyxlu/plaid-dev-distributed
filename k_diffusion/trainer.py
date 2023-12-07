@@ -15,12 +15,14 @@ from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
 from torch.utils import data
+import torch.functional as F
 from tqdm.auto import tqdm, trange
 import pandas as pd
 import numpy as np
 import wandb
 
 import k_diffusion as K
+from k_diffusion.diffusion import get_default_diffusion
 
 
 def ensure_distributed():
@@ -57,7 +59,7 @@ class Trainer:
         self.setup_dataset()
         self.setup_optimizer()
         if self.is_discrete_diffusion:
-            pass
+            self.setup_diffusion(self.sd_config)
         else:
             self.setup_sample_density()
 
@@ -324,6 +326,11 @@ class Trainer:
         self.sample_density = K.config.make_sample_density(
             self.model_config, self.args.max_seq_len
         )
+    
+    def setup_diffusion(self, sd_config):
+        beta_schedule = sd_config.type.replace("discrete_", "")
+        diffusion_args = {}
+        self.diffusion = get_default_diffusion(beta_schedule, sd_config.T, **diffusion_args)
 
     def prepare_latent_from_fasta(self, batch):
         sequences = batch[1]
@@ -340,11 +347,13 @@ class Trainer:
         )
         return x, mask
     
-    def sample_discrete_time(self, N):
-        return torch.randint(0, self.sd_config.T, (N,)).long().to(self.device)
+    def sample_discrete_time(self, N, dtype=torch.bfloat16):
+        ts = torch.randint(0, self.sd_config.T, (N,))
+        return ts.long().to(self.device).to(dtype)
     
     def run_batch(self, batch):
         with self.accelerator.accumulate(self.model):
+            # Get batch
             if self.dataset_config.dataset == "cath":
                 x, mask = self.prepare_latent_from_shards(batch)
             elif self.dataset_config.dataset == "uniref":
@@ -357,18 +366,26 @@ class Trainer:
             extra_args, N = {"mask": mask}, x.shape[0]
             noise = torch.randn_like(x) * self.sd_config.noise_scale
 
+            # Sample sigma (if continuous) or timesteps (if discrete)
             with K.utils.enable_stratified_accelerate(
                 self.accelerator, disable=self.args.gns
             ):
                 if self.is_discrete_diffusion:
-                    sigma = self.make_discrete_time(N)
+                    ts = self.sample_discrete_time(N)
                 else:
                     sigma = self.sample_density([N], device=self.device)
 
+            # Run model to denoise
             with K.models.checkpointing(self.args.checkpointing):
-                losses, model_output = self.model.loss(
-                    x, noise, sigma, return_model_output=True, **extra_args
-                )
+                if self.is_discrete_diffusion:
+                    x_noised = self.diffusion.q_sample(x, ts, noise=noise)
+                    model_output = self.model.inner_model(x_noised, ts, **extra_args)
+                    loss_fn = F.mse_loss if self.model_config.loss_distance == "mse" else F.huber_loss
+                    losses = loss_fn(model_output, noise)  # use epsilon formulation
+                else:
+                    losses, model_output = self.model.loss(
+                        x, noise, sigma, return_model_output=True, **extra_args
+                    )
             loss = self.accelerator.gather(losses).mean().item()
             model_output = self.accelerator.gather(model_output)
             mean, std = model_output.mean(), model_output.std()
