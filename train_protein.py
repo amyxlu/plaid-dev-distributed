@@ -386,18 +386,10 @@ def main(args: K.config.TrainArgs):
         while True:
             for batch in train_dl:
                 with accelerator.accumulate(model):
-                    if (
-                        K.config.DATASET_TO_PATH[dataset_config.dataset]["loader"]
-                        == "FastaDataset"
-                    ):
-                        x, mask = prepare_latent_from_fasta(batch)
-                    elif (
-                        K.config.DATASET_TO_PATH[dataset_config.dataset]["loader"]
-                        == "ShardedTensorDataset"
-                    ):
+                    if dataset_config.dataset == "cath":
                         x, mask = prepare_latent_from_shards(batch)
                     else:
-                        raise ValueError(f"Invalid dataset {dataset_config.dataset}")
+                        x, mask = prepare_latent_from_fasta(batch)
 
                     # Normalize, maybe
                     x = scaler.scale(x)

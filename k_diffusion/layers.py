@@ -8,6 +8,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from . import sampling, utils
+from . diffusion import get_default_diffusion
 
 
 # Helper functions
@@ -159,27 +160,28 @@ class SimpleVanilla(Denoiser):
         return self.inner_model(input, sigma, **kwargs)
 
 
-# class DiscreteDenoiser:
-#     def __init__(self, inner_model, diffusion, **kwargs):
-#         self.diffusion = diffusion
-#         self.inner_model = inner_model
+class DiscreteDenoiser:
+    def __init__(self, sd_config, inner_model, **kwargs):
+        self.sd_config = sd_config
+        self.diffusion = get_default_diffusion(self.sd_config.type, self.sd_config.T, **kwargs)
+        self.inner_model = inner_model
+    
+    def loss_epsilon(self, x, ts, noise = None, return_model_output=False, **model_kwargs):
+        if noise is None:
+            noise = torch.randn_like(x) * self.sd_config.noise_scale
 
-#     def loss_epsilon(self, input, noise, ts, return_model_output=False, **kwargs):
-#         import pdb; pdb.set_trace()
-#         noised_input = self.diffusion.q_sample(input, ts, noise)
-#         print(noised_input)
-#         epsilon = self.inner_model(noised_input, ts, **kwargs)
-#         print(epsilon)
-#         if self.loss_distance == "mse":
-#             loss = (epsilon - noise).pow(2).flatten(1).mean(1)
-#         elif self.loss_distance == "huber":
-#             loss = F.huber_loss(epsilon, noise, reduction="mean")
-#         else:
-#             raise ValueError(f"Unknown loss type {self.loss_distance}")
-#         if return_model_output:
-#             return loss, epsilon
-#         else:
-#             return loss
+        noised_input = self.diffusion.q_sample(x, ts, noise)
+        epsilon = self.inner_model(noised_input, ts, **model_kwargs)
+        if self.loss_distance == "mse":
+            loss = (epsilon - noise).pow(2).flatten(1).mean(1)
+        elif self.loss_distance == "huber":
+            loss = F.huber_loss(epsilon, noise, reduction="mean")
+        else:
+            raise ValueError(f"Unknown loss type {self.loss_distance}")
+        if return_model_output:
+            return loss, epsilon
+        else:
+            return loss
     
 
 class ResidualBlock(nn.Module):

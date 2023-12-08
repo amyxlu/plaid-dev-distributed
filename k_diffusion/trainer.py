@@ -50,9 +50,7 @@ class Trainer:
         self.ema_sched_config = args.ema_sched_config
         self.sd_config = args.model_config.sigma_sample_density
 
-        self.is_discrete_diffusion = False
-        if "discrete" in self.sd_config.type:
-            self.is_discrete_diffusion = True
+        self.use_discrete_diffusion = args.use_discrete_diffusion
 
         self.setup_backend()  # creates accelerator
         self.setup_models()
@@ -61,7 +59,7 @@ class Trainer:
         if self.is_discrete_diffusion:
             self.setup_diffusion(self.sd_config)
         else:
-            self.setup_sample_density()
+            self.setup_sample_density(self.sd_config)
 
         self.setup_gns()
         self.setup_ema()
@@ -113,7 +111,9 @@ class Trainer:
         self.ema_stats = {}
 
     def setup_artifact_dirs(self):
-        self.checkpoints_dir = Path(self.args.artifacts_dir) / "checkpoints" / self.args.name
+        self.checkpoints_dir = (
+            Path(self.args.artifacts_dir) / "checkpoints" / self.args.name
+        )
         print("Saving to", self.checkpoints_dir)
         if not self.checkpoints_dir.exists():
             self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
@@ -162,10 +162,14 @@ class Trainer:
         )
 
         # make a denoising wrapper
-        self.model = K.config.make_denoiser_wrapper(self.model_config)(self.inner_model)
-        self.model_ema = K.config.make_denoiser_wrapper(self.model_config)(
-            self.inner_model_ema
-        )
+        if self.use_discrete_diffusion:
+            self.model = K.config.make_discrete_diffusion_wrapper(self.sd_config, self.inner_model)
+            self.model_ema = K.config.make_discrete_diffusion_wrapper(self.sd_config, self.inner_model_ema)
+        else:
+            self.model = K.config.make_denoiser_wrapper(self.model_config)(self.inner_model)
+            self.model_ema = K.config.make_denoiser_wrapper(self.model_config)(
+                self.inner_model_ema
+            )
 
     def setup_wandb(self):
         # If logging to wandb, initialize the run
@@ -346,10 +350,10 @@ class Trainer:
             einops.repeat(mask[None, :], "1 L -> N L", N=x.shape[0]) < seqlen[:, None]
         )
         return x, mask
-    
+
     def sample_discrete_time(self, N):
         return torch.randint(0, self.sd_config.T, (N,)).long().to(self.device)
-    
+
     def run_batch(self, batch):
         with self.accelerator.accumulate(self.model):
             # Get batch
@@ -369,18 +373,15 @@ class Trainer:
             with K.utils.enable_stratified_accelerate(
                 self.accelerator, disable=self.args.gns
             ):
-                if self.is_discrete_diffusion:
+                if self.use_discrete_diffusion:
                     ts = self.sample_discrete_time(N)
                 else:
                     sigma = self.sample_density([N], device=self.device)
 
             # Run model to denoise
             with K.models.checkpointing(self.args.checkpointing):
-                if self.is_discrete_diffusion:
-                    x_noised = self.diffusion.q_sample(x, ts, noise=noise)
-                    model_output = self.model.inner_model(x_noised, ts, **extra_args)
-                    loss_fn = F.mse_loss if self.model_config.loss_distance == "mse" else F.huber_loss
-                    losses = loss_fn(model_output, noise)  # use epsilon formulation
+                if self.use_discrete_diffusion:
+                    losses, model_output = self.model.loss_epsilon(x, ts, noise, return_model_output=True, **extra_args)
                 else:
                     losses, model_output = self.model.loss(
                         x, noise, sigma, return_model_output=True, **extra_args
@@ -392,9 +393,13 @@ class Trainer:
 
         if self.args.gns:
             sq_norm_small, sq_norm_large = self.gns_stats_hook.get_stats()
-            self.gns_stats.update(sq_norm_small, sq_norm_large, N, N * self.accelerator.num_processes)
+            self.gns_stats.update(
+                sq_norm_small, sq_norm_large, N, N * self.accelerator.num_processes
+            )
         if self.args.clip_norm:
-            self.accelerator.clip_grad_norm_(self.model.parameters(), self.args.clip_norm)
+            self.accelerator.clip_grad_norm_(
+                self.model.parameters(), self.args.clip_norm
+            )
         if self.accelerator.sync_gradients:
             self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
 
@@ -433,7 +438,7 @@ class Trainer:
                 for batch in self.train_dl:
                     loss, mean, std, ema_decay = self.run_batch(batch)
 
-                    if (self.step % 25 == 0):
+                    if self.step % 25 == 0:
                         avg_loss = self.ema_stats["loss"]
                         if self.accelerator.is_main_process:
                             if self.args.gns:
@@ -456,7 +461,9 @@ class Trainer:
                                 "pred_std": std,
                             }
                             if self.args.gns:
-                                log_dict["gradient_noise_scale"] = self.gns_stats.get_gns()
+                                log_dict[
+                                    "gradient_noise_scale"
+                                ] = self.gns_stats.get_gns()
                             wandb.log(log_dict)
 
                     if self.step == self.args.end_step or (
