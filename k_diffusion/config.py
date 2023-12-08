@@ -91,7 +91,7 @@ DATASET_TO_PATH = {
 @dataclass
 class SigmaDensityConfig:
     # continuous time
-    type: str = "cosine-interpolated"  # "cosine-interpolated" / "discrete-cosine"
+    type: str = "cosine"  # "cosine-interpolated" / "discrete-cosine"
     mean: Optional[float] = None
     std: Optional[float] = None
     loc: Optional[float] = None
@@ -108,7 +108,6 @@ class SigmaDensityConfig:
 @dataclass
 class ModelConfig:
     type: str = "protein_transformer_v1"
-    use_continuous_time: bool = True
     lm_embedder_type: str = "esmfold"  # esm2_t6_8M_UR50D / esm2_t12_35M_UR50D / esm2_t30_150M_UR50D / etc.
     n_layers: int = 5 
     d_model: int = 1024 
@@ -228,6 +227,7 @@ class TrainArgs:
     seed: Optional[int] = None
     start_method: str = "spawn"
     toy: bool = False
+    use_discrete_diffusion: bool = False
     wandb_entity: str = "amyxlu"
     wandb_group: Optional[str] = None
     wandb_project: str = "kdplaid"
@@ -311,13 +311,12 @@ def make_denoiser_wrapper(config: ModelConfig):
             raise ValueError("Vanilla loss config does not support a variance output")
         return partial(layers.SimpleVanilla, sigma_data=sigma_data, loss_distance=loss_distance)
     
-    if "discrete_" in loss_config:
-        loss_config = loss_config.replace("discrete_", "")
-        diffusion = get_default_diffusion(loss_config.replace("discrete_", ""), T=config.sigma_sample_density.T)
-        return partial(layers.DiscreteDenoiser, diffusion=diffusion)
-
     else:
         raise ValueError(f"Unknown loss config type {loss_config}")
+
+
+def make_discrete_diffusion_wrapper(model_config: ModelConfig, inner_model):
+    return layers.DiscreteDenoiser(model_config, inner_model)
 
 
 def make_sample_density(config: ModelConfig, input_size, **kwargs):
@@ -384,8 +383,6 @@ def make_sample_density(config: ModelConfig, input_size, **kwargs):
             max_value=max_value,
         )
 
-    if "discrete" in sd_config.type:
-        return None
     else:
         raise ValueError("Unknown sample density type")
 

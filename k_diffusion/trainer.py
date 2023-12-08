@@ -56,7 +56,7 @@ class Trainer:
         self.setup_models()
         self.setup_dataset()
         self.setup_optimizer()
-        if self.is_discrete_diffusion:
+        if self.use_discrete_diffusion:
             self.setup_diffusion(self.sd_config)
         else:
             self.setup_sample_density(self.sd_config)
@@ -163,8 +163,8 @@ class Trainer:
 
         # make a denoising wrapper
         if self.use_discrete_diffusion:
-            self.model = K.config.make_discrete_diffusion_wrapper(self.sd_config, self.inner_model)
-            self.model_ema = K.config.make_discrete_diffusion_wrapper(self.sd_config, self.inner_model_ema)
+            self.model = K.config.make_discrete_diffusion_wrapper(self.model_config, self.inner_model)
+            self.model_ema = K.config.make_discrete_diffusion_wrapper(self.model_config, self.inner_model_ema)
         else:
             self.model = K.config.make_denoiser_wrapper(self.model_config)(self.inner_model)
             self.model_ema = K.config.make_denoiser_wrapper(self.model_config)(
@@ -199,10 +199,10 @@ class Trainer:
     def setup_optimizer(self):
         # optimizer
         lr = self.opt_config.lr
-        if self.model_config.type == "protein_transformer_v1":
-            groups = self.unwrap(self.inner_model).param_groups(lr)
-        else:
+        if self.model_config.type == "bert_hf":
             groups = self.unwrap(self.inner_model).parameters()
+        else:
+            groups = self.unwrap(self.inner_model).param_groups(lr)
 
         if self.opt_config.type == "adamw":
             self.opt = optim.AdamW(
@@ -387,6 +387,7 @@ class Trainer:
                         x, noise, sigma, return_model_output=True, **extra_args
                     )
             loss = self.accelerator.gather(losses).mean().item()
+            print(loss)
             model_output = self.accelerator.gather(model_output)
             mean, std = model_output.mean(), model_output.std()
             self.accelerator.backward(losses.mean())
@@ -398,10 +399,10 @@ class Trainer:
             )
         if self.args.clip_norm:
             self.accelerator.clip_grad_norm_(
-                self.model.parameters(), self.args.clip_norm
+                self.model.inner_model.parameters(), self.args.clip_norm
             )
         if self.accelerator.sync_gradients:
-            self.accelerator.clip_grad_norm_(self.model.parameters(), 1.0)
+            self.accelerator.clip_grad_norm_(self.model.inner_model.parameters(), 1.0)
 
         self.opt.step()
         self.sched.step()
@@ -414,7 +415,7 @@ class Trainer:
             ema_decay ** (1 / self.args.grad_accum_steps),
         )
         if self.accelerator.sync_gradients:
-            K.utils.ema_update(self.model, self.model_ema, ema_decay)
+            K.utils.ema_update(self.inner_model, self.inner_model_ema, ema_decay)
             self.ema_sched.step()
         return loss, mean, std, ema_decay
 

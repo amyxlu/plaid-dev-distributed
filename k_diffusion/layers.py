@@ -161,8 +161,9 @@ class SimpleVanilla(Denoiser):
 
 
 class DiscreteDenoiser:
-    def __init__(self, sd_config, inner_model, **kwargs):
-        self.sd_config = sd_config
+    def __init__(self, model_config, inner_model, **kwargs):
+        self.model_config = model_config
+        self.sd_config = model_config.sigma_sample_density
         self.diffusion = get_default_diffusion(self.sd_config.type, self.sd_config.T, **kwargs)
         self.inner_model = inner_model
     
@@ -172,9 +173,9 @@ class DiscreteDenoiser:
 
         noised_input = self.diffusion.q_sample(x, ts, noise)
         epsilon = self.inner_model(noised_input, ts, **model_kwargs)
-        if self.loss_distance == "mse":
+        if self.model_config.loss_distance == "mse":
             loss = (epsilon - noise).pow(2).flatten(1).mean(1)
-        elif self.loss_distance == "huber":
+        elif self.model_config.loss_distance == "huber":
             loss = F.huber_loss(epsilon, noise, reduction="mean")
         else:
             raise ValueError(f"Unknown loss type {self.loss_distance}")
