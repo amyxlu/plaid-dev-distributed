@@ -370,13 +370,13 @@ class Trainer:
             noise = torch.randn_like(x) * self.sd_config.noise_scale
 
             # Sample sigma (if continuous) or timesteps (if discrete)
-            with K.utils.enable_stratified_accelerate(
-                self.accelerator, disable=self.args.gns
-            ):
-                if self.use_discrete_diffusion:
-                    ts = self.sample_discrete_time(N)
-                else:
-                    sigma = self.sample_density([N], device=self.device)
+            # with K.utils.enable_stratified_accelerate(
+            #     self.accelerator, disable=self.args.gns
+            # ):
+            if self.use_discrete_diffusion:
+                ts = self.sample_discrete_time(N)
+            else:
+                sigma = self.sample_density([N], device=self.device)
 
             # Run model to denoise
             with K.models.checkpointing(self.args.checkpointing):
