@@ -71,15 +71,13 @@ class SampleSolverType(str, enum.Enum):
 
 DATASET_TO_PATH = {
     "uniref": {
-        "loader": "FastaDataset",
         "full": "/shared/amyxlu/data/uniref90/uniref90.fasta",
         "toy": "/shared/amyxlu/data/uniref90/partial.fasta",
         "num_holdout": 50000,
     },
     "cath": {
-        "loader": "ShardedTensorDataset",
         "full": "/shared/amyxlu/data/cath/shards/",
-        "toy": "/shared/amyxlu/data/cath/shards/",
+        "toy": "/shared/amyxlu/data/cath/shards/seqlen_64/toy",
         "num_holdout": 0  # ignored
     },
     "pfam": {
@@ -446,7 +444,7 @@ def make_sample_solver_fn(solver_type: SampleSolverType):
         raise ValueError(f"Unknown solver type")
 
 def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False):
-    if DATASET_TO_PATH[dataset_config.dataset]["loader"] == "FastaDataset":
+    if dataset_config.dataset == "uniref":
         fasta_file = dataset_config.path
         if toy:
             fasta_file = dataset_config.toy_data_path
@@ -462,9 +460,12 @@ def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False
         )
         shuffle = True
     
-    elif DATASET_TO_PATH[dataset_config.dataset]["loader"] == "ShardedTensorDataset":
+    elif dataset_config.dataset == "cath":
         from . datasets import ShardedTensorDataset
-        shard_dir = Path(dataset_config.path) / f"seqlen_{max_seq_len}"
+        if toy:
+            shard_dir = Path(dataset_config.toy_data_path)
+        else:
+            shard_dir = Path(dataset_config.path) / f"seqlen_{max_seq_len}"
         # train_ds = ShardedTensorDataset(shard_dir, split="train")
         # val_ds = ShardedTensorDataset(shard_dir, split="val")
         train_ds = ShardedTensorDataset(shard_dir, split=None)

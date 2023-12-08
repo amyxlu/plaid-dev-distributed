@@ -15,7 +15,7 @@ from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
 from torch.utils import data
-import torch.functional as F
+import torch.nn.functional as F
 from tqdm.auto import tqdm, trange
 import pandas as pd
 import numpy as np
@@ -347,9 +347,8 @@ class Trainer:
         )
         return x, mask
     
-    def sample_discrete_time(self, N, dtype=torch.bfloat16):
-        ts = torch.randint(0, self.sd_config.T, (N,))
-        return ts.long().to(self.device).to(dtype)
+    def sample_discrete_time(self, N):
+        return torch.randint(0, self.sd_config.T, (N,)).long().to(self.device)
     
     def run_batch(self, batch):
         with self.accelerator.accumulate(self.model):
