@@ -298,9 +298,7 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         d_head,
         skip_connect: bool = False,
         lm_embedder_type: str = "esmfold",
-        input_size: int = 512,
         input_dim: int = 1024, 
-        min_len: int = 32,
         num_classes: int = 0,
         dropout: float = 0.0,
     ):
@@ -310,11 +308,9 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         """
         super().__init__()
         self.num_classes = num_classes # not used
-        self.input_size = input_size  # i.e. length of protein
         self.input_dim = input_dim # i.e. the actual latent dimension for ESMFold
         assert input_dim == ESMFOLD_S_DIM
         self.d_model = d_model
-        self.min_len = min_len
 
         assert lm_embedder_type in ACCEPTED_LM_EMBEDDER_TYPES
         self.lm_embedder_type = lm_embedder_type
@@ -419,12 +415,12 @@ class ProteinTransformerDenoiserModelV1(nn.Module):
         ]
         return groups
 
-    def embed_from_sequences(self, sequences: T.List[str]):
+    def embed_from_sequences(self, sequences: T.List[str], max_seq_len: int, min_seq_len: int):
         """
         Create the ESMFold intermediate representation from strings.
         Used for training only.
         """
-        sequences = utils.get_random_sequence_crop_batch(sequences, self.input_size, self.min_len)
+        sequences = utils.get_random_sequence_crop_batch(sequences, max_seq_len, min_seq_len)
         with torch.no_grad():
             if self.lm_embedder_type == "esmfold":
                 embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)

@@ -28,8 +28,6 @@ def xavier_init(module):
 class ProteinBertDenoiser(nn.Module):
     def __init__(
         self,
-        max_seq_len=256,
-        min_len=8,
         attention_probs_dropout_prob=0.1,
         hidden_act="gelu",
         hidden_dropout_prob=0.1,
@@ -44,8 +42,6 @@ class ProteinBertDenoiser(nn.Module):
         use_cache=True,
     ):
         super().__init__()
-        self.max_seq_len = max_seq_len
-        self.min_len = min_len
         self.bert_config = BertConfig(
             attention_probs_dropout_prob=attention_probs_dropout_prob,
             hidden_act=hidden_act,
@@ -54,7 +50,7 @@ class ProteinBertDenoiser(nn.Module):
             initializer_range=initializer_range,
             intermediate_size=intermediate_size,
             layer_norm_eps=layer_norm_eps,
-            max_position_embeddings=max_seq_len,
+            max_position_embeddings=1024,
             num_attention_heads=num_attention_heads,
             num_hidden_layers=num_hidden_layers,
             pad_token_id=pad_token_id,
@@ -71,9 +67,9 @@ class ProteinBertDenoiser(nn.Module):
         mask = torch.cat([mask, torch.zeros((mask.shape[0], 1), dtype=mask.dtype, device=mask.device)], dim=1)
         return x, mask
 
-    def embed_from_sequences(self, sequences: T.List[str]):
+    def embed_from_sequences(self, sequences: T.List[str], max_seq_len: int, min_seq_len: int):
         sequences = utils.get_random_sequence_crop_batch(
-            sequences, self.max_seq_len, self.min_len
+            sequences, max_seq_len=max_seq_len, min_seq_len=min_seq_len
         )
         with torch.no_grad():
             embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)

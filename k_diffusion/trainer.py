@@ -3,6 +3,7 @@ import argparse
 import math
 from copy import deepcopy
 import json
+import time
 from pathlib import Path
 
 import einops
@@ -51,21 +52,19 @@ class Trainer:
         self.sd_config = args.model_config.sigma_sample_density
 
         self.use_discrete_diffusion = args.use_discrete_diffusion
+        if not self.use_discrete_diffusion:
+            self.setup_sample_density()
 
         self.setup_backend()  # creates accelerator
         self.setup_models()
+
         self.setup_dataset()
         self.setup_optimizer()
-        if self.use_discrete_diffusion:
-            self.setup_diffusion(self.sd_config)
-        else:
-            self.setup_sample_density(self.sd_config)
+        self.train_dl, self.opt = self.accelerator.prepare(self.train_dl, self.opt)
 
         self.setup_gns()
         self.setup_ema()
         self.resume_states()
-
-        self.train_dl, self.opt = self.accelerator.prepare(self.train_dl, self.opt)
         self.setup_wandb()
 
     def setup_backend(self):
@@ -146,10 +145,9 @@ class Trainer:
             self.ckpt = None
 
     def setup_models(self):
+        start = time.time()
         # make inner models for EMA
-        self.inner_model = K.config.make_model(
-            self.model_config, max_seq_len=self.args.max_seq_len
-        )
+        self.inner_model = K.config.make_model(self.model_config) 
         self.inner_model_ema = deepcopy(self.inner_model)
 
         if self.args.compile:
@@ -170,6 +168,12 @@ class Trainer:
             self.model_ema = K.config.make_denoiser_wrapper(self.model_config)(
                 self.inner_model_ema
             )
+        
+        self.model, self.model_ema = self.accelerator.prepare(
+            self.model, self.model_ema
+        )
+        end = time.time()
+        print(f"Model setup took {end - start:.1f} seconds")
 
     def setup_wandb(self):
         # If logging to wandb, initialize the run
@@ -202,7 +206,10 @@ class Trainer:
         if self.model_config.type == "bert_hf":
             groups = self.unwrap(self.inner_model).parameters()
         else:
-            groups = self.unwrap(self.inner_model).param_groups(lr)
+            if self.args.optimize_by_group:
+                groups = self.unwrap(self.inner_model).param_groups(lr)
+            else:
+                groups = self.unwrap(self.inner_model).parameters()
 
         if self.opt_config.type == "adamw":
             self.opt = optim.AdamW(
@@ -230,23 +237,26 @@ class Trainer:
         )
 
     def setup_dataset(self):
+        toy = self.debug_mode or self.args.toy
         self.train_dl, _ = K.config.make_dataset(
             self.dataset_config,
             batch_size=self.args.batch_size,
             num_workers=self.args.num_workers,
             max_seq_len=self.args.max_seq_len,
-            toy=self.debug_mode,
+            toy=toy
         )
         self.scaler = K.normalization.LatentScaler(
             mode=self.model_config.normalize_latent_by,
             origin_dataset=self.dataset_config.dataset,
             lm_embedder_type=self.model_config.lm_embedder_type,
         )
-
         if self.dataset_config.dataset == "cath":
-            self.num_samples = (
-                35840  # can't do len of an iterable dataset, so write this here
-            )
+            if self.args.mixed_precision != "bf16":
+                raise ValueError(
+                    "CATH dataset requires mixed precision to be set to bf16"
+                )
+            # can't do len of an iterable dataset, so hardcode 
+            self.num_samples = 35840 if not toy else 100
             self.num_train_batches = math.ceil(self.num_samples / self.args.batch_size)
         else:
             self.num_train_batches = len(self.train_dl)
@@ -328,18 +338,13 @@ class Trainer:
 
     def setup_sample_density(self):
         self.sample_density = K.config.make_sample_density(
-            self.model_config, self.args.max_seq_len
+            self.model_config, self.dataset_config.max_seq_len
         )
     
-    def setup_diffusion(self, sd_config):
-        beta_schedule = sd_config.type.replace("discrete_", "")
-        diffusion_args = {}
-        self.diffusion = get_default_diffusion(beta_schedule, sd_config.T, **diffusion_args)
-
     def prepare_latent_from_fasta(self, batch):
         sequences = batch[1]
         x, mask = self.unwrap(self.model.inner_model).embed_from_sequences(
-            sequences
+            sequences, self.dataset_config.max_seq_len, self.dataset_config.min_seq_len
         )  # (N, L, input_dim=1024)
         return x, mask
 
