@@ -110,13 +110,13 @@ class ModelConfig:
     type: str = "protein_transformer_v1"
     lm_embedder_type: str = "esmfold"  # esm2_t6_8M_UR50D / esm2_t12_35M_UR50D / esm2_t30_150M_UR50D / etc.
     n_layers: int = 5 
+    n_mapping_layers: int = 2
     d_model: int = 1024 
     d_model_intermediate: int = 3072 
-    d_ff: int = 256
+    d_ff: int = 4096 
     d_head: int = 128
     input_dim: int = 1024
     skip_connect: bool = True
-    min_len: int = 32
     num_classes: int = 0
     dropout: float = 0.0
     loss_config: str = "karras"
@@ -138,6 +138,8 @@ class DatasetConfig:
     path: str = DATASET_TO_PATH[dataset]["full"]
     toy_data_path: str = DATASET_TO_PATH[dataset]["toy"] 
     num_holdout: int = DATASET_TO_PATH[dataset]["num_holdout"]
+    max_seq_len: int = 64
+    min_seq_len: int = 16
 
 
 @dataclass
@@ -214,6 +216,7 @@ class TrainArgs:
     max_seq_len: int = 256 
     clip_norm: Optional[float] = 0.5 
     clip_value: Optional[float] = None
+    optimize_by_group: bool = True
     name: str = ""
     num_workers: int = 8
     recycling_n: int = 4
@@ -246,7 +249,7 @@ def round_to_power_of_two(x, tol):
     return approxs[0]
 
 
-def make_model(config: ModelConfig, max_seq_len: int):
+def make_model(config: ModelConfig):
     if config.type == "protein_transformer_v1":
         model = models.ProteinTransformerDenoiserModelV1(
             n_layers=config.n_layers,
@@ -255,9 +258,21 @@ def make_model(config: ModelConfig, max_seq_len: int):
             d_head=config.d_head,
             skip_connect=getattr(config, "skip_connect", False),
             lm_embedder_type=getattr(config, "lm_embedder_type", "esmfold"),
-            input_size=max_seq_len,
             input_dim=config.input_dim,
-            min_len=config.min_len,
+            num_classes=0,
+            dropout=config.dropout,
+        )
+    elif config.type == "protein_transformer_v2":
+        model = models.ProteinTransformerDenoiserModelV2(
+            n_attention_layers=config.n_layers,
+            n_mapping_layers=getattr(config, "n_mapping_layers", 2),
+            d_model=config.d_model,
+            d_ff=config.d_ff,
+            d_head=config.d_head,
+            skip_connect=getattr(config, "skip_connect", False),
+            lm_embedder_type=getattr(config, "lm_embedder_type", "esmfold"),
+            cond_strategy=getattr(config, "cond_strategy", "project"),
+            input_dim=config.input_dim,
             num_classes=0,
             dropout=config.dropout,
         )
@@ -265,8 +280,6 @@ def make_model(config: ModelConfig, max_seq_len: int):
         assert config.d_model % config.d_head == 0
         n_heads = int(config.d_model / config.d_head)
         model = models.ProteinBertDenoiser(
-            max_seq_len=max_seq_len,
-            min_len=config.min_len,
             num_hidden_layers=config.n_layers,
             num_attention_heads=n_heads,
             hidden_size=config.d_model,
@@ -442,19 +455,27 @@ def make_sample_solver_fn(solver_type: SampleSolverType):
 
 def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False):
     if dataset_config.dataset == "uniref":
-        fasta_file = dataset_config.path
         if toy:
             fasta_file = dataset_config.toy_data_path
+        else:
+            fasta_file = dataset_config.path
+        
         ds = FastaDataset(fasta_file, cache_indices=True)
-        n_val = int(dataset_config.num_holdout)
-        n_train = len(ds) - n_val  # 153,726,820 for UniRef
-        train_ds, val_ds = random_split(
-            ds,
-            [n_train, n_val],
-            generator=torch.Generator().manual_seed(
-                int(dataset_config.random_split_seed)
-            ),
-        )
+
+        if toy:
+            n_train = len(ds)
+            n_val = 0
+            train_ds, val_ds = ds, None
+        else:
+            n_val = int(dataset_config.num_holdout)
+            n_train = len(ds) - n_val  # 153,726,820 for UniRef
+            train_ds, val_ds = random_split(
+                ds,
+                [n_train, n_val],
+                generator=torch.Generator().manual_seed(
+                    int(dataset_config.random_split_seed)
+                ),
+            )
         shuffle = True
     
     elif dataset_config.dataset == "cath":
@@ -463,6 +484,7 @@ def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False
             shard_dir = Path(dataset_config.toy_data_path)
         else:
             shard_dir = Path(dataset_config.path) / f"seqlen_{max_seq_len}"
+        print(f"Loading from {shard_dir}")
         # train_ds = ShardedTensorDataset(shard_dir, split="train")
         # val_ds = ShardedTensorDataset(shard_dir, split="val")
         train_ds = ShardedTensorDataset(shard_dir, split=None)

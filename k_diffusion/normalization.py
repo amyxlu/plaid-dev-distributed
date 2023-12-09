@@ -179,7 +179,6 @@ class LatentScaler:
     def __init__(
         self,
         mode: T.Optional[str] = "channel_standardize",
-        cache_dir: str = DEFAULT_CACHE_DIR,
         origin_dataset: str = "uniref",
         lm_embedder_type: str = "esmfold",
     ):
