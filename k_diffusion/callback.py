@@ -294,7 +294,7 @@ def main(
     # sample latent and calculate KID/FID to the saved known distribution
     print("Sampling latent...")
     sampled_latent, sampled_raw, _ = sampler.sample_latent(
-        clip_range=config.clip_range, save=True, log_wandb_stats=config.log_to_wandb, return_raw=True
+        clip_range=config.clip_range, save=config.save_to_disk, log_wandb_stats=config.log_to_wandb, return_raw=True
     )
     sampled_raw_expanded = inner_model.project_to_input_dim(sampled_raw.to(device))
 
@@ -334,7 +334,7 @@ def main(
     # )
 
     print("Constructing structures...")
-    _, metrics. _ = sampler.construct_structure(
+    _, metrics, _ = sampler.construct_structure(
         sampled_latent,
         strs,
         save_to_disk=config.save_to_disk,

@@ -50,7 +50,8 @@ def dataclass_from_dict(dataclass_, d):
         fieldtypes = {f.name: f.type for f in fields(dataclass_)}
         return dataclass_(**{f: dataclass_from_dict(fieldtypes[f], d[f]) for f in d})
     except:
-        return d  # Assume that this is a terminal field (e.g., int, str, etc.)
+        print(f"Error in dataclass_from_dict for {dataclass_} and {d}")
+        # return d  # Assume that this is a terminal field (e.g., int, str, etc.)
 
 
 class SampleSolverType(str, enum.Enum):

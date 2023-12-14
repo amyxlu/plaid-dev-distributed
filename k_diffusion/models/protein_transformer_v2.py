@@ -547,16 +547,15 @@ class ProteinTransformerDenoiserModelV2(nn.Module):
         sigma: torch.Tensor,
         mask: torch.Tensor,
     ):
-        assert (
-            x.shape[-1] == self.d_model
-        ), "x must have the same dim as d_model; call self.project_to_latent(x) first."
+        if x.shape[-1] != self.d_model:
+            x = self.project_to_d_model(x)
+
         time_cond = self.time_in_proj(self.time_emb(maybe_unsqueeze(sigma)))
 
         # Transformer
         if self.in_blocks is None:
             for block in self.blocks:
                 x = block(x, mask, time_cond)
-            return x
         else:
             skips = []
             for i, block in enumerate(self.in_blocks):
@@ -565,11 +564,17 @@ class ProteinTransformerDenoiserModelV2(nn.Module):
             x = self.mid_block(x, mask, time_cond)
             for i, block in enumerate(self.out_blocks):
                 x = block(x, mask, time_cond, skip=skips.pop())
-            return x
+
+        if x.shape[-1] != self.input_dim:
+            x = self.project_to_input_dim(x)
+        return x
 
 
 if __name__ == "__main__":
     import k_diffusion as K
+    import torch
+    from k_diffusion.models import ProteinTransformerDenoiserModelV2
+    import einops
 
     ds = K.datasets.ShardedTensorDataset(
         "/shared/amyxlu/data/cath/shards/seqlen_64/toy"
@@ -585,3 +590,11 @@ if __name__ == "__main__":
         skip_connect=True,
         cond_strategy="project"
     )
+    x, seqlen = batch
+    sigma = torch.randn(16)
+    mask = torch.arange(x.shape[1])
+    mask = (
+        einops.repeat(mask[None, :], "1 L -> N L", N=x.shape[0]) < seqlen[:, None]
+    )
+    model(x, sigma, mask)
+    import IPython;IPython.embed()

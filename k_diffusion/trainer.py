@@ -50,12 +50,14 @@ class Trainer:
         self.sched_config = args.sched_config
         self.ema_sched_config = args.ema_sched_config
         self.sd_config = args.model_config.sigma_sample_density
+        self.sample_config = args.sample_config
 
         self.use_discrete_diffusion = args.use_discrete_diffusion
         if not self.use_discrete_diffusion:
             self.setup_sample_density()
 
         self.setup_backend()  # creates accelerator
+        self.setup_wandb()
         self.setup_models()
 
         self.setup_dataset()
@@ -65,7 +67,7 @@ class Trainer:
         self.setup_gns()
         self.setup_ema()
         self.resume_states()
-        self.setup_wandb()
+        self.setup_sample_callback()
 
     def setup_backend(self):
         torch.backends.cuda.matmul.allow_tf32 = True
@@ -147,7 +149,7 @@ class Trainer:
     def setup_models(self):
         start = time.time()
         # make inner models for EMA
-        self.inner_model = K.config.make_model(self.model_config) 
+        self.inner_model = K.config.make_model(self.model_config)
         self.inner_model_ema = deepcopy(self.inner_model)
 
         if self.args.compile:
@@ -161,23 +163,24 @@ class Trainer:
 
         # make a denoising wrapper
         if self.use_discrete_diffusion:
-            self.model = K.config.make_discrete_diffusion_wrapper(self.model_config, self.inner_model)
-            self.model_ema = K.config.make_discrete_diffusion_wrapper(self.model_config, self.inner_model_ema)
+            self.model = K.config.make_discrete_diffusion_wrapper(
+                self.model_config, self.inner_model
+            )
+            self.model_ema = K.config.make_discrete_diffusion_wrapper(
+                self.model_config, self.inner_model_ema
+            )
         else:
-            self.model = K.config.make_denoiser_wrapper(self.model_config)(self.inner_model)
+            self.model = K.config.make_denoiser_wrapper(self.model_config)(
+                self.inner_model
+            )
             self.model_ema = K.config.make_denoiser_wrapper(self.model_config)(
                 self.inner_model_ema
             )
-        
+
         self.model, self.model_ema = self.accelerator.prepare(
             self.model, self.model_ema
         )
-        end = time.time()
-        print(f"Model setup took {end - start:.1f} seconds")
 
-    def setup_wandb(self):
-        # If logging to wandb, initialize the run
-        self.use_wandb = self.accelerator.is_main_process and not self.debug_mode
         num_parameters = K.utils.count_parameters(
             self.inner_model, require_grad_only=True
         )
@@ -185,10 +188,27 @@ class Trainer:
             self.accelerator.print(
                 f"Number of trainable parameters: {num_parameters:,}"
             )
+        if self.use_wandb:
+            wandb.watch(self.inner_model, log="all", log_freq=self.args.log_every)
+            wandb.config.update({"parameters": num_parameters})
+        end = time.time()
+        print(f"Model setup took {end - start:.1f} seconds")
+
+    def setup_sample_callback(self):
+        self.sample_callback = K.callback.SampleCallback(
+            model=self.model,
+            config=self.sample_config,
+            model_config=self.model_config,
+            origin_dataset=self.dataset_config.dataset,
+            is_wandb_setup=self.debug_mode,  # If debug mode, don't trigger wandb setup
+        )
+
+    def setup_wandb(self):
+        # If logging to wandb, initialize the run
+        self.use_wandb = self.accelerator.is_main_process and not self.debug_mode
 
         if self.use_wandb:
             log_config = K.config.dataclass_to_dict(self.args)
-            log_config["parameters"] = num_parameters
             wandb.init(
                 resume="allow",
                 project=self.args.wandb_project,
@@ -198,7 +218,6 @@ class Trainer:
                 id=self.args.name,
                 save_code=True,
             )
-            wandb.watch(self.inner_model)
 
     def setup_optimizer(self):
         # optimizer
@@ -243,7 +262,7 @@ class Trainer:
             batch_size=self.args.batch_size,
             num_workers=self.args.num_workers,
             max_seq_len=self.args.max_seq_len,
-            toy=toy
+            toy=toy,
         )
         self.scaler = K.normalization.LatentScaler(
             mode=self.model_config.normalize_latent_by,
@@ -255,7 +274,7 @@ class Trainer:
                 raise ValueError(
                     "CATH dataset requires mixed precision to be set to bf16"
                 )
-            # can't do len of an iterable dataset, so hardcode 
+            # can't do len of an iterable dataset, so hardcode
             self.num_samples = 35840 if not toy else 100
             self.num_train_batches = math.ceil(self.num_samples / self.args.batch_size)
         else:
@@ -340,7 +359,7 @@ class Trainer:
         self.sample_density = K.config.make_sample_density(
             self.model_config, self.dataset_config.max_seq_len
         )
-    
+
     def prepare_latent_from_fasta(self, batch):
         sequences = batch[1]
         x, mask = self.unwrap(self.model.inner_model).embed_from_sequences(
@@ -358,6 +377,43 @@ class Trainer:
 
     def sample_discrete_time(self, N):
         return torch.randint(0, self.sd_config.T, (N,)).long().to(self.device)
+
+    def sample_eval(self):
+        self.sample_callback
+        sampled_latent = self.sample_callback.sample_latent(
+            clip_range=self.sample_config.clip_range,
+            save=self.sample_config.save_to_disk,
+            log_wandb_stats=self.sample_config.log_to_wandb,
+            return_raw=False,
+        )
+
+        if self.sample_config.calc_fid:
+            print("Calculating FID/KID...")
+            fid, kid = self.sample_callback.calculate_fid(
+                sampled_latent, log_to_wandb=self.sample_config.log_to_wandb
+            )
+
+        # potentially take a smaller subset to decode into structure/sequence and evaluate
+        if not self.sample_config.n_to_construct == -1:
+            sampled_latent = sampled_latent[torch.randperm(sampled_latent.shape[0])][
+                :self.sample_config.n_to_construct
+            ]
+        
+        print("Constructing sequences...")
+        _, _, strs, _ = self.sample_callback.construct_sequence(
+            sampled_latent,
+            calc_perplexity=self.sample_config.calc_perplexity,
+            save_to_disk=self.sample_config.save_to_disk,
+            log_to_wandb=self.sample_config.log_to_wandb,
+        )
+
+        print("Constructing structures...")
+        _, metrics, _ = self.sample_config.construct_structure(
+            sampled_latent,
+            strs,
+            save_to_disk=self.sample_config.save_to_disk,
+            log_to_wandb=self.sample_config.log_to_wandb,
+        )
 
     def run_batch(self, batch):
         with self.accelerator.accumulate(self.model):
@@ -386,7 +442,9 @@ class Trainer:
             # Run model to denoise
             with K.models.checkpointing(self.args.checkpointing):
                 if self.use_discrete_diffusion:
-                    losses, model_output = self.model.loss_epsilon(x, ts, noise, return_model_output=True, **extra_args)
+                    losses, model_output = self.model.loss_epsilon(
+                        x, ts, noise, return_model_output=True, **extra_args
+                    )
                 else:
                     losses, model_output = self.model.loss(
                         x, noise, sigma, return_model_output=True, **extra_args
@@ -471,6 +529,9 @@ class Trainer:
                                     "gradient_noise_scale"
                                 ] = self.gns_stats.get_gns()
                             wandb.log(log_dict)
+
+                    if self.step % self.args.sample_every == 0:
+                        self.sample_eval()
 
                     if self.step == self.args.end_step or (
                         self.step > 0 and self.step % self.args.save_every == 0

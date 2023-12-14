@@ -595,6 +595,15 @@ def print_cuda_memory_usage():
         print(f'Current CUDA memory reserved: {torch.cuda.memory_reserved() / 1024 ** 2} MB')
 
 
+def view_py3Dmol(pdbstr):
+    import py3Dmol
+    view = py3Dmol.view(width=400, height=300)
+    view.addModelsAsFrames(pdbstr)
+    view.setStyle({"model": -1}, {"cartoon": {"color": "spectrum"}})
+    view.zoomTo()
+    view.show()
+
+
 ######
 # The following is adapted from pseudocode in Chen et al.,
 # https://arxiv.org/abs/2301.10972
