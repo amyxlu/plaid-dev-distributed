@@ -20,6 +20,32 @@ import numpy as np
 import torch
 
 
+restype_1to3 = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+}
+
+restype_3to1 = {v: k for k, v in restype_1to3.items()}
+
+
 def append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
@@ -602,6 +628,87 @@ def view_py3Dmol(pdbstr):
     view.setStyle({"model": -1}, {"cartoon": {"color": "spectrum"}})
     view.zoomTo()
     view.show()
+
+
+def parse_sequence_from_structure(pdb_data, id="") -> str:
+    """ Returns a string where chains are separated by : and assumes one model per PDB file"""
+    from Bio.PDB import PDBParser
+    import io
+
+    # Using StringIO to create a file-like object from the string
+    pdb_io = io.StringIO(pdb_data)
+
+    # Parsing the PDB data
+    parser = PDBParser()
+    structure = parser.get_structure(id, pdb_io)
+
+    # Extracting the sequence
+    if len(structure) > 1:
+        print(f"WARNING: More than one model found in {id}. Using the first model.")
+    model = structure[0]
+    chains = []
+    for chain in model:
+        sequence = ''
+        for residue in chain.get_residues():
+            res_name = residue.get_resname()
+            sequence += restype_3to1[res_name]
+        chains.append(sequence)
+    return ":".join(chains)
+
+
+def output_to_pdb(output: T.Dict) -> T.List[str]:
+    """https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/misc.py#L93"""
+    from openfold.np.protein import Protein as OFProtein
+    from openfold.np.protein import to_pdb
+    from openfold.utils.feats import atom14_to_atom37
+
+    """Returns the pbd (file) string from the model given the model output."""
+    # atom14_to_atom37 must be called first, as it fails on latest numpy if the
+    # input is a numpy array. It will work if the input is a torch tensor.
+    final_atom_positions = atom14_to_atom37(output["positions"][-1], output)
+    output = {k: v.to("cpu").numpy() for k, v in output.items()}
+    final_atom_positions = final_atom_positions.cpu().numpy()
+    final_atom_mask = output["atom37_atom_exists"]
+    pdbs = []
+    for i in range(output["aatype"].shape[0]):
+        aa = output["aatype"][i]
+        pred_pos = final_atom_positions[i]
+        mask = final_atom_mask[i]
+        resid = output["residue_index"][i] + 1
+        pred = OFProtein(
+            aatype=aa,
+            atom_positions=pred_pos,
+            atom_mask=mask,
+            residue_index=resid,
+            b_factors=output["plddt"][i],
+            chain_index=output["chain_index"][i] if "chain_index" in output else None,
+        )
+        pdbs.append(to_pdb(pred))
+    return pdbs
+
+
+def build_contact_map(pdb_file, threshold=5.0):
+    from Bio.PDB import PDBParser
+    def calculate_distance(residue1, residue2):
+        """Calculate the distance between the center of masses of two residues."""
+        diff_vector = residue1["CA"].coord - residue2["CA"].coord
+        return np.sqrt(np.sum(diff_vector * diff_vector))
+
+    """Build a contact map from a PDB file with a specified distance threshold."""
+    parser = PDBParser()
+    structure = parser.get_structure("protein", pdb_file)
+    model = structure[0]  # Assuming we are working with the first model
+
+    residues = [residue for residue in model.get_residues() if residue.get_id()[0] == ' ']
+    n = len(residues)
+    contact_map = np.zeros((n, n), dtype=int)
+
+    for i, residue1 in enumerate(residues):
+        for j, residue2 in enumerate(residues):
+            if calculate_distance(residue1, residue2) < threshold:
+                contact_map[i, j] = 1
+
+    return contact_map
 
 
 ######
