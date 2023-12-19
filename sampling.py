@@ -1,5 +1,5 @@
-from k_diffusion.callback import main
-from k_diffusion.config import SampleCallbackConfig
+from plaid.callback import main
+from plaid.config import SampleCallbackConfig
 
 
 if __name__ == "__main__":

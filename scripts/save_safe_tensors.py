@@ -56,14 +56,22 @@ def embed_batch(esmfold, sequences, max_len=512, min_len=30):
     return feats, seq_lens
 
 
+def write_headers(headers, outdir, shard_number):
+    with open(outdir / f"shard{shard_number:04}.txt", "w") as f:
+        for header in headers:
+            f.write(header + "\n")
+
+
 def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_len):
     # TODO: also save aatype / sequence
     cur_shard_tensors = []
     cur_shard_lens = []
+    cur_headers = []
 
     for _ in trange(n_batches_per_shard, leave=False):
         batch = next(iter(dataloader))
-        sequences = batch[1]
+        headers, sequences = batch
+        cur_headers.extend(headers)
         feats, seq_lens = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
         cur_shard_tensors.append(feats)
@@ -71,7 +79,7 @@ def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_le
 
     cur_shard_tensors = torch.cat(cur_shard_tensors, dim=0)
     cur_seq_lens = torch.cat(cur_shard_lens, dim=0)
-    return cur_shard_tensors, cur_seq_lens
+    return cur_shard_tensors, cur_seq_lens, cur_headers
 
 
 def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir):
@@ -112,7 +120,8 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         json.dump(argsdict, f, indent=2)
 
     for shard_number in tqdm(range(num_shards), desc="Shards"):
-        emb_shard, seq_lens = make_shard(esmfold, dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        emb_shard, seq_lens, cur_headers = make_shard(esmfold, dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        write_headers(cur_headers, outdir, shard_number)
         if cfg.compression == "safetensors":
             save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir)
         elif cfg.compression == "hdf5":

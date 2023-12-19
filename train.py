@@ -1,5 +1,5 @@
-from k_diffusion import Trainer
-from k_diffusion.config import TrainArgs, dataclass_to_dict
+from plaid import Trainer
+from plaid.config import TrainArgs, dataclass_to_dict
 
 def main(args: TrainArgs):
     trainer = Trainer(args)

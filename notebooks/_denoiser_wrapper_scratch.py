@@ -1,4 +1,4 @@
-import k_diffusion as K 
+import plaid as K 
 import torch
 
 config_path = "/home/amyxlu/kdiffusion/configs/config_protein_transformer_v1.json"

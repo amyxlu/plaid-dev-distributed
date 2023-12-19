@@ -1,5 +1,5 @@
 import numpy as np
-import k_diffusion as K
+import plaid as K
 import argparse
 import pandas as pd
 from pathlib import Path
@@ -37,8 +37,8 @@ sampled_latent = np.load(
 latent = K.utils.to_tensor(sampled_latent, device=device)
 assert latent.shape[-1] == 1024
 
-sequence_constructor = K.proteins.LatentToSequence(device)
-structure_constructor = K.proteins.LatentToStructure(device)
+sequence_constructor = K._proteins.LatentToSequence(device)
+structure_constructor = K._proteins.LatentToStructure(device)
 import IPython;IPython.embed()
 
 probs, _, sequences = sequence_constructor.to_sequence(latent)

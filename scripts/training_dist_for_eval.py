@@ -15,8 +15,8 @@ batch_size=64
 dataloader = torch.utils.data.DataLoader(val_set, batch_size=batch_size)
 
 import safetensors
-import k_diffusion as K
-from k_diffusion.models.esmfold import ESMFold
+import plaid as K
+from plaid.denoisers.esmfold import ESMFold
 import einops
 
 esmfold = ESMFold()

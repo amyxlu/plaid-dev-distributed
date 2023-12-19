@@ -1,4 +1,4 @@
-from k_diffusion.models import ProteinTransformerDenoiserModelV1
+from plaid.denoisers import ProteinTransformerDenoiserModelV1
 import torch
 model = ProteinTransformerDenoiserModelV1(
     n_layers=4,

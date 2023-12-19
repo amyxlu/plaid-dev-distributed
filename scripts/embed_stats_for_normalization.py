@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import einops
 import safetensors
-import k_diffusion as K
+import plaid as K
 from torch.utils.data import random_split
 import torch
 import math
@@ -61,7 +61,7 @@ def get_dataloader(dataset, batch_size=64, n_val=5000):
 def make_embedder(lm_embedder_type):
     if lm_embedder_type == "esmfold":
         print("making esmfold model")
-        from k_diffusion.models.esmfold import ESMFold
+        from plaid.denoisers.esmfold import ESMFold
         embedder = ESMFold(make_trunk=False)
         alphabet = None
     else:

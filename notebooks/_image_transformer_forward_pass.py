@@ -23,8 +23,8 @@ batch = next(iter(train_loader))
 img = batch[0]
 img = img.to(device)
 
-import k_diffusion as K
-from k_diffusion.models.image_transformer_v1 import ImageTransformerDenoiserModelV1
+import plaid as K
+from plaid.denoisers.image_transformer_v1 import ImageTransformerDenoiserModelV1
 
 model_config = {
     "type": "image_transformer_v1",
@@ -61,7 +61,7 @@ model = ImageTransformerDenoiserModelV1(
 )
 model.to(device)
 
-sigmas = K.sampling.get_sigmas_karras(
+sigmas = K.karras.get_sigmas_karras(
     # batch_size - 1,
     50,
     model_config["sigma_min"],
