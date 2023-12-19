@@ -1,7 +1,9 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-#
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
+"""
+Adapted from the original ESMFold triangular self-attention
+in order to add conditioning pieces and skip connections for diffusion.
+"""
+
+import torch.nn as nn
 import torch
 from openfold.model.triangular_attention import (
     TriangleAttentionEndingNode,
@@ -11,9 +13,8 @@ from openfold.model.triangular_multiplicative_update import (
     TriangleMultiplicationIncoming,
     TriangleMultiplicationOutgoing,
 )
-from torch import nn
 
-from esm.esmfold.v1.misc import (
+from ...esmfold.misc import (
     Attention,
     Dropout,
     PairToSequence,
@@ -21,19 +22,30 @@ from esm.esmfold.v1.misc import (
     SequenceToPair,
 )
 
+from . import BaseBlock
 
-class TriangularSelfAttentionBlock(nn.Module):
+
+class TriSelfAttnDenoiserBlock(BaseBlock):
+    # Copyright (c) Meta Platforms, Inc. and affiliates.
+    #
+    # This source code is licensed under the MIT license found in the
+    # LICENSE file in the root directory of this source tree.
+
+    # Note: this should be entirely compatible with the original ESMFold weights
+    # in order to finetune for diffusion.
+
     def __init__(
         self,
         sequence_state_dim,
         pairwise_state_dim,
         sequence_head_width,
         pairwise_head_width,
+        conditioning_strategy=None,
         dropout=0,
+        skip=False,
         **__kwargs,
     ):
-        super().__init__()
-
+        super().__init__(conditioning_strategy, sequence_state_dim)
         assert sequence_state_dim % sequence_head_width == 0
         assert pairwise_state_dim % pairwise_head_width == 0
         sequence_num_heads = sequence_state_dim // sequence_head_width
@@ -76,8 +88,25 @@ class TriangularSelfAttentionBlock(nn.Module):
             inf=1e9,
         )  # type: ignore
 
-        self.mlp_seq = ResidueMLP(sequence_state_dim, 4 * sequence_state_dim, dropout=dropout)
-        self.mlp_pair = ResidueMLP(pairwise_state_dim, 4 * pairwise_state_dim, dropout=dropout)
+        ###################################################################################
+        ###################################################################################
+        # Modified from original to add projection for concatenated skip connection
+        # Note: these weights are not in the original model
+        self.skip_seq_state_proj = (
+            nn.Linear(2 * sequence_state_dim, sequence_state_dim) if skip else None
+        )
+        self.skip_pairwise_state_proj = (
+            nn.Linear(2 * pairwise_state_dim, pairwise_state_dim) if skip else None
+        )
+        ###################################################################################
+        ###################################################################################
+
+        self.mlp_seq = ResidueMLP(
+            sequence_state_dim, 4 * sequence_state_dim, dropout=dropout
+        )
+        self.mlp_pair = ResidueMLP(
+            pairwise_state_dim, 4 * pairwise_state_dim, dropout=dropout
+        )
 
         assert dropout < 0.4
         self.drop = nn.Dropout(dropout)
@@ -103,17 +132,28 @@ class TriangularSelfAttentionBlock(nn.Module):
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].weight)
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].bias)
 
-    def forward(self, sequence_state, pairwise_state, mask=None, chunk_size=None, **__kwargs):
+    def forward(self,
+        x, z, c,
+        mask=None,
+        chunk_size=None,
+        skip_seq_state=None,
+        skip_pairwise_state=None,
+        conditioning_strategy=None,
+        **__kwargs,
+    ):
         """
         Inputs:
-          sequence_state: B x L x sequence_state_dim
-          pairwise_state: B x L x L x pairwise_state_dim
+          x: sequence_state: B x L x sequence_state_dim
+          z: pairwise_state: B x L x L x pairwise_state_dim
+          c: conditioning: B x C
           mask: B x L boolean tensor of valid positions
 
         Output:
           sequence_state: B x L x sequence_state_dim
           pairwise_state: B x L x L x pairwise_state_dim
         """
+        # check shapes
+        sequence_state, pairwise_state = x, z
         assert len(sequence_state.shape) == 3
         assert len(pairwise_state.shape) == 4
         if mask is not None:
@@ -126,6 +166,31 @@ class TriangularSelfAttentionBlock(nn.Module):
         assert batch_dim == pairwise_state.shape[0]
         assert seq_dim == pairwise_state.shape[1]
         assert seq_dim == pairwise_state.shape[2]
+
+        ###################################################################################
+        ###################################################################################
+        # Modified to add conditioning
+        sequence_state = self.conditioning(
+            sequence_state,
+            c,
+            strategy=conditioning_strategy,
+            proj_fn=self.conditioning_mlp,
+        )
+
+        # Modified to add skip connection concatenation 
+        if not skip_pairwise_state is None:
+            assert not self.skip_pairwise_state_proj is None
+            pairwise_state = self.skip_pairwise_state_proj(
+                torch.cat[pairwise_state, skip_pairwise_state], dim=-1
+            )
+        if not skip_seq_state is None:
+            assert not self.skip_seq_state_proj is None
+            sequence_state = self.skip_seq_state_proj(
+                torch.cat[sequence_state, skip_seq_state], dim=-1
+            )
+        
+        ###################################################################################
+        ###################################################################################
 
         # Update sequence state
         bias = self.pair_to_sequence(pairwise_state)
@@ -158,3 +223,5 @@ class TriangularSelfAttentionBlock(nn.Module):
         pairwise_state = self.mlp_pair(pairwise_state)
 
         return sequence_state, pairwise_state
+
+

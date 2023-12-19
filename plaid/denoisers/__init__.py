@@ -1,1 +1,1 @@
-from ._base import BaseDenoiser
+from ._base_denoiser import BaseDenoiser

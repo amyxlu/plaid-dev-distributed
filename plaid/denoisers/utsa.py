@@ -1,3 +1,7 @@
+"""
+U-TriangularSelfAttention (U-TSA) denoiser
+"""
+
 import typing as T
 import einops
 from pathlib import Path
@@ -11,31 +15,36 @@ from torch import Tensor
 from plaid.esmfold import (
     RelativePosition,
     FoldingTrunkConfig,
-    TriangularSelfAttentionBlock
 )
 from plaid.denoisers import BaseDenoiser
 from plaid.constants import c_s, c_z, structure_module_c_s, structure_module_c_z
+from plaid.denoisers.modules import TriSelfAttnDenoiserBlock
 
 
 PathLike = T.Union[str, Path]
 ArrayLike = T.Union[np.ndarray, torch.Tensor]
 
 
-class UFold(BaseDenoiser):
+class UTriSelfAttnDenoiser(BaseDenoiser):
     def __init__(
         self,
-        num_blocks: int,
         hid_dim: int,
-        timestep_embedding_strategy: str = "fourier",
+        num_blocks: int, 
         conditioning_strategy: str = "hidden_concat",
+        timestep_embedding_strategy: str = "fourier",
+        pos_embedding_strategy: str = "rotary",
         use_self_conditioning: bool = False,
-        use_skip_connections: bool = True
+        use_skip_connections: bool = True,
+        label_num_classes: T.Optional[int] = None,
+        cfg_dropout: float = 0.0,
     ):
         super().__init__(
-            timestep_embedding_strategy=timestep_embedding_strategy,
-            conditioning_strategy=conditioning_strategy,
-            use_self_conditioning=use_self_conditioning,
             hid_dim=hid_dim,
+            timestep_embedding_strategy=timestep_embedding_strategy,
+            pos_embedding_strategy=pos_embedding_strategy,
+            use_self_conditioning=use_self_conditioning,
+            label_num_classes=label_num_classes,
+            cfg_dropout=cfg_dropout
         )
 
         # fixed dimensions
@@ -46,10 +55,12 @@ class UFold(BaseDenoiser):
             trunk_cfg.position_bins, c_z 
         )
 
-        block = TriangularSelfAttentionBlock
+        block = TriSelfAttnDenoiserBlock
         self.use_skip_connections = use_skip_connections
+        self.conditioning_strategy = conditioning_strategy
 
         # TODO: make the sequence and pairwise state dims configurable
+        # in case of using VQVAE
         assert hid_dim == c_s
         self.in_blocks = nn.ModuleList(
             [
@@ -128,7 +139,7 @@ class UFold(BaseDenoiser):
             c = t + y
         else:
             c = t
-        x = self.conditioning(x, c, proj_fn=self.conditioning_mlp)
+        x = self.conditioning(x, c, self.conditioning_strategy, proj_fn=self.conditioning_mlp)
 
         residx = torch.arange(L, device=x.device, dtype=int)
         z = z + self.pairwise_positional_embedding(residx, mask=mask)
@@ -168,5 +179,5 @@ class UFold(BaseDenoiser):
 
 
 if __name__ == "__main__":
-    model = UFold(num_blocks=7, hid_dim=1024)
+    model = UTriSelfAttnDenoiser(num_blocks=7, hid_dim=1024)
     import IPython;IPython.embed()
