@@ -8,7 +8,6 @@ from .modules import FourierFeatures, RotaryEmbedding, LabelEmbedder
 from .. import utils
 
 
-@abc.ABC
 class BaseDenoiser(nn.Module):
     def __init__(
         self,
@@ -22,6 +21,7 @@ class BaseDenoiser(nn.Module):
         **kwargs
     ):
         super().__init__()
+        self.hid_dim = hid_dim
         self.timestep_embedder = self.make_timestep_embedding(
             timestep_embedding_strategy, hid_dim
         )

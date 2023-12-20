@@ -5,7 +5,6 @@ import abc
 import einops
 
 
-@abc.ABC
 class BaseBlock(nn.Module):
     """
     Provide simple conditioning utilities for denoiser blocks.
@@ -57,7 +56,7 @@ class BaseBlock(nn.Module):
         proj_fn: T.Optional[T.Callable] = None,
     ):
         if strategy is None:
-            return x, c
+            return x
 
         assert strategy in ["length_concat", "add", "hidden_concat"]
 

@@ -25,7 +25,7 @@ from ...esmfold.misc import (
 from . import BaseBlock
 
 
-class TriSelfAttnDenoiserBlock(BaseBlock):
+class TriangularSelfAttentionBlock(BaseBlock):
     # Copyright (c) Meta Platforms, Inc. and affiliates.
     #
     # This source code is licensed under the MIT license found in the
@@ -180,14 +180,10 @@ class TriSelfAttnDenoiserBlock(BaseBlock):
         # Modified to add skip connection concatenation 
         if not skip_pairwise_state is None:
             assert not self.skip_pairwise_state_proj is None
-            pairwise_state = self.skip_pairwise_state_proj(
-                torch.cat[pairwise_state, skip_pairwise_state], dim=-1
-            )
+            pairwise_state = self.skip_pairwise_state_proj(torch.cat([pairwise_state, skip_pairwise_state], dim=-1))
         if not skip_seq_state is None:
             assert not self.skip_seq_state_proj is None
-            sequence_state = self.skip_seq_state_proj(
-                torch.cat[sequence_state, skip_seq_state], dim=-1
-            )
+            sequence_state = self.skip_seq_state_proj(torch.cat([sequence_state, skip_seq_state], dim=-1))
         
         ###################################################################################
         ###################################################################################
@@ -221,6 +217,10 @@ class TriSelfAttnDenoiserBlock(BaseBlock):
 
         # MLP over pairs.
         pairwise_state = self.mlp_pair(pairwise_state)
+
+        if self.extras != 0:
+            sequence_state = sequence_state[:, : -self.extras, :]
+            pairwise_state = pairwise_state[:, : -self.extras, : -self.extras, :]
 
         return sequence_state, pairwise_state
 
