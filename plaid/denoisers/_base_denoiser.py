@@ -4,7 +4,7 @@ import torch.nn as nn
 import abc
 import einops
 
-from .modules import FourierFeatures, RotaryEmbedding, LabelEmbedder
+from .modules import GaussianFourierProjection, RotaryEmbedding, LabelEmbedder
 from .. import utils
 
 
@@ -29,6 +29,7 @@ class BaseDenoiser(nn.Module):
 
         self.self_conditioning_mlp = None
         self.label_embedder = None
+        self.use_self_conditioning = use_self_conditioning 
         if use_self_conditioning:
             self.self_conditioning_mlp = self.make_projection_mlp(hid_dim * 2, hid_dim)
         if label_num_classes:
@@ -59,7 +60,7 @@ class BaseDenoiser(nn.Module):
     def make_timestep_embedding(self, strategy: str, hid_dim: int):
         assert strategy in ["fourier", "learned_sinusoidal"]
         if strategy == "fourier":
-            return FourierFeatures(in_features=1, out_features=hid_dim)
+            return GaussianFourierProjection(embed_dim=hid_dim)
         else:
             raise NotImplementedError
 

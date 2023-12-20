@@ -18,7 +18,7 @@ import re
 from openfold.np.residue_constants import restype_order_with_x
 
 from ._misc import npy, to_tensor
-from ..layers import FullyConnectedNetwork
+from ..decoder import FullyConnectedNetwork
 from ..esmfold import ESMFold, ESMFOLD_Z_DIM
 
 

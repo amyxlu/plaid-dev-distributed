@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+  - datamodule: cath
+  - denoiser: utsa_from_scratch
+  - beta_scheduler: sigmoid
+  - latent_scaler: cath
+  - diffusion: diffusion
+  - trainer: default
+
+dryrun: False 
+run_test: null

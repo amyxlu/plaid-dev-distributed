@@ -1,0 +1,9 @@
+_target_: plaid.denoisers.PreinitializedTriSelfAttnDenoiser
+
+hid_dim: 1024
+conditioning_strategy: "hidden_concat"
+timestep_embedding_strategy: "fourier"
+pos_embedding_strategy: "rotary"
+use_self_conditioning: False
+label_num_classes: null
+cfg_dropout: 0.0

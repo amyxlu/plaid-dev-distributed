@@ -218,9 +218,14 @@ class TriangularSelfAttentionBlock(BaseBlock):
         # MLP over pairs.
         pairwise_state = self.mlp_pair(pairwise_state)
 
+        ###################################################################################
+        ###################################################################################
+        # Modified to maybe remove dimensions added due to concating time/cond embeddings
         if self.extras != 0:
             sequence_state = sequence_state[:, : -self.extras, :]
             pairwise_state = pairwise_state[:, : -self.extras, : -self.extras, :]
+        ###################################################################################
+        ###################################################################################
 
         return sequence_state, pairwise_state
 

@@ -3,16 +3,28 @@ import math
 import torch
 
 
-class FourierFeatures(nn.Module):
-    def __init__(self, in_features, out_features, std=1.):
+class GaussianFourierProjection(nn.Module):
+    """
+    https://arxiv.org/abs/2006.10739
+    https://github.com/tancik/fourier-feature-networks/blob/master/Demo.ipynb
+    """
+
+    def __init__(self, embed_dim: int, scale: float = 2 * torch.pi):
         super().__init__()
-        assert out_features % 2 == 0
-        self.register_buffer('weight', torch.randn([out_features // 2, in_features]) * std)
+        # Randomly sample weights during initialization. These weights are fixed
+        # during optimization and are not trainable.
+        w = torch.randn(embed_dim // 2) * scale
+        assert w.requires_grad == False
+        self.register_buffer("W", w)
 
-    def forward(self, input):
-        f = 2 * math.pi * input @ self.weight.T
-        return torch.cat([f.cos(), f.sin()], dim=-1)
-
+    def forward(self, t: torch.Tensor):
+        # t: (batch_size,)
+        # w: (embed_dim // 2,)
+        t = t.to(self.W.dtype)
+        t_proj = 2.0 * torch.pi * t[:, None] @ self.W[None, :]
+        embed = torch.cat([torch.sin(t_proj), torch.cos(t_proj)], dim=-1)
+        return embed
+    
 
 class Base2FourierFeatures(nn.Module):
     # jax to torch adaptation of VDM code

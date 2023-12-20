@@ -9,7 +9,7 @@ from ._misc import npy
 ArrayLike = T.Union[np.ndarray, T.List[float], torch.Tensor]
 
 DEFAULT_CACHE_DIR = (
-    Path(os.path.dirname(__file__)) / "../cached_tensors/"
+    Path(os.path.dirname(__file__)) / "../../cached_tensors/"
 )
 
 GLOBAL_SEQEMB_STATS = {
@@ -178,8 +178,8 @@ def load_channelwise_stats(cache_dir, lm_embedder_type="esmfold"):
 class LatentScaler:
     def __init__(
         self,
-        mode: T.Optional[str] = "channel_standardize",
-        origin_dataset: str = "uniref",
+        mode: T.Optional[str] = "channel_minmaxnorm",
+        origin_dataset: str = "cath",
         lm_embedder_type: str = "esmfold",
     ):
         assert _check_valid_mode(mode), f"Invalid mode {mode}."

@@ -1,4 +1,4 @@
-from .fourier import FourierFeatures, Base2FourierFeatures
+from .fourier import GaussianFourierProjection, Base2FourierFeatures
 from .rope import RotaryEmbedding
 from .labels import LabelEmbedder 
 from ._base_block import BaseBlock

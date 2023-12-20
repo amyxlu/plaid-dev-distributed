@@ -73,7 +73,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         # where the chunk_size is the size of the chunks, so 128 would mean to parse 128-lengthed chunks.
         self.chunk_size = chunk_size
     
-    def forward(self, x, t, mask, z=None, y=None, x_self_condition=None):
+    def forward(self, x, t, mask=None, z=None, y=None, x_self_cond=None):
         """
         x: (B, L, C) sequence representation
         z: (B, L, L, C) pairwise representation
@@ -82,8 +82,11 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         mask: (B, L) mask
         """
         # self conditioning should be either zeros or x_prev, determined in outer loop
-        if not x_self_condition is None:
-            x = self.self_conditioning_mlp(torch.cat((x, x_self_condition), dim=-1))
+        if mask is None:
+            mask = x.new_ones(x.shape[:2]).long()
+            
+        if not x_self_cond is None:
+            x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
         
         B, L, _ = x.shape
         if z is None:
@@ -102,8 +105,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         # TODO: multiple iterations?
         x, z = self._iteration(x, z, c, mask)
 
-        # remove dimensions added due to concating time/cond embeddings
-        return x, z
+        return x
 
 
 class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
@@ -263,7 +265,6 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
 
 if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
-    from plaid.transforms import mask_from_seq_lens
 
     torch.set_default_dtype(torch.bfloat16)
     device = torch.device("cuda:0")
