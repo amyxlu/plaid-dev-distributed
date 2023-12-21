@@ -6,11 +6,11 @@ import wandb
 import torch
 from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.utilities import rank_zero_only
-import safetensors as st
+import safetensors.torch as st
 
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
-from plaid.evaluation import RITAPerplexity, fid, kid
+from plaid.evaluation import RITAPerplexity, calc_fid, calc_kid
 from plaid.utils import LatentToSequence, LatentToStructure, write_pdb_to_disk
 import pandas as pd
 import wandb
@@ -27,25 +27,33 @@ class SampleCallback(Callback):
         diffusion: GaussianDiffusion,  # most sampling logic is here
         model: BaseDenoiser,
         n_to_sample: int = 16,
-        n_to_construct: int = 4,
+        n_to_construct: int = -1,
         batch_size: int = -1,
         log_to_wandb: bool = True,
         log_structure: bool = True,
         calc_perplexity: bool = True,
+        num_recycles: int = 4,
         outdir: str = "sampled",
+        sequence_decode_temperature: float = 1.0
     ):
         super().__init__()
+        self.outdir = Path(outdir)
         self.diffusion = diffusion
         self.model = model
         self.log_to_wandb = log_to_wandb
         self.log_structure = log_structure
         self.calc_perplexity = calc_perplexity
         self.n_to_sample = n_to_sample
-        self.n_to_construct = n_to_construct
+        self.num_recycles = num_recycles
+        self.sequence_decode_temperature = sequence_decode_temperature
+
+        self.is_save_setup = False
+        self.is_fid_setup = False
+        self.is_perplexity_setup = False
         self.sequence_constructor, self.structure_constructor = None, None
-        self.outdir = Path(outdir)
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
+        n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct 
         self.batch_size = batch_size
         self.n_to_construct = n_to_construct
 
@@ -72,10 +80,10 @@ class SampleCallback(Callback):
             cached_tensors_path, device=device
         )
         self.real_features = self.real_features[
-            torch.randperm(self.real_features.size(0))[: self.config.n_to_sample]
+            torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
 
-    def sample_latent(self, logger):
+    def sample_latent(self):
         all_samples, n_samples = [], 0
         while n_samples < self.n_to_sample:
             sample = self.diffusion.sample(self.batch_size, clip_denoised=True)
@@ -86,13 +94,11 @@ class SampleCallback(Callback):
             "sampled/latent_mean": x_0.mean(),
             "sampled/latent_std": x_0.std(),
         }
-        if self.log_to_wandb:
-            logger.experiment.log_dict(log_dict, sync_dist=True)
-        return x_0
+        return x_0, log_dict
 
-    def calculate_fid(self, sampled_latent, device, logger):
+    def calculate_fid(self, sampled_latent, device):
         if not self.is_fid_setup:
-            self._fid_setup()
+            self._fid_setup(device)
         fake_features = sampled_latent.mean(dim=1)
 
         # just to be consistent since 50,000 features were saved. Not necessary though
@@ -102,23 +108,20 @@ class SampleCallback(Callback):
         real_features = real_features.to(device=device)
         assert real_features.ndim == fake_features.ndim == 2
 
-        fid = fid(fake_features, real_features)
-        kid = kid(fake_features, real_features)
+        fid = calc_fid(fake_features, real_features)
+        kid = calc_kid(fake_features, real_features)
 
-        log_dict = {f"fid": fid, f"kid": kid}
-        if self.log_to_wandb:
-            logger.experiment.log_dict(log_dict, sync_dist=True)
-        return fid, kid
+        log_dict = {f"sampled/fid": fid, f"sampled/kid": kid}
+        return log_dict
 
     def construct_sequence(
         self,
         x_0,
         device,
-        logger
     ):
         if self.sequence_constructor is None:
             self.sequence_constructor = LatentToSequence(
-                device=device, temperature=self.config.sequence_decode_temperature
+                device=device, temperature=self.sequence_decode_temperature
             )
 
         probs, idxs, strs = self.sequence_constructor.to_sequence(x_0)
@@ -130,7 +133,7 @@ class SampleCallback(Callback):
         )
         if self.calc_perplexity:
             if not self.is_perplexity_setup:
-                self._perplexity_setup()
+                self._perplexity_setup(device)
             perplexity = self.perplexity_calc.batch_eval(strs)
             print(f"Perplexity: {perplexity:.3f}")
 
@@ -138,19 +141,17 @@ class SampleCallback(Callback):
             f"sampled/sequences": wandb.Table(dataframe=sequence_results),
             f"sampled/perplexity": perplexity,
         }
-        if self.log_to_wandb:
-            logger.experiment.log_dict(log_dict, sync_dist=True)
-        return strs
+        return strs, log_dict
 
-    def construct_structure(self, x_0, seq_str, device, logger):
+    def construct_structure(self, x_0, seq_str, device):
         # TODO: maybe save & log artifact
         if self.structure_constructor is None:
             self.structure_constructor = LatentToStructure(device=device)
         pdb_strs, metrics = self.structure_constructor.to_structure(
             x_0,
             sequences=seq_str,
-            num_recycles=self.config.num_recycles,
-            batch_size=self.config.batch_size,
+            num_recycles=self.num_recycles,
+            batch_size=self.batch_size,
         )
 
         log_dict = {
@@ -159,41 +160,62 @@ class SampleCallback(Callback):
             f"sampled/plddt_min": metrics["plddt"].min(),
             f"sampled/plddt_max": metrics["plddt"].max(),
         }
+        return pdb_strs, metrics, log_dict
+    
+    def on_val_epoch_start(self, *_):
+        print("val epoch start")
+
+    def _run(self, pl_module):
+        device = pl_module.device
+
+        maybe_print("sampling latent...")
+        x, log_dict = self.sample_latent()
         if self.log_to_wandb:
-            logger.experiment.log_dict(log_dict, sync_dist=True)
+            pl_module.log_dict(log_dict, sync_dist=True)
+
+        print("calculating FID...")
+        log_dict = self.calculate_fid(x, device)
+        if self.log_to_wandb:
+            pl_module.log_dict(log_dict, sync_dist=True)
+
+        if not self.n_to_construct == -1:
+            maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")
+            x = x[torch.randperm(x.shape[0])][:self.n_to_construct]
+
+        maybe_print("constructing sequence...")
+        seq_str, log_dict = self.construct_sequence(x, device)
+        if self.log_to_wandb:
+            pl_module.log_dict(log_dict, sync_dist=True)
+
+        maybe_print("constructing structure...")
+        pdb_strs, metrics, log_dict = self.construct_structure(x, seq_str, device)
+        if self.log_to_wandb:
+            pl_module.log_dict(log_dict, sync_dist=True)
 
         if self.log_structure:
             if not self.is_save_setup:
                 self._save_setup()
             for i, pdb_str in enumerate(pdb_strs[:4]):
                 outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
-                self.logger.experiment.log_dict({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
-        return pdb_strs, metrics
+                pl_module.log_dict({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
     
-    # def on_train_epoch_start(self, *_):
-    #     print("train epoch start")
-    
-    def on_val_epoch_start(self, *_):
-        print("val epoch start")
+    # def on_sanity_check_start(self, trainer, pl_module):
+    #     self._run(pl_module)
 
     def on_train_epoch_end(self, trainer, pl_module):
-        device = pl_module.device
-        logger = trainer.logger
+        self._run(pl_module)
 
-        maybe_print("sampling latent...")
-        x = self.sample_latent(logger)
+if __name__ == "__main__":
+    from plaid.diffusion import GaussianDiffusion
+    from plaid.denoisers import UTriSelfAttnDenoiser
+    denoiser = UTriSelfAttnDenoiser(1024, 3)
+    diffusion = GaussianDiffusion(denoiser, sampling_timesteps=5)
+    callback = SampleCallback(diffusion, denoiser)
+    device = torch.device("cuda:0")
 
-        print("calculating FID...")
-        _ = self.calculate_fid(x, device, logger)
-
-        if not self.n_to_construct == -1:
-            maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")
-            x = x[torch.randperm(x.shape[0])][self.n_to_construct]
-
-        maybe_print("constructing sequence...")
-        seq_str = self.construct_sequence(x, device, logger)
-
-        maybe_print("constructing structure...")
-        _ = self.construct_structure(x, seq_str, device, logger)
-
-        pl_module.training_step_outputs.clear()
+    x, log_dict = callback.sample_latent()
+    log_dict = callback.calculate_fid(x, device)
+    x = x[torch.randperm(x.shape[0])][:callback.n_to_construct]
+    seq_str, log_dict = callback.construct_sequence(x, device)
+    pdb_strs, metrics, log_dict = callback.construct_structure(x, seq_str, device)
+    import IPython;IPython.embed()

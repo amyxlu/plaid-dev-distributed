@@ -4,13 +4,11 @@ import typing as T
 import torch
 import os
 from ._misc import npy
+from . import CACHED_TENSORS_DIR
 
 
 ArrayLike = T.Union[np.ndarray, T.List[float], torch.Tensor]
 
-DEFAULT_CACHE_DIR = (
-    Path(os.path.dirname(__file__)) / "../../cached_tensors/"
-)
 
 GLOBAL_SEQEMB_STATS = {
     "uniref": {
@@ -189,7 +187,7 @@ class LatentScaler:
         self.lm_embedder_type = lm_embedder_type
 
         if "channel_" in mode:
-            stat_dict = load_channelwise_stats(DEFAULT_CACHE_DIR, origin_dataset)
+            stat_dict = load_channelwise_stats(CACHED_TENSORS_DIR, origin_dataset)
         else:
             stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
 

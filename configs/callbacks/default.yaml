@@ -13,10 +13,12 @@ sample:
   _target_: plaid.callbacks.SampleCallback
   outdir: ${paths.artifacts_dir}/samples
   n_to_sample: 16
+  n_to_construct: -1
   batch_size: -1
   log_to_wandb: True
   log_structure: True
   calc_perplexity: True
+  num_recycles: 4
 
 lr_monitor:
   _target_: lightning.pytorch.callbacks.LearningRateMonitor

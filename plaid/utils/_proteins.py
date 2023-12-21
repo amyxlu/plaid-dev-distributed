@@ -20,6 +20,7 @@ from openfold.np.residue_constants import restype_order_with_x
 from ._misc import npy, to_tensor
 from ..decoder import FullyConnectedNetwork
 from ..esmfold import ESMFold, ESMFOLD_Z_DIM
+from . import DECODER_CKPT_PATH
 
 
 ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
@@ -60,9 +61,6 @@ OPENFOLD_AACHAR_TO_AAINDEX = {char: idx for idx, char in enumerate(restype_order
 PROTEINMPNN_AACHAR_TO_AAIDX_ARR = list("ARNDCQEGHILKMFPSTWYV-")
 PROTEINMPNN_AAIDX_TO_AACHAR = {idx: char for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
 PROTEINMPNN_AACHAR_TO_AAIDX = {char: idx for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
-
-cache_dir = Path(os.path.dirname(__file__)) / "../cached_tensors/subset_5000_oct24"
-DECODER_CKPT_PATH = Path(os.path.dirname(__file__)) / "../cached_tensors/decoder_vocab_21.ckpt"
 
 
 def load_sequence_decoder(ckpt_path=None, device=None, eval_mode=True):
@@ -256,7 +254,7 @@ class LatentToSequence:
         sequence_idx = argmax_idx
         dist = torch.distributions.OneHotCategorical(logits=sequence_logits)
         sequence_idx = dist.sample().argmax(-1)
-        stochasticity = (argmax_idx == sequence_idx).sum() / (argmax_idx.shape[0] * argmax_idx.shape[1])
+        stochasticity = (argmax_idx == sequence_idx).sum() / torch.numel(argmax_idx)
         print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
             
         sequence_str = [
