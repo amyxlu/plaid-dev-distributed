@@ -9,8 +9,6 @@ import torch
 import torch.nn.functional as F
 import pandas as pd
 
-from esm.esmfold.v1.misc import output_to_pdb, batch_encode_sequences
-
 import torch
 import typing as T
 import numpy as np
@@ -20,6 +18,7 @@ from openfold.np.residue_constants import restype_order_with_x
 from ._misc import npy, to_tensor
 from ..decoder import FullyConnectedNetwork
 from ..esmfold import ESMFold, ESMFOLD_Z_DIM
+from ..esmfold.misc import output_to_pdb, batch_encode_sequences
 from . import DECODER_CKPT_PATH
 
 

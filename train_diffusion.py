@@ -35,12 +35,15 @@ def train(cfg: DictConfig):
         logger.watch(diffusion, log="all", log_graph=False)
     else:
         logger = None
-    
+
     # callbacks
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
     sample_callback = hydra.utils.instantiate(
-        cfg.callbacks.sample, diffusion=diffusion.diffusion, model=denoiser
+        cfg.callbacks.sample,
+        diffusion=diffusion.diffusion,
+        model=denoiser,
+        log_to_wandb=not cfg.dryrun,
     )
 
     # run training

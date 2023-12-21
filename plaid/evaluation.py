@@ -1,68 +1,12 @@
 import math
-import os
-from pathlib import Path
 import typing as T
 
-import einops
 import numpy as np
 import torch
-from torch import nn
-from torch.nn import functional as F
 from torch.nn.functional import nll_loss
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from tqdm.auto import trange
 
-
-# class ESMFoldLatentFeatureExtractor(nn.Module):
-#     def __init__(self, esmfold, device="cpu"):
-#         """Note: even though when sampling, we may use a smaller dimension than 1024, for
-#         feature evaluation, we use the original dimension (i.e. 1024) for consistency.
-#         """
-#         super().__init__()
-#         self.esmfold = esmfold.eval().requires_grad_(False)
-#         self.esmfold.to(device)
-
-#     def load_saved_features(self, location, device="cpu"):
-#         import safetensors.torch as st
-
-#         return st.load_file(location)["features"].to(device=device)
-
-#     def forward(self, sequences: T.List[str], max_len: int = 512, min_len: int = 30):
-#         sequences = utils.get_random_sequence_crop_batch(
-#             sequences, max_len=max_len, min_len=min_len
-#         )
-#         with torch.no_grad():
-#             embed_results = self.esmfold.infer_embedding(sequences)
-#             feats = embed_results["s"].detach()  # (N, L, 1024)
-#             masks = embed_results["mask"].detach()  # (N, L)
-
-#         # mask-aware mean pool over the length dimension
-#         N, L, C = feats.shape
-#         masks = einops.repeat(masks, "N L -> N L C", C=C)  # (N, L, 1024)
-#         feats = feats * masks  # (N, L, 1024)
-#         feats = feats.sum(dim=1) / masks.sum(dim=1)  # (N, 1024)
-#         return feats
-
-
-# def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size):
-#     n_per_proc = math.ceil(n / accelerator.num_processes)
-#     feats_all = []
-#     try:
-#         for i in trange(
-#             0,
-#             n_per_proc,
-#             batch_size,
-#             disable=not accelerator.is_main_process,
-#             desc="(Evaluation)",
-#             leave=False,
-#         ):
-#             cur_batch_size = min(n - i, batch_size)
-#             samples = sample_fn(cur_batch_size)[:cur_batch_size]
-#             samples = accelerator.gather(extractor_fn(samples))
-#             feats_all.append(samples)
-#     except StopIteration:
-#         pass
-#     return torch.cat(feats_all)[:n]
+from . import utils
 
 
 def polynomial_kernel(x, y):

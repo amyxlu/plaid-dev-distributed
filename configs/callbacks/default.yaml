@@ -15,7 +15,6 @@ sample:
   n_to_sample: 16
   n_to_construct: -1
   batch_size: -1
-  log_to_wandb: True
   log_structure: True
   calc_perplexity: True
   num_recycles: 4

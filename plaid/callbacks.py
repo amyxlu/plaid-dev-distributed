@@ -27,7 +27,7 @@ class SampleCallback(Callback):
         diffusion: GaussianDiffusion,  # most sampling logic is here
         model: BaseDenoiser,
         n_to_sample: int = 16,
-        n_to_construct: int = -1,
+        n_to_construct: int = 4,
         batch_size: int = -1,
         log_to_wandb: bool = True,
         log_structure: bool = True,
@@ -167,16 +167,17 @@ class SampleCallback(Callback):
 
     def _run(self, pl_module):
         device = pl_module.device
+        logger = pl_module.logger.experiment
 
         maybe_print("sampling latent...")
         x, log_dict = self.sample_latent()
         if self.log_to_wandb:
-            pl_module.log_dict(log_dict, sync_dist=True)
+            logger.log(log_dict)
 
         print("calculating FID...")
         log_dict = self.calculate_fid(x, device)
         if self.log_to_wandb:
-            pl_module.log_dict(log_dict, sync_dist=True)
+            logger.log(log_dict)
 
         if not self.n_to_construct == -1:
             maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")
@@ -185,19 +186,19 @@ class SampleCallback(Callback):
         maybe_print("constructing sequence...")
         seq_str, log_dict = self.construct_sequence(x, device)
         if self.log_to_wandb:
-            pl_module.log_dict(log_dict, sync_dist=True)
+            logger.log(log_dict)
 
         maybe_print("constructing structure...")
         pdb_strs, metrics, log_dict = self.construct_structure(x, seq_str, device)
         if self.log_to_wandb:
-            pl_module.log_dict(log_dict, sync_dist=True)
+            logger.log(log_dict)
 
         if self.log_structure:
             if not self.is_save_setup:
                 self._save_setup()
             for i, pdb_str in enumerate(pdb_strs[:4]):
                 outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
-                pl_module.log_dict({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
+                logger.log({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
     
     # def on_sanity_check_start(self, trainer, pl_module):
     #     self._run(pl_module)
