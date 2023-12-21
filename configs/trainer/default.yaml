@@ -1,9 +1,13 @@
 _target_: lightning.pytorch.Trainer
 accelerator: gpu
-devices: [6]
+strategy: ddp_find_unused_parameters_true
+devices: [7, 5]
 gradient_clip_val: 2.0
 gradient_clip_algorithm: norm
 precision: bf16-mixed
 limit_val_batches: 10
 num_sanity_val_steps: 2
+max_epochs: 1000
+fast_dev_run: False
+overfit_batches: 2 
 # default_root_dir: hdfs://hdfs:9000/user/username/lightning_logs

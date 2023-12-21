@@ -5,6 +5,7 @@ from pathlib import Path
 import wandb
 import torch
 from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.utilities import rank_zero_only
 import safetensors as st
 
 from plaid.denoisers import BaseDenoiser
@@ -13,6 +14,11 @@ from plaid.evaluation import RITAPerplexity, fid, kid
 from plaid.utils import LatentToSequence, LatentToStructure, write_pdb_to_disk
 import pandas as pd
 import wandb
+
+
+def maybe_print(msg):
+    if rank_zero_only.rank == 0:
+        print(msg)
 
 
 class SampleCallback(Callback):
@@ -69,7 +75,7 @@ class SampleCallback(Callback):
             torch.randperm(self.real_features.size(0))[: self.config.n_to_sample]
         ]
 
-    def sample_latent(self):
+    def sample_latent(self, logger):
         all_samples, n_samples = [], 0
         while n_samples < self.n_to_sample:
             sample = self.diffusion.sample(self.batch_size, clip_denoised=True)
@@ -81,10 +87,10 @@ class SampleCallback(Callback):
             "sampled/latent_std": x_0.std(),
         }
         if self.log_to_wandb:
-            wandb.log(log_dict)
+            logger.experiment.log_dict(log_dict, sync_dist=True)
         return x_0
 
-    def calculate_fid(self, sampled_latent, device):
+    def calculate_fid(self, sampled_latent, device, logger):
         if not self.is_fid_setup:
             self._fid_setup()
         fake_features = sampled_latent.mean(dim=1)
@@ -101,13 +107,14 @@ class SampleCallback(Callback):
 
         log_dict = {f"fid": fid, f"kid": kid}
         if self.log_to_wandb:
-            wandb.log(log_dict)
+            logger.experiment.log_dict(log_dict, sync_dist=True)
         return fid, kid
 
     def construct_sequence(
         self,
         x_0,
         device,
+        logger
     ):
         if self.sequence_constructor is None:
             self.sequence_constructor = LatentToSequence(
@@ -132,10 +139,10 @@ class SampleCallback(Callback):
             f"sampled/perplexity": perplexity,
         }
         if self.log_to_wandb:
-            wandb.log(log_dict)
+            logger.experiment.log_dict(log_dict, sync_dist=True)
         return strs
 
-    def construct_structure(self, x_0, seq_str, device):
+    def construct_structure(self, x_0, seq_str, device, logger):
         # TODO: maybe save & log artifact
         if self.structure_constructor is None:
             self.structure_constructor = LatentToStructure(device=device)
@@ -153,22 +160,40 @@ class SampleCallback(Callback):
             f"sampled/plddt_max": metrics["plddt"].max(),
         }
         if self.log_to_wandb:
-            wandb.log(log_dict)
+            logger.experiment.log_dict(log_dict, sync_dist=True)
 
         if self.log_structure:
             if not self.is_save_setup:
                 self._save_setup()
             for i, pdb_str in enumerate(pdb_strs[:4]):
                 outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
-                wandb.log({f"sampled/structure": wandb.Molecule(outpath)})
+                self.logger.experiment.log_dict({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
         return pdb_strs, metrics
+    
+    # def on_train_epoch_start(self, *_):
+    #     print("train epoch start")
+    
+    def on_val_epoch_start(self, *_):
+        print("val epoch start")
 
     def on_train_epoch_end(self, trainer, pl_module):
         device = pl_module.device
-        x = self.sample_latent()
-        _ = self.calculate_fid(x, device)
+        logger = trainer.logger
+
+        maybe_print("sampling latent...")
+        x = self.sample_latent(logger)
+
+        print("calculating FID...")
+        _ = self.calculate_fid(x, device, logger)
+
         if not self.n_to_construct == -1:
+            maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")
             x = x[torch.randperm(x.shape[0])][self.n_to_construct]
-        seq_str = self.construct_sequence(x, device)
-        _ = self.construct_structure(x, seq_str, device)
+
+        maybe_print("constructing sequence...")
+        seq_str = self.construct_sequence(x, device, logger)
+
+        maybe_print("constructing structure...")
+        _ = self.construct_structure(x, seq_str, device, logger)
+
         pl_module.training_step_outputs.clear()

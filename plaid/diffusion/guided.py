@@ -30,7 +30,7 @@ import lightning as L
 from transformers.optimization import get_linear_schedule_with_warmup
 
 from plaid.denoisers import BaseDenoiser
-from plaid.utils import LatentScaler
+from plaid.utils import LatentScaler, get_lr_scheduler
 from plaid.diffusion.beta_schedulers import BetaScheduler, SigmoidBetaScheduler
 import wandb
 
@@ -461,8 +461,10 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         # optimization
         lr = 1e-4,
         adam_betas = (0.9, 0.999),
-        num_warmup_steps = 1000,
-        num_training_steps: int = 5_000_000
+        lr_sched_type: str = "constant",
+        lr_num_warmup_steps: int = 0,
+        lr_num_training_steps: int = 10_000_000,
+        lr_num_cycles: int = 1,
     ):
         super().__init__()
         self.diffusion = GaussianDiffusion(
@@ -479,7 +481,10 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         )
         self.lr = lr
         self.adam_betas = adam_betas
-        self.num_warmup_steps = num_warmup_steps
+        self.lr_sched_type = lr_sched_type
+        self.lr_num_warmup_steps = lr_num_warmup_steps
+        self.lr_num_training_steps = lr_num_training_steps
+        self.lr_num_cycles = lr_num_cycles
         self.save_hyperparameters(ignore=['model'])
 
     def compute_loss(self, batch):
@@ -488,36 +493,28 @@ class GaussianDiffusionLightningModule(L.LightningModule):
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch)
-        wandb.log({"train/loss": loss})
-        wandb.log({f"train/{k}": v for k, v in log_dict.items()})
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log_dict({f"train/{k}": v for k, v in log_dict.items()}, sync_dist=True)
         return loss
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
         loss, log_dict = self.compute_loss(batch)
-        wandb.log({"val/loss": loss})
-        wandb.log({f"val/{k}": v for k, v in log_dict.items()})
+        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log_dict({f"val/{k}": v for k, v in log_dict.items()}, sync_dist=True)
         return loss 
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, betas=self.adam_betas)
-        scheduler = get_linear_schedule_with_warmup(
-            optimizer,
-            num_warmup_steps=self.num_warmup_steps,
+        scheduler = get_lr_scheduler(
+            optimizer=optimizer,
+            sched_type=self.lr_sched_type,
+            num_warmup_steps=self.lr_num_warmup_steps,
+            num_training_steps=self.lr_num_training_steps,
+            num_cycles=self.lr_num_cycles,
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
-
-
-        return optimizer
-
-#     # def configure_optimizers(self) -> None:
-#     #     optim = torch.optim.AdamW(self.parameters(), betas=self.adam_betas, lr=self.lr)
-#     #     scheduler = TanhLRScheduler(optimizer, ...)
-#     #     return [optimizer], [{"scheduler": scheduler, "interval": "epoch"}]
-
-#     # def lr_scheduler_step(self, scheduler, metric):
-#     #     scheduler.step()
 
 
 if __name__ == "__main__":
@@ -531,9 +528,6 @@ if __name__ == "__main__":
     # sampled = diffusion.sample()
     print(loss)
     # print(sampled)
-
-
-
     
     from plaid.datasets import CATHShardedDataModule
 

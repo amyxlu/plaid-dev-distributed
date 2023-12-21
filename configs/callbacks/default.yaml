@@ -23,6 +23,3 @@ lr_monitor:
   logging_interval: step
   log_momentum: true
   log_weight_decay: true
-
-device_stats:
-  _target_: lightning.pytorch.callbacks.DeviceStatsMonitor

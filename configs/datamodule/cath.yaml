@@ -1,6 +1,6 @@
 _target_: plaid.datasets.CATHShardedDataModule
 
-shard_dir: /shared/amyxlu/data/cath/shards/full
+shard_dir: ${paths.data_dir}/cath/shards/full
 seq_len: 64
 batch_size: 32
 num_workers: 4
