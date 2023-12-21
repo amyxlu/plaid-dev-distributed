@@ -1,0 +1,28 @@
+defaults:
+  - _self_
+
+checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: ${paths.checkpoint_dir}
+  filename: "{epoch}-{step}"
+  verbose: true
+  save_last: true
+  every_n_train_steps: 100
+
+sample:
+  _target_: plaid.callbacks.SampleCallback
+  outdir: ${paths.artifacts_dir}/samples
+  n_to_sample: 16
+  batch_size: -1
+  log_to_wandb: True
+  log_structure: True
+  calc_perplexity: True
+
+lr_monitor:
+  _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  logging_interval: step
+  log_momentum: true
+  log_weight_decay: true
+
+device_stats:
+  _target_: lightning.pytorch.callbacks.DeviceStatsMonitor

@@ -1,0 +1,4 @@
+timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
+root_dir: /shared/amyxlu/plaid
+checkpoint_dir: ${paths.root_dir}/checkpoints/${paths.timestamp}
+artifacts_dir: ${paths.root_dir}/artifacts/${paths.timestamp}

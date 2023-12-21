@@ -27,10 +27,12 @@ from tqdm.auto import tqdm
 
 # from ema_pytorch import EMA
 import lightning as L
+from transformers.optimization import get_linear_schedule_with_warmup
 
 from plaid.denoisers import BaseDenoiser
 from plaid.utils import LatentScaler
 from plaid.diffusion.beta_schedulers import BetaScheduler, SigmoidBetaScheduler
+import wandb
 
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
@@ -67,9 +69,11 @@ class GaussianDiffusion(nn.Module):
         objective="pred_noise",
         min_snr_loss_weight=False,
         min_snr_gamma=5,
+        # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
         sampling_timesteps=None,
         sampling_seq_len=64,
+        use_ddim=True,
     ):
         super().__init__()
         self.model = model
@@ -95,7 +99,7 @@ class GaussianDiffusion(nn.Module):
         )  # default num sampling timesteps to number of timesteps at training
         assert self.sampling_timesteps <= timesteps
         self.sampling_seq_len = sampling_seq_len
-        self.is_ddim_sampling = self.sampling_timesteps < timesteps
+        self.is_ddim_sampling = use_ddim 
         self.ddim_sampling_eta = ddim_sampling_eta
 
         # helper function to register buffer to bfloat16
@@ -270,6 +274,7 @@ class GaussianDiffusion(nn.Module):
             total=self.num_timesteps,
         ):
             self_cond = x_start if self.self_condition else None
+            model_kwargs["x_self_cond"] = self_cond
             img, x_start = self.p_sample(img, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised)
             imgs.append(img)
 
@@ -312,6 +317,7 @@ class GaussianDiffusion(nn.Module):
         for time, time_next in tqdm(time_pairs, desc="sampling loop time step"):
             time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
             self_cond = x_start if self.self_condition else None
+            model_kwargs["x_self_cond"] = self_cond
             pred_noise, x_start, *_ = self.model_predictions(
                 img, time_cond, model_kwargs=model_kwargs, clip_x_start=True
             )
@@ -410,6 +416,10 @@ class GaussianDiffusion(nn.Module):
 
         # predict and take gradient step
         model_out = self.model(x, t, **model_kwargs)
+        log_dict = {
+            "model_out_mean": model_out.mean(),
+            "model_out_std": model_out.std(),
+        }
 
         if self.objective == "pred_noise":
             target = noise
@@ -425,13 +435,14 @@ class GaussianDiffusion(nn.Module):
         loss = reduce(loss, "b ... -> b", "mean")
 
         loss = loss * extract(self.loss_weight, t, loss.shape)
-        return loss.mean()
+        return loss.mean(), log_dict
     
     def forward(self, x_unnormalized, mask, model_kwargs={}, noise=None):
         x = self.latent_scaler.scale(x_unnormalized)
         t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long().to(x.device)
         model_kwargs['mask'] = mask
-        return self.p_losses(x, t, model_kwargs, noise)
+        loss, log_dict = self.p_losses(x, t, model_kwargs, noise)
+        return loss, log_dict
 
 
 class GaussianDiffusionLightningModule(L.LightningModule):
@@ -450,6 +461,8 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         # optimization
         lr = 1e-4,
         adam_betas = (0.9, 0.999),
+        num_warmup_steps = 1000,
+        num_training_steps: int = 5_000_000
     ):
         super().__init__()
         self.diffusion = GaussianDiffusion(
@@ -466,24 +479,36 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         )
         self.lr = lr
         self.adam_betas = adam_betas
+        self.num_warmup_steps = num_warmup_steps
+        self.save_hyperparameters(ignore=['model'])
 
     def compute_loss(self, batch):
         # batch: embedding, mask
         return self.diffusion(*batch)
 
     def training_step(self, batch):
-        loss = self.compute_loss(batch)
-        self.log_dict({'train_loss' : loss}, logger = True, on_step = True, sync_dist = True)
+        loss, log_dict = self.compute_loss(batch)
+        wandb.log({"train/loss": loss})
+        wandb.log({f"train/{k}": v for k, v in log_dict.items()})
         return loss
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
-        loss = self.compute_loss(batch)
-        self.log_dict({'val_loss' : loss}, logger = True, on_step = True, sync_dist = True)
+        loss, log_dict = self.compute_loss(batch)
+        wandb.log({"val/loss": loss})
+        wandb.log({f"val/{k}": v for k, v in log_dict.items()})
         return loss 
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, betas=self.adam_betas)
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=self.num_warmup_steps,
+        )
+        scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
+
         return optimizer
 
 #     # def configure_optimizers(self) -> None:

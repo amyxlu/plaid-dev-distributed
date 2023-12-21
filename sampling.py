@@ -1,4 +1,4 @@
-from plaid.callback import main
+from plaid.callbacks import main
 from plaid.config import SampleCallbackConfig
 
 
