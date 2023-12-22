@@ -2,37 +2,26 @@
 Roughly follows the iDDPM formulation with min-SNR weighting, etc.
 https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/guided_diffusion.py
 """
-
-import math
-import copy
-from pathlib import Path
+import typing as T
 from random import random
 from functools import partial
 from collections import namedtuple
-from multiprocessing import cpu_count
 
 import torch
-from torch import nn, einsum
+from torch import nn
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
-from torch.utils.data import Dataset, DataLoader
 
-from torch.optim import Adam
-from torchvision import transforms as T, utils
-
-from einops import rearrange, reduce
-from einops.layers.torch import Rearrange
+from einops import reduce
 
 from tqdm.auto import tqdm
 
 # from ema_pytorch import EMA
 import lightning as L
-from transformers.optimization import get_linear_schedule_with_warmup
 
 from plaid.denoisers import BaseDenoiser
-from plaid.utils import LatentScaler, get_lr_scheduler
+from plaid.utils import LatentScaler, get_lr_scheduler, sequences_to_secondary_structure_fracs
 from plaid.diffusion.beta_schedulers import BetaScheduler, SigmoidBetaScheduler
-import wandb
 
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
@@ -465,6 +454,7 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         lr_num_warmup_steps: int = 0,
         lr_num_training_steps: int = 10_000_000,
         lr_num_cycles: int = 1,
+        add_secondary_structure_conditioning: bool = False
     ):
         super().__init__()
         self.diffusion = GaussianDiffusion(
@@ -485,11 +475,24 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         self.lr_num_warmup_steps = lr_num_warmup_steps
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
+        self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
         self.save_hyperparameters(ignore=['model'])
 
+    def get_secondary_structure_fractions(self, sequences: T.List[str], origin_dataset: str = "uniref"):
+        # currently only does secondary structure
+        sec_struct_fracs = sequences_to_secondary_structure_fracs(
+            sequences, quantized=True, origin_dataset=origin_dataset
+        )
+        sec_struct_fracs = torch.tensor(sec_struct_fracs).to(self.device)
+        cond_dict = {"secondary_structure": sec_struct_fracs}
+        return cond_dict
+
     def compute_loss(self, batch):
-        # batch: embedding, mask
-        return self.diffusion(*batch)
+        x, mask, sequence = batch
+        model_kwargs = {}
+        if self.add_secondary_structure_conditioning:
+            model_kwargs['cond_dict'] = self.get_secondary_structure_fractions(sequence)
+        return self.diffusion(x, mask, model_kwargs)
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch)

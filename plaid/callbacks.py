@@ -30,7 +30,7 @@ class SampleCallback(Callback):
         n_to_construct: int = 4,
         batch_size: int = -1,
         log_to_wandb: bool = True,
-        log_structure: bool = True,
+        calc_structure: bool = True,
         calc_perplexity: bool = True,
         num_recycles: int = 4,
         outdir: str = "sampled",
@@ -41,7 +41,7 @@ class SampleCallback(Callback):
         self.diffusion = diffusion
         self.model = model
         self.log_to_wandb = log_to_wandb
-        self.log_structure = log_structure
+        self.calc_structure = calc_structure
         self.calc_perplexity = calc_perplexity
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
@@ -165,18 +165,20 @@ class SampleCallback(Callback):
     def on_val_epoch_start(self, *_):
         print("val epoch start")
 
-    def _run(self, pl_module):
+    def _run(self, pl_module, log_to_wandb=True):
+        log_to_wandb = self.log_to_wandb and log_to_wandb
+
         device = pl_module.device
         logger = pl_module.logger.experiment
 
         maybe_print("sampling latent...")
         x, log_dict = self.sample_latent()
-        if self.log_to_wandb:
+        if log_to_wandb:
             logger.log(log_dict)
 
         print("calculating FID...")
         log_dict = self.calculate_fid(x, device)
-        if self.log_to_wandb:
+        if log_to_wandb:
             logger.log(log_dict)
 
         if not self.n_to_construct == -1:
@@ -185,26 +187,35 @@ class SampleCallback(Callback):
 
         maybe_print("constructing sequence...")
         seq_str, log_dict = self.construct_sequence(x, device)
-        if self.log_to_wandb:
+        if log_to_wandb:
             logger.log(log_dict)
 
-        maybe_print("constructing structure...")
-        pdb_strs, metrics, log_dict = self.construct_structure(x, seq_str, device)
-        if self.log_to_wandb:
-            logger.log(log_dict)
+        if self.calc_structure:
+            maybe_print("constructing structure...")
+            pdb_strs, metrics, log_dict = self.construct_structure(x, seq_str, device)
+            if log_to_wandb:
+                logger.log(log_dict)
 
-        if self.log_structure:
-            if not self.is_save_setup:
-                self._save_setup()
-            for i, pdb_str in enumerate(pdb_strs[:4]):
-                outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
-                logger.log({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
+        #     if not self.is_save_setup:
+        #         self._save_setup()
+        #     for i, pdb_str in enumerate(pdb_strs[:4]):
+        #         outpath = self.outdir / f"{i:03}.pdb" 
+        #         print(outpath)
+        #         # outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
+        #         write_pdb_to_disk(pdb_str, outpath)
+        #         if rank_zero_only.rank == 0:
+        #             logger.log({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
     
-    # def on_sanity_check_start(self, trainer, pl_module):
-    #     self._run(pl_module)
+    def on_sanity_check_start(self, trainer, pl_module):
+        _sampling_timesteps = pl_module.diffusion.sampling_timesteps
+        # hack
+        pl_module.diffusion.sampling_timesteps = 3 
+        if rank_zero_only.rank == 0:
+            self._run(pl_module, log_to_wandb=False)
+        pl_module.diffusion.sampling_timesteps = _sampling_timesteps
 
     def on_train_epoch_end(self, trainer, pl_module):
-        self._run(pl_module)
+        self._run(pl_module, log_to_wandb=True)
 
 if __name__ == "__main__":
     from plaid.diffusion import GaussianDiffusion

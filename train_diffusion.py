@@ -36,7 +36,7 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
-    # callbacks
+    # callbacks/home/amyxlu/plaid/plaid/denoisers
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
     sample_callback = hydra.utils.instantiate(

@@ -7,7 +7,7 @@ checkpoint:
   filename: "{epoch}-{step}"
   verbose: true
   save_last: true
-  every_n_train_steps: 100
+  every_n_train_steps: 5000
 
 sample:
   _target_: plaid.callbacks.SampleCallback
@@ -15,7 +15,7 @@ sample:
   n_to_sample: 16
   n_to_construct: -1
   batch_size: -1
-  log_structure: True
+  calc_structure: False
   calc_perplexity: True
   num_recycles: 4
 
