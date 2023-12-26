@@ -336,7 +336,7 @@ class GaussianDiffusion(nn.Module):
     @torch.no_grad()
     def sample(
         self,
-        batch_size=16,
+        shape,
         return_all_timesteps=False,
         model_kwargs={},
         cond_fn=None,
@@ -346,7 +346,6 @@ class GaussianDiffusion(nn.Module):
         sample_fn = (
             self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
         )
-        shape = (batch_size, self.sampling_seq_len, self.model.hid_dim)
         return sample_fn(
             shape,
             return_all_timesteps=return_all_timesteps,

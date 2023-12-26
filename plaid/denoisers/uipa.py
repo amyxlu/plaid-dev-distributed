@@ -16,8 +16,8 @@ import json
 ESMFOLD_C_S = 1024
 ESMFOLD_C_Z = 128
 NUM_SECONDARY_STRUCTURE_BINS = 6
-NUM_SECONDARY_STRUCTURE_BINS_WITH_DUMMY = 7  
-UNCOND_IDX = 6  
+NUM_SECONDARY_STRUCTURE_BINS_WITH_DUMMY = 7
+UNCOND_IDX = 6
 UNIREF90_PATH = "/shared/amyxlu/data/uniref90/uniref90.fasta"
 
 
@@ -114,8 +114,6 @@ class SecondaryStructureEmbedding(torch.nn.Module):
         return helix_emb, sheet_emb, turns_emb
 
 
-
-
 @dataclasses.dataclass
 class UIPAExperimentConfig:
     # ==== Data specifications ====
@@ -138,7 +136,7 @@ class UIPAExperimentConfig:
 
     # Diffusion
     T: int = 2000  # Total number of diffusion timesteps
-    beta_schedule: str = "chen_sigmoid_start0_end3_tau0.5" # "cosine" / "linear" / "chen_sigmoid_start0_end3_tau0.5" / "chen_cosine_start0.2_end1_tau3" / etc.
+    beta_schedule: str = "chen_sigmoid_start0_end3_tau0.5"  # "cosine" / "linear" / "chen_sigmoid_start0_end3_tau0.5" / "chen_cosine_start0.2_end1_tau3" / etc.
     noise_var: float = 1.0  # Noise variance for diffusion
     timestep_proj: str = "gaussian_fourier"  # "gaussian_fourier" / "sinusoidal"
     x_scale_factor: float = 0.5  # Scale factor for x, following Chen et al.
@@ -148,7 +146,7 @@ class UIPAExperimentConfig:
     num_blocks: int = 27  # Number of IPA blocks, must be odd number
     assert num_blocks % 2 == 1
     assert num_blocks >= 3
-    num_recycles: int = 4  # Use 0 if not recycling at all. 
+    num_recycles: int = 4  # Use 0 if not recycling at all.
 
     temb_cat_strategy: str = "concat"  # "add" / "concat"
     cemb_cat_strategy: str = "concat"  # "add" / "concat"
@@ -206,6 +204,7 @@ class UIPAExperimentConfig:
 ###################################################################################################
 ###################################################################################################
 
+
 def _maybe_dropout(
     original_array: torch.Tensor,
     replace_with_value: int,
@@ -253,8 +252,10 @@ def _concat_emb(ss0, emb):
 ###################################################################################################
 ###################################################################################################
 
+
 class UIPA(nn.Module):
     """Deprecated, only retained to load old checkpoints."""
+
     def __init__(
         self,
         cfg: UIPAExperimentConfig,
@@ -378,10 +379,7 @@ class UIPA(nn.Module):
         ##############################
         if self.use_classifier_free_guidance:
             # a dummy variable has also been added in the architecture
-            assert (
-                self.cond_embed.nbins
-                == NUM_SECONDARY_STRUCTURE_BINS_WITH_DUMMY
-            )
+            assert self.cond_embed.nbins == NUM_SECONDARY_STRUCTURE_BINS_WITH_DUMMY
             cond_dict = _modify_cond_dict_maybe_dropout(cond_dict)
         else:
             assert self.cond_embed.nbins == NUM_SECONDARY_STRUCTURE_BINS
@@ -440,11 +438,14 @@ class UIPA(nn.Module):
         cond_dict: T.Optional[T.Dict[str, T.Any]] = None,
         project_trunk_outputs: T.Optional[bool] = False,
         return_z: T.Optional[bool] = False,
-        *args, **kwargs
+        *args,
+        **kwargs,
     ):
         B, orig_L, _ = s_s_t.shape
         if residx is None:
-            residx = einops.repeat(torch.arange(orig_L, device=s_s_t.device, dtype=int), "L -> B L", B=B)
+            residx = einops.repeat(
+                torch.arange(orig_L, device=s_s_t.device, dtype=int), "L -> B L", B=B
+            )
         if mask is None:
             mask = torch.ones_like(residx)
         ####### Add time and conditional embeddings #######
@@ -462,8 +463,8 @@ class UIPA(nn.Module):
         # TODO: try how well this works if we initialize as contacts?
         # would need to figure out how to address embedding concatenation.
         if s_z_0 is None:
-            b, l, c = s_s_t.shape
-            s_z_0 = s_s_t.new_zeros(b, l, l, c)
+            B, L, _ = s_s_t.shape
+            s_z_0 = s_s_t.new_zeros(B, L, L, ESMFOLD_C_Z)
 
         ####### Handle variable lengths caused by concatenation of embeddings ########
         assert residx.shape[1] == mask.shape[1]
@@ -523,7 +524,7 @@ class UIPA(nn.Module):
             return s, z
         else:
             return s
-    
+
     def model_predictions(self, x, t, model_kwargs={}, clip_x_start=False):
         return self.forward(x, t, **model_kwargs)
 
@@ -542,20 +543,24 @@ class UIPA(nn.Module):
         s_z_0 = torch.zeros(B, L, L, ESMFOLD_C_Z).to(device)
 
         return {"s_z_0": s_z_0, "mask": mask, "residx": residx}
+    
+    @classmethod
+    def load_from_checkpoint(cls, checkpoint_directory="/shared/amyxlu/dprot/ckpts/2eiqqk2u"):
+        cfg = UIPAExperimentConfig()
+        checkpoint_directory = Path(checkpoint_directory)
+        d = json.load(open(checkpoint_directory / "config.json", "r"))
+        cfg.__dict__.update(d)
 
-
-def load_old_checkpoint():
-    cfg = UIPAExperimentConfig()
-    ckptdir = Path("/shared/amyxlu/dprot/ckpts/2eiqqk2u")
-    d = json.load(open(ckptdir / "config.json", "r"))
-    cfg.__dict__.update(d)
-
-    model = UIPA(cfg)
-    ckpt = torch.load(ckptdir / "itr1440000.ckpt", map_location="cpu")
-    model.load_state_dict(ckpt["model_state_dict"], strict=False)
-    return model
-
-
+        model = cls(cfg)
+        ckpt = torch.load(checkpoint_directory / "itr1440000.ckpt", map_location="cpu")
+        model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        return model
+    
+    @classmethod
+    def get_unconditional_cond_dict(cls, batch_size, seq_len):
+        x = torch.full((batch_size, seq_len),  UNCOND_IDX).long()
+        return {"secondary_structure": x}
+    
 
 # if __name__ == "__main__":
 #     from pathlib import Path
@@ -569,4 +574,3 @@ def load_old_checkpoint():
 #     ckpt = torch.load(ckptdir / "itr1440000.ckpt", map_location="cpu")
 #     model.load_state_dict(ckpt["model_state_dict"], strict=False)
 #     # _IncompatibleKeys(missing_keys=[], unexpected_keys=['recycle_s_norm.weight', 'recycle_s_norm.bias', 'recycle_z_norm.weight', 'recycle_z_norm.bias'])
-

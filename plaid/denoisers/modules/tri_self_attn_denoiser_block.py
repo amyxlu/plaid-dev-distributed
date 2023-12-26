@@ -133,7 +133,8 @@ class TriangularSelfAttentionBlock(BaseBlock):
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].bias)
 
     def forward(self,
-        x, z, c,
+        x, z,
+        c=None,  # for backwards compatibility only
         mask=None,
         chunk_size=None,
         skip_seq_state=None,
