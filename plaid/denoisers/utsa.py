@@ -93,6 +93,8 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             z = x.new_zeros(B, L, L, c_z)
         
         t = self.timestep_embedder(t)
+
+        #TODO: this might have multiple labels?
         if not y is None:
             y = self.label_embedder(y)
             c = t + y
@@ -104,6 +106,10 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
 
         # TODO: multiple iterations?
         x, z = self._iteration(x, z, c, mask)
+
+        if self.conditioning_strategy == "length_concat":
+            x = x[:, :-1, :]
+            z = z[:, :-1, :-1, :]
 
         return x
 
@@ -267,19 +273,28 @@ if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
 
     torch.set_default_dtype(torch.bfloat16)
-    device = torch.device("cuda:0")
+    device = torch.device("cuda")
 
-    model = UTriSelfAttnDenoiser(num_blocks=7, hid_dim=1024)
+    model = UTriSelfAttnDenoiser(
+        num_blocks=7,
+        hid_dim=1024,
+        conditioning_strategy="length_concat",
+        use_self_conditioning=True)
     model.to(device)
-    dm = CATHShardedDataModule()
+    datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    dm = CATHShardedDataModule(
+        shard_dir=datadir,
+        header_to_sequence_file=pklfile,
+    )
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
     # x, seqlens = batch
     # mask = mask_from_seq_lens(x, seqlens)
-    x, mask = batch
+    x, mask, sequence = batch
     x, mask = x.to(device), mask.to(device)
     N, L, _ = x.shape
     t = torch.randint(0, 100, (N, 1)).to(device)
-    epsilon_pred, _ = model(x, t, mask)
-    import IPython; IPython.embed()
+    epsilon_pred = model(x, t, mask)
+    print(epsilon_pred)

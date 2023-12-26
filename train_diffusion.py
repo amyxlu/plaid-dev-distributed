@@ -1,4 +1,5 @@
 import typing as T
+import os
 
 import hydra
 import lightning as L
@@ -30,8 +31,14 @@ def train(cfg: DictConfig):
         latent_scaler=latent_scaler,
     )
 
+    job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
+
     if not cfg.dryrun:
-        logger = WandbLogger(project="plaid")
+        logger = WandbLogger(
+            project="plaid",
+            entity="lu-amy-al1",
+            id=job_id
+        )
         logger.watch(diffusion, log="all", log_graph=False)
     else:
         logger = None
@@ -53,7 +60,7 @@ def train(cfg: DictConfig):
         callbacks=[lr_monitor, checkpoint_callback, sample_callback],
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
-        trainer.logger.experiment.config.update({"cfg": log_cfg})
+        trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if not cfg.dryrun:
         trainer.fit(diffusion, datamodule=datamodule)

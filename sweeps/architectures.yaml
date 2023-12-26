@@ -1,0 +1,27 @@
+program: train_diffusion.py 
+method: grid 
+project: plaid
+entity: lu-amy-al1
+metric:
+  name: val/loss_epoch
+  goal: minimize
+parameters:
+  denoiser.conditioning_strategy:
+    values:
+      - "hidden_concat"
+      - "add"
+  denoiser.use_self_conditioning:
+    values:
+      - True
+      - False
+  diffusion.objective:
+    values:
+      - "pred_noise"
+      - "pred_v"
+
+# use args_no_hyphens to remove the prepending of double dashes, per Hydra syntax
+command:
+    - ${env}
+    - ${interpreter}
+    - ${program}
+    - ${args_no_hyphens}

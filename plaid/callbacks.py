@@ -1,3 +1,6 @@
+"""
+Custom callbacks sampling and evaluation.
+"""
 import typing as T
 import os
 import json
@@ -10,7 +13,7 @@ import safetensors.torch as st
 
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
-from plaid.evaluation import RITAPerplexity, calc_fid, calc_kid
+from plaid.evaluation import RITAPerplexity, calc_fid_fn, calc_kid_fn
 from plaid.utils import LatentToSequence, LatentToStructure, write_pdb_to_disk
 import pandas as pd
 import wandb
@@ -31,6 +34,7 @@ class SampleCallback(Callback):
         batch_size: int = -1,
         log_to_wandb: bool = True,
         calc_structure: bool = True,
+        calc_fid: bool = False,
         calc_perplexity: bool = True,
         num_recycles: int = 4,
         outdir: str = "sampled",
@@ -43,6 +47,7 @@ class SampleCallback(Callback):
         self.log_to_wandb = log_to_wandb
         self.calc_structure = calc_structure
         self.calc_perplexity = calc_perplexity
+        self.calc_fid = calc_fid
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
         self.sequence_decode_temperature = sequence_decode_temperature
@@ -108,8 +113,8 @@ class SampleCallback(Callback):
         real_features = real_features.to(device=device)
         assert real_features.ndim == fake_features.ndim == 2
 
-        fid = calc_fid(fake_features, real_features)
-        kid = calc_kid(fake_features, real_features)
+        fid = calc_fid_fn(fake_features, real_features)
+        kid = calc_kid_fn(fake_features, real_features)
 
         log_dict = {f"sampled/fid": fid, f"sampled/kid": kid}
         return log_dict
@@ -175,11 +180,12 @@ class SampleCallback(Callback):
         x, log_dict = self.sample_latent()
         if log_to_wandb:
             logger.log(log_dict)
-
-        print("calculating FID...")
-        log_dict = self.calculate_fid(x, device)
-        if log_to_wandb:
-            logger.log(log_dict)
+        
+        if self.calc_fid:
+            maybe_print("calculating FID...")
+            log_dict = self.calculate_fid(x, device)
+            if log_to_wandb:
+                logger.log(log_dict)
 
         if not self.n_to_construct == -1:
             maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")

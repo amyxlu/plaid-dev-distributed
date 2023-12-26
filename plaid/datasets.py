@@ -142,7 +142,12 @@ class CATHShardedDataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = CATHShardedDataModule()
+    datadir = "/homefs/home/lux70/data/cath"
+    pklfile = "/homefs/home/lux70/data/cath/sequences.pkl"
+    dm = CATHShardedDataModule(
+        shard_dir=datadir,
+        header_to_sequence_file=pklfile,
+    )
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))

@@ -200,7 +200,7 @@ class GaussianDiffusion(nn.Module):
     def p_mean_variance(
         self, x, t, model_kwargs={}, clip_denoised=True
     ):
-        preds = self.model_predictions(x, t, **model_kwargs)
+        preds = self.model_predictions(x, t, model_kwargs=model_kwargs)
         x_start = preds.pred_x_start
 
         if clip_denoised:
@@ -522,28 +522,35 @@ class GaussianDiffusionLightningModule(L.LightningModule):
 
 if __name__ == "__main__":
     from plaid.denoisers import UTriSelfAttnDenoiser
-    denoiser = UTriSelfAttnDenoiser(num_blocks=7, hid_dim=1024)
-    diffusion = GaussianDiffusion(denoiser)
-    N, L, C = 4, 64, 1024
-    x_start = torch.randn(N, L, C)
-    t = torch.randint(0, diffusion.num_timesteps, (N,)).long()
-    loss = diffusion.p_losses(x_start, t)
-    # sampled = diffusion.sample()
-    print(loss)
-    # print(sampled)
-    
     from plaid.datasets import CATHShardedDataModule
 
     torch.set_default_dtype(torch.bfloat16)
-    device = torch.device("cuda:0")
+    device = torch.device("cuda")
 
-    model = UTriSelfAttnDenoiser(num_blocks=7, hid_dim=1024)
-    model.to(device)
-    dm = CATHShardedDataModule()
+    model = UTriSelfAttnDenoiser(
+        num_blocks=7,
+        hid_dim=1024,
+        conditioning_strategy="hidden_concat",
+        use_self_conditioning=True
+    )
+    # model.to(device)
+
+    datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    dm = CATHShardedDataModule(
+        shard_dir=datadir,
+        header_to_sequence_file=pklfile,
+    )
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
+    # x, mask, sequence = next(iter(train_dataloader))
+    # x = x.cuda()
+    # mask = mask.cuda()
 
-    module = GaussianDiffusionLightningModule(denoiser)
-    loss = module.training_step(batch)
+    diffusion = GaussianDiffusion(model)
+    import IPython;IPython.embed()
+    # module = GaussianDiffusionLightningModule(model)
+    # loss = module.training_step(batch)
+    # loss = module.training_step((x, mask, sequence))
     # x, seqlens = batch

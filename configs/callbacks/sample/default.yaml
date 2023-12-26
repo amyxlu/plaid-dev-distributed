@@ -1,0 +1,9 @@
+_target_: plaid.callbacks.SampleCallback
+outdir: ${paths.artifacts_dir}/samples
+n_to_sample: 16
+n_to_construct: -1
+batch_size: -1
+calc_structure: False
+calc_perplexity: True
+num_recycles: 4
+calc_fid: False

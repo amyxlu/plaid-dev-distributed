@@ -30,7 +30,7 @@ def squared_mmd(x, y, kernel=polynomial_kernel):
     return term_1 + term_2 - term_3
 
 
-def calc_kid(x, y, max_size=5000):
+def calc_kid_fn(x, y, max_size=5000):
     x_size, y_size = x.shape[0], y.shape[0]
     n_partitions = math.ceil(max(x_size / max_size, y_size / max_size))
     total_mmd = x.new_zeros([])
@@ -68,7 +68,7 @@ def sqrtm_eig(a):
     return _MatrixSquareRootEig.apply(a)
 
 
-def calc_fid(x, y, eps=1e-8):
+def calc_fid_fn(x, y, eps=1e-8):
     x_mean = x.mean(dim=0)
     y_mean = y.mean(dim=0)
     mean_term = (x_mean - y_mean).pow(2).sum()

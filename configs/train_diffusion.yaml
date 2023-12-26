@@ -1,8 +1,8 @@
 defaults:
   - _self_
-  - paths: dgx5
+  - paths: pcluster 
   - datamodule: cath
-  - denoiser: finetune_iclr
+  - denoiser: utsa.yaml 
   - beta_scheduler: sigmoid
   - latent_scaler: cath
   - diffusion: diffusion

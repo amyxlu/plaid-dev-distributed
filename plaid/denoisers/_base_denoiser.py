@@ -47,7 +47,7 @@ class BaseDenoiser(nn.Module):
         return nn.Sequential(
             nn.Linear(in_dim, hid_dim, bias=True),
             nn.SiLU(),
-            nn.Linear(in_dim, hid_dim, bias=True),
+            nn.Linear(hid_dim, hid_dim, bias=True),
         )
 
     def make_positional_embedding(self, strategy: str, hid_dim: int):
