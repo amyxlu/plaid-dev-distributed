@@ -282,7 +282,7 @@ class LatentToStructure:
         sequences: T.List[str],
         num_recycles: int = 1,
         batch_size: T.Optional[int] = None,
-    ) -> T.Tuple[T.List[PathLike], T.List[PathLike]]:
+    ) -> T.Tuple[T.List[PathLike], pd.DataFrame]:
         # TODO: allow for variable dimensions latent
         latent = to_tensor(latent, device=self.device)
         batch_size = latent.shape[0] if batch_size is None else batch_size

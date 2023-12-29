@@ -32,9 +32,9 @@ class SampleCallback(Callback):
         n_to_sample: int = 16,
         n_to_construct: int = 4,
         batch_size: int = -1,
-        log_to_wandb: bool = True,
+        log_to_wandb: bool = False,
         calc_structure: bool = True,
-        calc_fid: bool = False,
+        calc_fid: bool = True,
         calc_perplexity: bool = True,
         num_recycles: int = 4,
         outdir: str = "sampled",
@@ -128,7 +128,7 @@ class SampleCallback(Callback):
             self.sequence_constructor = LatentToSequence(
                 device=device, temperature=self.sequence_decode_temperature
             )
-
+        x_0 = x_0.to(device=device)
         probs, idxs, strs = self.sequence_constructor.to_sequence(x_0)
         sequence_results = pd.DataFrame(
             {
@@ -150,6 +150,7 @@ class SampleCallback(Callback):
 
     def construct_structure(self, x_0, seq_str, device):
         # TODO: maybe save & log artifact
+        x_0 = x_0.to(device=device)
         if self.structure_constructor is None:
             self.structure_constructor = LatentToStructure(device=device)
         pdb_strs, metrics = self.structure_constructor.to_structure(
