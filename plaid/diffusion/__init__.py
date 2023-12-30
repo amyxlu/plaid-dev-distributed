@@ -1,1 +1,2 @@
 from .guided import GaussianDiffusionLightningModule, GaussianDiffusion
+from .elucidated import ElucidatedDiffusion

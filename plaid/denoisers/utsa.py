@@ -135,10 +135,26 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             cfg_dropout=cfg_dropout
         )
         assert hid_dim == c_s
+    
+    def _filter_state_dict(self, state_dict):
+        orig_keys = list(state_dict.keys())
+        for k in orig_keys:
+            if k.startswith("trunk."):
+                state_dict[k.replace("trunk.", "")] = state_dict[k]
+            else:
+                pass
+            state_dict.pop(k)
 
     def load_pretrained_weights(self):
         _, model_state = get_esmfold_model_state()
-        self.load_state_dict(model_state, strict=False)
+        self._filter_state_dict(model_state)
+
+        unmatched_keys = self.load_state_dict(model_state, strict=False)
+        missing_keys = unmatched_keys.missing_keys
+        # unexpected_keys = unmatched_keys.unexpected_keys
+        missing_keys = list(filter(lambda x: not "conditioning_mlp" in x, missing_keys))
+        print(f"Loaded pretrained weights for {len(model_state) - len(unmatched_keys)} keys.")
+        print(f"Missing keys: block conditioning_mlp weights, {','.join(missing_keys)}")
     
     def make_blocks(self):
         # NOTE: this imports our modified denoiser block, but is named the same as the original
@@ -273,16 +289,19 @@ if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
 
     torch.set_default_dtype(torch.bfloat16)
-    device = torch.device("cuda")
+    device = torch.device("cuda:1")
 
-    model = UTriSelfAttnDenoiser(
-        num_blocks=7,
-        hid_dim=1024,
-        conditioning_strategy="length_concat",
-        use_self_conditioning=True)
+    model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
+    # model = UTriSelfAttnDenoiser(
+    #     num_blocks=7,
+    #     hid_dim=1024,
+    #     conditioning_strategy="length_concat",
+    #     use_self_conditioning=True)
     model.to(device)
-    datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    datadir = "/shared/amyxlu/data/cath/shards/"
+    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
     dm = CATHShardedDataModule(
         shard_dir=datadir,
         header_to_sequence_file=pklfile,
@@ -294,7 +313,10 @@ if __name__ == "__main__":
     # mask = mask_from_seq_lens(x, seqlens)
     x, mask, sequence = batch
     x, mask = x.to(device), mask.to(device)
+    x = x[:4, :64, :]
+    mask = mask[:4, :64]
     N, L, _ = x.shape
-    t = torch.randint(0, 100, (N, 1)).to(device)
+    t = torch.randint(0, 100, (N,)).to(device)
+    import IPython; IPython.embed()
     epsilon_pred = model(x, t, mask)
     print(epsilon_pred)

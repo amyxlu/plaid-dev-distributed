@@ -23,7 +23,7 @@ class BaseBlock(nn.Module):
         return nn.Sequential(
             nn.Linear(in_dim, hid_dim, bias=True),
             nn.SiLU(),
-            nn.Linear(in_dim, hid_dim, bias=True),
+            nn.Linear(hid_dim, hid_dim, bias=True),
         )
     
     def pointwise_add(self, x, c):
@@ -44,7 +44,7 @@ class BaseBlock(nn.Module):
     def hidden_concat(self, x, c):
         # x: (B, L, C)
         # c: (B, C)
-        c = einops.rearrange(c, "b c -> b c 1")
+        c = einops.repeat(c, "b c -> b l c", l=x.shape[1])
         x = torch.concat((x, c), dim=-1)
         return x
 
