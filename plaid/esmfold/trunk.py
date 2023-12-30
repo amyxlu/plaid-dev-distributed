@@ -48,6 +48,7 @@ class FoldingTrunkConfig:
     max_recycles: int = 4
     chunk_size: T.Optional[int] = None
 
+    # structure_module: StructureModuleConfig = StructureModuleConfig()
     structure_module: StructureModuleConfig = field(default_factory=StructureModuleConfig)
 
 
@@ -107,10 +108,13 @@ class RelativePosition(nn.Module):
         return output
 
 
+# class FoldingTrunk(nn.Module):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__()
+#         self.cfg = FoldingTrunkConfig(**kwargs)
 class FoldingTrunk(nn.Module):
     def __init__(self, cfg: FoldingTrunkConfig):
         super().__init__()
-        # amend how config args are passed in
         self.cfg = cfg
         assert self.cfg.max_recycles > 0
 
@@ -142,8 +146,8 @@ class FoldingTrunk(nn.Module):
         self.recycle_disto = nn.Embedding(self.recycle_bins, c_z)
         self.recycle_disto.weight[0].detach().zero_()
 
-        # amend how config args are passed in
-        self.structure_module = StructureModule(**self.cfg.structure_module.__dict__)  # type: ignore
+        self.structure_module = StructureModule(**self.cfg.structure_module)  # type: ignore
+        # self.structure_module = StructureModule(self.cfg.structure_module)  # type: ignore
         self.trunk2sm_s = nn.Linear(c_s, self.structure_module.c_s)
         self.trunk2sm_z = nn.Linear(c_z, self.structure_module.c_z)
 
@@ -205,7 +209,7 @@ class FoldingTrunk(nn.Module):
                 structure = self.structure_module(
                     {"single": self.trunk2sm_s(s_s), "pair": self.trunk2sm_z(s_z)},
                     true_aa,
-                    mask.to(s_s.dtype),
+                    mask.float(),
                 )
 
                 recycle_s = s_s

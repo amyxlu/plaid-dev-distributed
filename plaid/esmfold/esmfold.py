@@ -67,14 +67,11 @@ def get_esmfold_model_state(model_name="esmfold_3B_v1"):
 
 
 class ESMFold(nn.Module):
-    def __init__(self, make_trunk=True, **kwargs):
+    def __init__(self, esmfold_config=None, **kwargs):
         super().__init__()
 
-        # load the trained weights from hub
-        cfg = ESMFoldConfig()  # checked to make sure that it matches the pretrained config 
-        _, model_state = get_esmfold_model_state()
-        self.make_trunk = make_trunk
-        self.cfg = cfg
+        self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
+        cfg = self.cfg
 
         self.distogram_bins = 64
 
@@ -112,24 +109,19 @@ class ESMFold(nn.Module):
         self.mask_idx = self.n_tokens_embed - 1
         self.embedding = nn.Embedding(self.n_tokens_embed, c_s, padding_idx=0)
 
-        if self.make_trunk:
-            self.trunk = FoldingTrunk(cfg.trunk)
-            self.distogram_head = nn.Linear(c_z, self.distogram_bins)
-            self.ptm_head = nn.Linear(c_z, self.distogram_bins)
-            self.lm_head = nn.Linear(c_s, self.n_tokens_embed)
-            self.lddt_bins = 50
-            self.lddt_head = nn.Sequential(
-                nn.LayerNorm(cfg.trunk.structure_module.c_s),
-                nn.Linear(cfg.trunk.structure_module.c_s, cfg.lddt_head_hid_dim),
-                nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
-                nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
-            )
+        # self.trunk = FoldingTrunk(**cfg.trunk)
+        self.trunk = FoldingTrunk(cfg.trunk)
 
-        else:
-            self.trunk, self.distogram_head, self.ptm_head, self.lm_head, self.lddt_bins, self.lddt_head = None, None, None, None, None, None
-
-        # Load the trained model state for any parameters that we've recreated
-        self.load_state_dict(model_state, strict=False)
+        self.distogram_head = nn.Linear(c_z, self.distogram_bins)
+        self.ptm_head = nn.Linear(c_z, self.distogram_bins)
+        self.lm_head = nn.Linear(c_s, self.n_tokens_embed)
+        self.lddt_bins = 50
+        self.lddt_head = nn.Sequential(
+            nn.LayerNorm(cfg.trunk.structure_module.c_s),
+            nn.Linear(cfg.trunk.structure_module.c_s, cfg.lddt_head_hid_dim),
+            nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
+            nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
+        )
 
     @staticmethod
     def _af2_to_esm(d: Alphabet):

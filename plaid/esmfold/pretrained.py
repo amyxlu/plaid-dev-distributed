@@ -7,8 +7,10 @@ from pathlib import Path
 
 import torch
 
-from esm.esmfold.v1.esmfold import ESMFold
+from .esmfold import ESMFold
 
+
+# https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/pretrained.py
 
 def _load_model(model_name):
     if model_name.endswith(".pt"):  # local, treat as filepath

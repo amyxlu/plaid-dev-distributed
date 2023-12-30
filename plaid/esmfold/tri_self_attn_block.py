@@ -12,14 +12,7 @@ from openfold.model.triangular_multiplicative_update import (
     TriangleMultiplicationOutgoing,
 )
 from torch import nn
-
-from esm.esmfold.v1.misc import (
-    Attention,
-    Dropout,
-    PairToSequence,
-    ResidueMLP,
-    SequenceToPair,
-)
+from .misc import Attention, Dropout, PairToSequence, ResidueMLP, SequenceToPair
 
 
 class TriangularSelfAttentionBlock(nn.Module):
