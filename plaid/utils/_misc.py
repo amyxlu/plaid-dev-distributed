@@ -20,10 +20,34 @@ from datetime import datetime
 import numpy as np
 import torch
 
-
-
 PathLike = T.Union[str, Path]
 ArrayLike = T.Union[np.ndarray, torch.Tensor]
+
+
+restype_1to3 = {
+    "A": "ALA",
+    "R": "ARG",
+    "N": "ASN",
+    "D": "ASP",
+    "C": "CYS",
+    "Q": "GLN",
+    "E": "GLU",
+    "G": "GLY",
+    "H": "HIS",
+    "I": "ILE",
+    "L": "LEU",
+    "K": "LYS",
+    "M": "MET",
+    "F": "PHE",
+    "P": "PRO",
+    "S": "SER",
+    "T": "THR",
+    "W": "TRP",
+    "Y": "TYR",
+    "V": "VAL",
+}
+
+restype_3to1 = {v: k for k, v in restype_1to3.items()}
 
 
 def append_dims(x, target_dims):

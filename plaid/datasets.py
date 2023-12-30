@@ -45,9 +45,11 @@ class TensorShardDataset(torch.utils.data.Dataset):
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
+        dtype: str = "bf16"
     ):
         super().__init__()
         assert split in ("train", "val")
+        self.dtype = dtype
         self.seq_len = seq_len
         self.shard_dir = Path(shard_dir)
         self.header_to_seq = pickle.load(open(header_to_sequence_file, "rb"))
@@ -55,7 +57,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
 
     def load_partition(self, split: str):
         assert split in ("train", "val")
-        datadir = self.shard_dir / split / f"seqlen_{self.seq_len}"
+        datadir = self.shard_dir / split / f"seqlen_{self.seq_len}" / self.dtype
         data = load_file(datadir / "shard0000.pt")
         assert data.keys() == set(("embeddings", "seq_len"))
         emb, seqlen = data["embeddings"], data["seq_len"]
@@ -84,9 +86,11 @@ class CATHShardedDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 4,
+        dtype: str = "bf16"
     ):
         super().__init__()
         self.shard_dir = shard_dir
+        self.dtype = dtype
         self.header_to_sequence_file = header_to_sequence_file
         self.seq_len = seq_len
         self.batch_size = batch_size
@@ -99,12 +103,14 @@ class CATHShardedDataModule(L.LightningDataModule):
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
+                dtype=self.dtype
             )
             self.val_dataset = TensorShardDataset(
                 "val",
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
+                dtype=self.dtype
             )
         elif stage == "predict":
             self.test_dataset = TensorShardDataset(
@@ -112,6 +118,7 @@ class CATHShardedDataModule(L.LightningDataModule):
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
+                dtype=self.dtype
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")

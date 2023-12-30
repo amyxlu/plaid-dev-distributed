@@ -10,9 +10,9 @@ import h5py
 
 import dataclasses
 
-import safetensors
-import plaid as K
-from plaid.esmfold import ESMFold
+from safetensors.torch import save_file, load_file
+from plaid import utils
+from plaid.esmfold import esmfold_v1
 import time
 
 
@@ -29,6 +29,18 @@ class ShardConfig:
     compression: str = "safetensors"  # "safetensors", "hdf5"
     shard: bool = False
     train_frac: float = 0.8
+    dtype: str = "bf16"  # "bf16", "fp32", "fp64"
+
+
+def _get_dtype(dtype):
+    if dtype == "bf16":
+        return torch.bfloat16
+    elif dtype == "fp32":
+        return torch.float32
+    elif dtype == "fp64":
+        return torch.float64
+    else:
+        raise ValueError(f"invalid dtype {dtype}")
 
 
 def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
@@ -46,7 +58,7 @@ def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
 
 def embed_batch(esmfold, sequences, max_len=512, min_len=30):
     with torch.no_grad():
-        sequences = K.utils.get_random_sequence_crop_batch(
+        sequences = utils.get_random_sequence_crop_batch(
             sequences, max_len=max_len, min_len=min_len
         )
         seq_lens = [len(seq) for seq in sequences]
@@ -71,6 +83,7 @@ def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_le
     for _ in trange(n_batches_per_shard, leave=False):
         batch = next(iter(dataloader))
         headers, sequences = batch
+        headers = [s.split("|")[2].split("/")[0] for s in headers]
         cur_headers.extend(headers)
         feats, seq_lens = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
@@ -82,10 +95,16 @@ def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_le
     return cur_shard_tensors, cur_seq_lens, cur_headers
 
 
-def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir):
-    embs = embs.to(dtype=torch.bfloat16)
+def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
+    assert isinstance(dtype, str)
+    outdir = Path(outdir) / dtype
+    if not outdir.exists():
+        outdir.mkdir(parents=True)
+    
+    dtype = _get_dtype(dtype)
+    embs = embs.to(dtype=dtype)
     seq_lens = seq_lens.to(dtype=torch.int16)
-    safetensors.torch.save_file(
+    save_file(
         {
             "embeddings": embs,
             "seq_len": seq_lens,
@@ -112,10 +131,10 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         num_shards = 1
 
     outdir = Path(output_dir) / f"seqlen_{cfg.max_seq_len}"
+    argsdict = dataclasses.asdict(cfg)
     if not outdir.exists():
         outdir.mkdir(parents=True)
-    
-    argsdict = dataclasses.asdict(cfg)
+        
     with open(outdir / "config.json", "w") as f:
         json.dump(argsdict, f, indent=2)
 
@@ -123,7 +142,7 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         emb_shard, seq_lens, cur_headers = make_shard(esmfold, dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
         write_headers(cur_headers, outdir, shard_number)
         if cfg.compression == "safetensors":
-            save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir)
+            save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir, cfg.dtype)
         elif cfg.compression == "hdf5":
             save_h5_embeddings(emb_shard, seq_lens, shard_number, outdir)
         else:
@@ -133,7 +152,7 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
 def main(cfg: ShardConfig):
     start = time.time()
     print("making esmfold...")
-    esmfold = ESMFold(make_trunk=False)
+    esmfold = esmfold_v1()
     end = time.time()
     print(f"done making esmfold in {end - start:.2f} seconds.")
 

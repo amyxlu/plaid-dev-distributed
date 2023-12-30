@@ -17,7 +17,7 @@ from openfold.np.residue_constants import restype_order_with_x
 
 from ._misc import npy, to_tensor
 from ..decoder import FullyConnectedNetwork
-from ..esmfold import ESMFold, ESMFOLD_Z_DIM
+from ..esmfold import ESMFOLD_Z_DIM, esmfold_v1
 from ..esmfold.misc import output_to_pdb, batch_encode_sequences
 from . import DECODER_CKPT_PATH
 
@@ -25,31 +25,6 @@ from . import DECODER_CKPT_PATH
 ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
 PathLike = T.Union[str, Path]
 
-
-restype_1to3 = {
-    "A": "ALA",
-    "R": "ARG",
-    "N": "ASN",
-    "D": "ASP",
-    "C": "CYS",
-    "Q": "GLN",
-    "E": "GLU",
-    "G": "GLY",
-    "H": "HIS",
-    "I": "ILE",
-    "L": "LEU",
-    "K": "LYS",
-    "M": "MET",
-    "F": "PHE",
-    "P": "PRO",
-    "S": "SER",
-    "T": "THR",
-    "W": "TRP",
-    "Y": "TYR",
-    "V": "VAL",
-}
-
-restype_3to1 = {v: k for k, v in restype_1to3.items()}
 
 
 CANONICAL_AA = "ACDEFGHIKLMNPQRSTVWY"
@@ -213,14 +188,14 @@ def outputs_to_avg_metric(outputs):
         value = npy(outputs[metric])
 
         if value.ndim == 1:
-            mean = value
+            median = value
         elif value.ndim == 2:
-            mean = np.mean(value, axis=1)
+            median = np.median(value, axis=1)
         else:
             assert value.ndim > 2
-            mean = np.mean(value, axis=tuple(range(1, value.ndim)))
+            median = np.median(value, axis=tuple(range(1, value.ndim)))
 
-        avg_metrics[metric] = mean
+        avg_metrics[metric] = median
 
     return avg_metrics
 
@@ -267,10 +242,11 @@ class LatentToSequence:
 
 
 class LatentToStructure:
-    def __init__(self, device, esmfold: ESMFold = None):
-        self.esmfold = ESMFold(make_lm=False, make_trunk=True) if esmfold is None else esmfold
+    def __init__(self, device, esmfold=None):
+        self.esmfold = esmfold_v1() if esmfold is None else esmfold
         self.esmfold.set_chunk_size(64)
         self.esmfold.eval().requires_grad_(False)
+        del self.esmfold.esm  # save some GPU space
         self.esmfold.to(device)
         self.device = device
         assert not self.esmfold.trunk is None
