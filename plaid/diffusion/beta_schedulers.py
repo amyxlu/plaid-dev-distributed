@@ -38,7 +38,7 @@ class CosineBetaScheduler(BetaScheduler):
     
 
 class SigmoidBetaScheduler(BetaScheduler):
-    def __init__(self, start = -3, end = 3, tau = 1, clamp_min = 1e-5):
+    def __init__(self, start = -3, end = 3, tau = 0.5, clamp_min = 1e-5):
         self.start = start
         self.end = end
         self.tau = tau

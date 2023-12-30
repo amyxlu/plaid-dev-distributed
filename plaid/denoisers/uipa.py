@@ -545,7 +545,7 @@ class UIPA(nn.Module):
         return {"s_z_0": s_z_0, "mask": mask, "residx": residx}
     
     @classmethod
-    def load_from_checkpoint(cls, checkpoint_directory="/shared/amyxlu/dprot/ckpts/2eiqqk2u"):
+    def load_from_checkpoint(cls, checkpoint_directory="/shared/amyxlu/dprot/ckpts/2eiqqk2u", return_unmatched_keys=False):
         cfg = UIPAExperimentConfig()
         checkpoint_directory = Path(checkpoint_directory)
         d = json.load(open(checkpoint_directory / "config.json", "r"))
@@ -553,8 +553,11 @@ class UIPA(nn.Module):
 
         model = cls(cfg)
         ckpt = torch.load(checkpoint_directory / "itr1440000.ckpt", map_location="cpu")
-        model.load_state_dict(ckpt["model_state_dict"], strict=False)
-        return model
+        unmatched_keys = model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        if return_unmatched_keys:
+            return model, unmatched_keys
+        else:
+            return model
     
     @classmethod
     def get_unconditional_cond_dict(cls, batch_size, seq_len):

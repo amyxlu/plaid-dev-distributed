@@ -17,7 +17,11 @@ from einops import rearrange, repeat, reduce
 import lightning as L
 
 from plaid.denoisers import BaseDenoiser
-from plaid.utils import LatentScaler, get_lr_scheduler, sequences_to_secondary_structure_fracs
+from plaid.utils import (
+    LatentScaler,
+    get_lr_scheduler,
+    sequences_to_secondary_structure_fracs,
+)
 from plaid.diffusion.beta_schedulers import BetaScheduler, SigmoidBetaScheduler
 
 
@@ -31,8 +35,8 @@ def default(val, d):
     return d() if callable(d) else d
 
 
-def log(t, eps = 1e-20):
-    return torch.log(t.clamp(min = eps))
+def log(t, eps=1e-20):
+    return torch.log(t.clamp(min=eps))
 
 
 class ElucidatedDiffusion(L.LightningModule):
@@ -40,22 +44,22 @@ class ElucidatedDiffusion(L.LightningModule):
         self,
         denoiser: BaseDenoiser,
         latent_scaler: LatentScaler = LatentScaler(),
-        beta_scheduler: BetaScheduler = SigmoidBetaScheduler(),
         # sampling_seq_len=64,
-        num_sample_steps = 32, # number of sampling steps
-        sigma_min = 0.002,     # min noise level
-        sigma_max = 80,        # max noise level
-        sigma_data = 0.5,      # standard deviation of data distribution
-        rho = 7,               # controls the sampling schedule
-        P_mean = -1.2,         # mean of log-normal distribution from which noise is drawn for training
-        P_std = 1.2,           # standard deviation of log-normal distribution from which noise is drawn for training
-        S_churn = 80,          # parameters for stochastic sampling - depends on dataset, Table 5 in apper
-        S_tmin = 0.05,
-        S_tmax = 50,
-        S_noise = 1.003,
+        num_sample_steps=32,  # number of sampling steps
+        sigma_min=0.002,  # min noise level
+        sigma_max=80,  # max noise level
+        sigma_data=0.5,  # standard deviation of data distribution
+        rho=7,  # controls the sampling schedule
+        P_mean=-1.2,  # mean of log-normal distribution from which noise is drawn for training
+        P_std=1.2,  # standard deviation of log-normal distribution from which noise is drawn for training
+        S_churn=80,  # parameters for stochastic sampling - depends on dataset, Table 5 in apper
+        S_tmin=0.05,
+        S_tmax=50,
+        S_noise=1.003,
     ):
         super().__init__()
         self.denoiser = denoiser
+        self.latent_scaler = latent_scaler
         self.self_condition = self.denoiser.use_self_conditioning
 
         # parameters
@@ -77,18 +81,18 @@ class ElucidatedDiffusion(L.LightningModule):
 
     @property
     def device(self):
-        return next(self.net.parameters()).device
+        return next(self.denoiser.parameters()).device
 
     # derived preconditioning params - Table 1
 
     def c_skip(self, sigma):
-        return (self.sigma_data ** 2) / (sigma ** 2 + self.sigma_data ** 2)
+        return (self.sigma_data**2) / (sigma**2 + self.sigma_data**2)
 
     def c_out(self, sigma):
-        return sigma * self.sigma_data * (self.sigma_data ** 2 + sigma ** 2) ** -0.5
+        return sigma * self.sigma_data * (self.sigma_data**2 + sigma**2) ** -0.5
 
     def c_in(self, sigma):
-        return 1 * (sigma ** 2 + self.sigma_data ** 2) ** -0.5
+        return 1 * (sigma**2 + self.sigma_data**2) ** -0.5
 
     def c_noise(self, sigma):
         return log(sigma) * 0.25
@@ -96,23 +100,26 @@ class ElucidatedDiffusion(L.LightningModule):
     # preconditioned network output
     # equation (7) in the paper
 
-    def preconditioned_network_forward(self, x_noised, sigma, self_cond = None, clamp = False):
+    def preconditioned_network_forward(
+        self, x_noised, sigma, self_cond=None, clamp=False, model_kwargs={}
+    ):
         N, L, _ = x_noised.shape
         device = x_noised.device
 
         if isinstance(sigma, float):
-            sigma = torch.full((N,), sigma, device = device)
+            sigma = torch.full((N,), sigma, device=device)
+        model_kwargs["x_self_cond"] = self_cond
 
-        padded_sigma = rearrange(sigma, 'b -> b 1 1')
-        net_out = self.net(
-            self.c_in(padded_sigma) * x_noised,
-            self.c_noise(sigma),
-            self_cond
+        padded_sigma = rearrange(sigma, "b -> b 1 1")
+        net_out = self.denoiser(
+            self.c_in(padded_sigma) * x_noised, self.c_noise(sigma), **model_kwargs
         )
         out = self.c_skip(padded_sigma) * x_noised + self.c_out(padded_sigma) * net_out
+        print(out.mean(), out.std())
 
         if clamp:
-            out = out.clamp(-1., 1.)
+            out = out.clamp(-1.0, 1.0)
+        print(out.mean(), out.std())
 
         return out
 
@@ -121,20 +128,23 @@ class ElucidatedDiffusion(L.LightningModule):
     # sample schedule
     # equation (5) in the paper
 
-    def sample_schedule(self, num_sample_steps = None):
+    def sample_schedule(self, num_sample_steps=None):
         num_sample_steps = default(num_sample_steps, self.num_sample_steps)
 
         N = num_sample_steps
         inv_rho = 1 / self.rho
 
-        steps = torch.arange(num_sample_steps, device = self.device)
-        sigmas = (self.sigma_max ** inv_rho + steps / (N - 1) * (self.sigma_min ** inv_rho - self.sigma_max ** inv_rho)) ** self.rho
+        steps = torch.arange(num_sample_steps, device=self.device)
+        sigmas = (
+            self.sigma_max**inv_rho
+            + steps / (N - 1) * (self.sigma_min**inv_rho - self.sigma_max**inv_rho)
+        ) ** self.rho
 
-        sigmas = F.pad(sigmas, (0, 1), value = 0.) # last step is sigma value of 0.
+        sigmas = F.pad(sigmas, (0, 1), value=0.0)  # last step is sigma value of 0.
         return sigmas
 
     @torch.no_grad()
-    def sample(self, shape, num_sample_steps = None, clamp = True):
+    def sample(self, shape, num_sample_steps=None, clamp=True, model_kwargs={}):
         num_sample_steps = default(num_sample_steps, self.num_sample_steps)
 
         # get the schedule, which is returned as (sigma, gamma) tuple, and pair up with the next sigma and gamma
@@ -143,30 +153,38 @@ class ElucidatedDiffusion(L.LightningModule):
         gammas = torch.where(
             (sigmas >= self.S_tmin) & (sigmas <= self.S_tmax),
             min(self.S_churn / num_sample_steps, sqrt(2) - 1),
-            0.
+            0.0,
         )
 
         sigmas_and_gammas = list(zip(sigmas[:-1], sigmas[1:], gammas[:-1]))
 
         # init noise
         init_sigma = sigmas[0]
-        x = init_sigma * torch.randn(shape, device = self.device)
+        x = init_sigma * torch.randn(shape, device=self.device)
 
         # for self conditioning
         x_start = None
 
         # gradually denoise
-        for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc = 'sampling time step'):
-            sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
+        for sigma, sigma_next, gamma in tqdm(
+            sigmas_and_gammas, desc="sampling time step"
+        ):
+            sigma, sigma_next, gamma = map(
+                lambda t: t.item(), (sigma, sigma_next, gamma)
+            )
 
-            eps = self.S_noise * torch.randn(shape, device = self.device) # stochastic sampling
+            eps = self.S_noise * torch.randn(
+                shape, device=self.device
+            )  # stochastic sampling
 
             sigma_hat = sigma + gamma * sigma
-            x_hat = x + sqrt(sigma_hat ** 2 - sigma ** 2) * eps
+            x_hat = x + sqrt(sigma_hat**2 - sigma**2) * eps
 
             self_cond = x_start if self.self_condition else None
 
-            model_output = self.preconditioned_network_forward(x_hat, sigma_hat, self_cond, clamp = clamp)
+            model_output = self.preconditioned_network_forward(
+                x_hat, sigma_hat, self_cond, clamp=clamp, model_kwargs=model_kwargs
+            )
             denoised_over_sigma = (x_hat - model_output) / sigma_hat
 
             x_next = x_hat + (sigma_next - sigma_hat) * denoised_over_sigma
@@ -176,38 +194,57 @@ class ElucidatedDiffusion(L.LightningModule):
             if sigma_next != 0:
                 self_cond = model_output if self.self_condition else None
 
-                model_output_next = self.preconditioned_network_forward(x_next, sigma_next, self_cond, clamp = clamp)
+                model_output_next = self.preconditioned_network_forward(
+                    x_next,
+                    sigma_next,
+                    self_cond,
+                    clamp=clamp,
+                    model_kwargs=model_kwargs,
+                )
                 denoised_prime_over_sigma = (x_next - model_output_next) / sigma_next
-                x_next = x_hat + 0.5 * (sigma_next - sigma_hat) * (denoised_over_sigma + denoised_prime_over_sigma)
+                x_next = x_hat + 0.5 * (sigma_next - sigma_hat) * (
+                    denoised_over_sigma + denoised_prime_over_sigma
+                )
 
             x = x_next
             x_start = model_output_next if sigma_next != 0 else model_output
 
         if clamp:
-            x = x.clamp(-1., 1.)
-        
-        return self.latent_scaler.unscale(x) 
+            x = x.clamp(-1.0, 1.0)
+
+        return self.latent_scaler.unscale(x)
 
     @torch.no_grad()
-    def sample_using_dpmpp(self, batch_size = 16, num_sample_steps = None, clamp=False):
+    def sample_using_dpmpp(
+        self, shape, num_sample_steps=None, clamp=False, model_kwargs={}
+    ):
         """
         thanks to Katherine Crowson (https://github.com/crowsonkb) for figuring it all out!
         https://arxiv.org/abs/2211.01095
         """
 
-        device, num_sample_steps = self.device, default(num_sample_steps, self.num_sample_steps)
+        device, num_sample_steps = self.device, default(
+            num_sample_steps, self.num_sample_steps
+        )
 
         sigmas = self.sample_schedule(num_sample_steps)
-
-        shape = (batch_size, self.channels, self.image_size, self.image_size)
-        x  = sigmas[0] * torch.randn(shape, device = device)
+        x = sigmas[0] * torch.randn(shape, device=device)
 
         sigma_fn = lambda t: t.neg().exp()
         t_fn = lambda sigma: sigma.log().neg()
 
         old_denoised = None
+        self_cond = None
+
         for i in tqdm(range(len(sigmas) - 1)):
-            denoised = self.preconditioned_network_forward(x, sigmas[i].item())
+            self_cond = old_denoised if self.self_condition else None
+            denoised = self.preconditioned_network_forward(
+                x,
+                sigmas[i].item(),
+                clamp=clamp,
+                self_cond=self_cond,
+                model_kwargs=model_kwargs,
+            )
             t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
             h = t_next - t
 
@@ -216,30 +253,34 @@ class ElucidatedDiffusion(L.LightningModule):
             else:
                 h_last = t - t_fn(sigmas[i - 1])
                 r = h_last / h
-                gamma = - 1 / (2 * r)
+                gamma = -1 / (2 * r)
                 denoised_d = (1 - gamma) * denoised + gamma * old_denoised
 
             x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised_d
             old_denoised = denoised
 
         if clamp:
-            x = x.clamp(-1., 1.)
-        return self.latent_scaler.unscale(x) 
+            x = x.clamp(-1.0, 1.0)
+        return self.latent_scaler.unscale(x)
 
     # training
 
     def loss_weight(self, sigma):
-        return (sigma ** 2 + self.sigma_data ** 2) * (sigma * self.sigma_data) ** -2
+        return (sigma**2 + self.sigma_data**2) * (sigma * self.sigma_data) ** -2
 
     def noise_distribution(self, batch_size):
-        return (self.P_mean + self.P_std * torch.randn((batch_size,), device = self.device)).exp()
+        return (
+            self.P_mean + self.P_std * torch.randn((batch_size,), device=self.device)
+        ).exp()
 
-    def forward(self, x_unnormalized, mask, model_kwargs={}, noise=None):
+    def forward(self, x_unnormalized, mask=None, model_kwargs={}, noise=None):
         x = self.latent_scaler.scale(x_unnormalized)
         B, L, _ = x.shape
+        if mask is None:
+            mask = torch.ones((B, L), device=self.device)
 
         sigmas = self.noise_distribution(B)
-        padded_sigmas = rearrange(sigmas, 'b -> b 1 1')
+        padded_sigmas = rearrange(sigmas, "b -> b 1 1")
 
         noise = torch.randn_like(x)
 
@@ -253,10 +294,13 @@ class ElucidatedDiffusion(L.LightningModule):
                 self_cond = self.preconditioned_network_forward(noised_x, sigmas)
                 self_cond.detach_()
 
-        denoised = self.preconditioned_network_forward(noised_x, sigmas, self_cond)
+        model_kwargs["mask"] = mask
+        denoised = self.preconditioned_network_forward(
+            noised_x, sigmas, self_cond, model_kwargs
+        )
 
-        losses = F.mse_loss(denoised, x, reduction = 'none')
-        losses = reduce(losses, 'b ... -> b', 'mean')
+        losses = F.mse_loss(denoised, x, reduction="none")
+        losses = reduce(losses, "b ... -> b", "mean")
 
         losses = losses * self.loss_weight(sigmas)
 
