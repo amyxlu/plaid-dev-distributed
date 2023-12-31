@@ -543,9 +543,13 @@ class UIPA(nn.Module):
         s_z_0 = torch.zeros(B, L, L, ESMFOLD_C_Z).to(device)
 
         return {"s_z_0": s_z_0, "mask": mask, "residx": residx}
-    
+
     @classmethod
-    def load_from_checkpoint(cls, checkpoint_directory="/shared/amyxlu/dprot/ckpts/2eiqqk2u", return_unmatched_keys=False):
+    def load_from_checkpoint(
+        cls,
+        checkpoint_directory="/shared/amyxlu/dprot/ckpts/2eiqqk2u",
+        return_unmatched_keys=False,
+    ):
         cfg = UIPAExperimentConfig()
         checkpoint_directory = Path(checkpoint_directory)
         d = json.load(open(checkpoint_directory / "config.json", "r"))
@@ -558,12 +562,12 @@ class UIPA(nn.Module):
             return model, unmatched_keys
         else:
             return model
-    
+
     @classmethod
     def get_unconditional_cond_dict(cls, batch_size, seq_len):
-        x = torch.full((batch_size, seq_len),  UNCOND_IDX).long()
+        x = torch.full((batch_size, seq_len), UNCOND_IDX).long()
         return {"secondary_structure": x}
-    
+
 
 # if __name__ == "__main__":
 #     from pathlib import Path

@@ -69,8 +69,12 @@ class TriangularSelfAttentionBlock(nn.Module):
             inf=1e9,
         )  # type: ignore
 
-        self.mlp_seq = ResidueMLP(sequence_state_dim, 4 * sequence_state_dim, dropout=dropout)
-        self.mlp_pair = ResidueMLP(pairwise_state_dim, 4 * pairwise_state_dim, dropout=dropout)
+        self.mlp_seq = ResidueMLP(
+            sequence_state_dim, 4 * sequence_state_dim, dropout=dropout
+        )
+        self.mlp_pair = ResidueMLP(
+            pairwise_state_dim, 4 * pairwise_state_dim, dropout=dropout
+        )
 
         assert dropout < 0.4
         self.drop = nn.Dropout(dropout)
@@ -96,7 +100,9 @@ class TriangularSelfAttentionBlock(nn.Module):
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].weight)
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].bias)
 
-    def forward(self, sequence_state, pairwise_state, mask=None, chunk_size=None, **__kwargs):
+    def forward(
+        self, sequence_state, pairwise_state, mask=None, chunk_size=None, **__kwargs
+    ):
         """
         Inputs:
           sequence_state: B x L x sequence_state_dim

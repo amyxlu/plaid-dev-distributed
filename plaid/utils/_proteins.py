@@ -26,15 +26,20 @@ ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
 PathLike = T.Union[str, Path]
 
 
-
 CANONICAL_AA = "ACDEFGHIKLMNPQRSTVWY"
 OPENFOLD_AAIDX_TO_AACHAR = {idx: char for idx, char in enumerate(restype_order_with_x)}
-OPENFOLD_AACHAR_TO_AAINDEX = {char: idx for idx, char in enumerate(restype_order_with_x)}
+OPENFOLD_AACHAR_TO_AAINDEX = {
+    char: idx for idx, char in enumerate(restype_order_with_x)
+}
 
 # https://github.com/dauparas/ProteinMPNN/blob/main/protein_mpnn_utils.py#L61
 PROTEINMPNN_AACHAR_TO_AAIDX_ARR = list("ARNDCQEGHILKMFPSTWYV-")
-PROTEINMPNN_AAIDX_TO_AACHAR = {idx: char for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
-PROTEINMPNN_AACHAR_TO_AAIDX = {char: idx for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
+PROTEINMPNN_AAIDX_TO_AACHAR = {
+    idx: char for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)
+}
+PROTEINMPNN_AACHAR_TO_AAIDX = {
+    char: idx for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)
+}
 
 
 def load_sequence_decoder(ckpt_path=None, device=None, eval_mode=True):
@@ -64,7 +69,7 @@ class DecoderTokenizer:
             self.aaidx_to_aachar = PROTEINMPNN_AAIDX_TO_AACHAR
         else:
             raise ValueError(f"Unknown vocab {vocab}")
-        
+
         self.vocab_size = len(self.aaidx_to_aachar)
         self.unk_idx = self.aachar_to_aaidx.get("X", None)
         self.pad_idx = self.aachar_to_aaidx.get("_", None)
@@ -155,7 +160,7 @@ class DecoderTokenizer:
         """
         if pad_v is None:
             pad_v = self.pad_idx
-        
+
         aatype_list = []
 
         for seq in sequences:
@@ -164,7 +169,8 @@ class DecoderTokenizer:
 
         aatype = self.collate_dense_tensors(aatype_list, pad_v=pad_v)
         mask = self.collate_dense_tensors(
-            [aatype.new_ones(len(aatype_seq)) for aatype_seq in aatype_list], pad_v=pad_v
+            [aatype.new_ones(len(aatype_seq)) for aatype_seq in aatype_list],
+            pad_v=pad_v,
         )
         return aatype, mask
 
@@ -213,11 +219,14 @@ class LatentToSequence:
             sequence_logits = self.decoder(latent)
 
         # remove UNK token
-        _mask = torch.arange(sequence_logits.shape[-1], device=self.device) != self.tokenizer.unk_idx
+        _mask = (
+            torch.arange(sequence_logits.shape[-1], device=self.device)
+            != self.tokenizer.unk_idx
+        )
         sequence_logits = torch.index_select(
             input=sequence_logits,
             dim=-1,
-            index=torch.arange(sequence_logits.shape[-1], device=self.device)[_mask]
+            index=torch.arange(sequence_logits.shape[-1], device=self.device)[_mask],
         )
 
         # adjust by temperature
@@ -230,14 +239,16 @@ class LatentToSequence:
         sequence_idx = dist.sample().argmax(-1)
         stochasticity = (argmax_idx == sequence_idx).sum() / torch.numel(argmax_idx)
         print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
-            
+
         sequence_str = [
             self.tokenizer.aatype_to_str_sequence(s)
             for s in sequence_idx.long().cpu().numpy()
         ]
         # softmax to probabilities, and only grab that for the argmax index
         sequence_probs = F.softmax(sequence_logits, dim=-1)
-        sequence_probs = torch.gather(sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)).squeeze(-1)
+        sequence_probs = torch.gather(
+            sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)
+        ).squeeze(-1)
         return sequence_probs, sequence_idx, sequence_str
 
 
@@ -270,8 +281,10 @@ class LatentToStructure:
 
         metrics = []
         all_pdb_strs = []
-        
-        for start in trange(0, len(latent), batch_size, desc="(Generating structure from latents..)"):
+
+        for start in trange(
+            0, len(latent), batch_size, desc="(Generating structure from latents..)"
+        ):
             torch.cuda.empty_cache()
             # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
             # utils.print_cuda_memory_usage()
@@ -282,7 +295,7 @@ class LatentToStructure:
                 )
             )
             z_ = latent.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
-            
+
             with torch.no_grad():
                 output = self.esmfold.folding_trunk(
                     s_s_0=s_,
@@ -297,13 +310,14 @@ class LatentToStructure:
         metrics = pd.concat(metrics)
         return all_pdb_strs, metrics
 
+
 if __name__ == "__main__":
     import torch
     from plaid.utils._proteins import LatentToSequence, LatentToStructure
+
     device = torch.device("cuda:3")
     sequence_constructor = LatentToSequence(device, strategy="onehot_categorical")
     structure_constructor = LatentToStructure(device)
     latent = torch.randn(16, 128, 1024).to(device)
-    _, _, strs = sequence_constructor.to_sequence(latent)    
+    _, _, strs = sequence_constructor.to_sequence(latent)
     # structure_constructor.to_structure(latent, strs)
-

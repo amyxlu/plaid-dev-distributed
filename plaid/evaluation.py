@@ -84,7 +84,6 @@ def calc_fid_fn(x, y, eps=1e-8):
     return mean_term + cov_term
 
 
-
 class RITAPerplexity:
     def __init__(self, device):
         self.device = device
@@ -105,21 +104,23 @@ class RITAPerplexity:
         return math.exp(loss)
 
     def batch_eval(self, all_sequences, batch_size: int = None):
-        """ Calculates the average perplexity under RITA for a batch of strings"""
+        """Calculates the average perplexity under RITA for a batch of strings"""
         if not len(set([len(s) for s in all_sequences])) == 1:
-            raise NotImplementedError("Batched calculation only supports sequences of the same length at the moment.")
-        
+            raise NotImplementedError(
+                "Batched calculation only supports sequences of the same length at the moment."
+            )
+
         batch_size = len(all_sequences) if not batch_size else batch_size
         all_perplexities = []
         for i in range(0, len(all_sequences), batch_size):
             sequences = all_sequences[i : i + batch_size]
-            input_ids = self.tokenizer.batch_encode_plus(sequences)['input_ids']
+            input_ids = self.tokenizer.batch_encode_plus(sequences)["input_ids"]
             input_ids = utils.to_tensor(input_ids, device=self.device)
             with torch.no_grad():
                 outputs = self.model(input_ids, labels=input_ids)
             loss, logits = outputs[:2]
             all_perplexities.append(torch.exp(loss).item())
-        
+
         return np.mean(all_perplexities)
 
 
@@ -157,4 +158,3 @@ class ESMPseudoPerplexity:
                 )
                 perplexities.append(torch.exp(nll).item())
         return perplexities
-    

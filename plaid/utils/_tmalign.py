@@ -18,15 +18,17 @@ from pathlib import Path
 
 
 def write_tmp_file(data, fname) -> str:
-    outpath = Path(os.environ['HOME']) / ".tmp" / fname
-    if not outpath.parent.exists(): 
+    outpath = Path(os.environ["HOME"]) / ".tmp" / fname
+    if not outpath.parent.exists():
         outpath.parent.mkdir(parents=True)
     with open(outpath, "w") as f:
         f.write(data)
     return str(outpath)
 
 
-def run_tmalign(query: str, reference: str, fast: bool = False, delete_tmp=True) -> float:
+def run_tmalign(
+    query: str, reference: str, fast: bool = False, delete_tmp=True
+) -> float:
     """
     Run TMalign on the two given input pdb files
     """

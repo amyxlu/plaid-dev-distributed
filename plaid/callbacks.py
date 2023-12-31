@@ -38,7 +38,7 @@ class SampleCallback(Callback):
         calc_perplexity: bool = True,
         num_recycles: int = 4,
         outdir: str = "sampled",
-        sequence_decode_temperature: float = 1.0
+        sequence_decode_temperature: float = 1.0,
     ):
         super().__init__()
         self.outdir = Path(outdir)
@@ -58,7 +58,7 @@ class SampleCallback(Callback):
         self.sequence_constructor, self.structure_constructor = None, None
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
-        n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct 
+        n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
         self.batch_size = batch_size
         self.n_to_construct = n_to_construct
 
@@ -81,9 +81,7 @@ class SampleCallback(Callback):
         def load_saved_features(location, device="cpu"):
             return st.load_file(location)["features"].to(device)
 
-        self.real_features = load_saved_features(
-            cached_tensors_path, device=device
-        )
+        self.real_features = load_saved_features(cached_tensors_path, device=device)
         self.real_features = self.real_features[
             torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
@@ -167,7 +165,7 @@ class SampleCallback(Callback):
             f"sampled/plddt_max": metrics["plddt"].max(),
         }
         return pdb_strs, metrics, log_dict
-    
+
     def on_val_epoch_start(self, *_):
         print("val epoch start")
 
@@ -181,7 +179,7 @@ class SampleCallback(Callback):
         x, log_dict = self.sample_latent()
         if log_to_wandb:
             logger.log(log_dict)
-        
+
         if self.calc_fid:
             maybe_print("calculating FID...")
             log_dict = self.calculate_fid(x, device)
@@ -189,8 +187,10 @@ class SampleCallback(Callback):
                 logger.log(log_dict)
 
         if not self.n_to_construct == -1:
-            maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")
-            x = x[torch.randperm(x.shape[0])][:self.n_to_construct]
+            maybe_print(
+                f"subsampling to only reconstruct {self.n_to_construct} samples..."
+            )
+            x = x[torch.randperm(x.shape[0])][: self.n_to_construct]
 
         maybe_print("constructing sequence...")
         seq_str, log_dict = self.construct_sequence(x, device)
@@ -206,17 +206,17 @@ class SampleCallback(Callback):
         #     if not self.is_save_setup:
         #         self._save_setup()
         #     for i, pdb_str in enumerate(pdb_strs[:4]):
-        #         outpath = self.outdir / f"{i:03}.pdb" 
+        #         outpath = self.outdir / f"{i:03}.pdb"
         #         print(outpath)
         #         # outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
         #         write_pdb_to_disk(pdb_str, outpath)
         #         if rank_zero_only.rank == 0:
         #             logger.log({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
-    
+
     def on_sanity_check_start(self, trainer, pl_module):
         _sampling_timesteps = pl_module.diffusion.sampling_timesteps
         # hack
-        pl_module.diffusion.sampling_timesteps = 3 
+        pl_module.diffusion.sampling_timesteps = 3
         if rank_zero_only.rank == 0:
             self._run(pl_module, log_to_wandb=False)
         pl_module.diffusion.sampling_timesteps = _sampling_timesteps
@@ -224,9 +224,11 @@ class SampleCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         self._run(pl_module, log_to_wandb=True)
 
+
 if __name__ == "__main__":
     from plaid.diffusion import GaussianDiffusion
     from plaid.denoisers import UTriSelfAttnDenoiser
+
     denoiser = UTriSelfAttnDenoiser(1024, 3)
     diffusion = GaussianDiffusion(denoiser, sampling_timesteps=5)
     callback = SampleCallback(diffusion, denoiser)
@@ -234,7 +236,9 @@ if __name__ == "__main__":
 
     x, log_dict = callback.sample_latent()
     log_dict = callback.calculate_fid(x, device)
-    x = x[torch.randperm(x.shape[0])][:callback.n_to_construct]
+    x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
     seq_str, log_dict = callback.construct_sequence(x, device)
     pdb_strs, metrics, log_dict = callback.construct_structure(x, seq_str, device)
-    import IPython;IPython.embed()
+    import IPython
+
+    IPython.embed()

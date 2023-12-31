@@ -54,7 +54,9 @@ def append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
     if dims_to_append < 0:
-        raise ValueError(f'input has {x.ndim} dims but target_dims is {target_dims}, which is less')
+        raise ValueError(
+            f"input has {x.ndim} dims but target_dims is {target_dims}, which is less"
+        )
     return x[(...,) + (None,) * dims_to_append]
 
 
@@ -68,12 +70,12 @@ def download_file(path, url, digest=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
-        with urllib.request.urlopen(url) as response, open(path, 'wb') as f:
+        with urllib.request.urlopen(url) as response, open(path, "wb") as f:
             shutil.copyfileobj(response, f)
     if digest is not None:
-        file_digest = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+        file_digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
         if digest != file_digest:
-            raise OSError(f'hash of {path} (url: {url}) failed to validate')
+            raise OSError(f"hash of {path} (url: {url}) failed to validate")
     return path
 
 
@@ -127,7 +129,8 @@ def enable_stratified(group=0, groups=1, disable=False):
 @contextmanager
 def enable_stratified_accelerate(accelerator, disable=False):
     """A context manager that enables stratified sampling, distributing the strata across
-    all processes and gradient accumulation steps using settings from Hugging Face Accelerate."""
+    all processes and gradient accumulation steps using settings from Hugging Face Accelerate.
+    """
     try:
         rank = accelerator.process_index
         world_size = accelerator.num_processes
@@ -144,45 +147,86 @@ def enable_stratified_accelerate(accelerator, disable=False):
 def stratified_with_settings(shape, dtype=None, device=None):
     """Draws stratified samples from a uniform distribution, using settings from a context
     manager."""
-    if not hasattr(stratified_settings, 'disable') or stratified_settings.disable:
+    if not hasattr(stratified_settings, "disable") or stratified_settings.disable:
         return torch.rand(shape, dtype=dtype, device=device)
     return stratified_uniform(
-        shape, stratified_settings.group, stratified_settings.groups, dtype=dtype, device=device
+        shape,
+        stratified_settings.group,
+        stratified_settings.groups,
+        dtype=dtype,
+        device=device,
     )
 
 
-def rand_log_normal(shape, loc=0., scale=1., device='cpu', dtype=torch.float32):
+def rand_log_normal(shape, loc=0.0, scale=1.0, device="cpu", dtype=torch.float32):
     """Draws samples from an lognormal distribution."""
     u = stratified_with_settings(shape, device=device, dtype=dtype) * (1 - 2e-7) + 1e-7
     return torch.distributions.Normal(loc, scale).icdf(u).exp()
 
 
-def rand_log_logistic(shape, loc=0., scale=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
+def rand_log_logistic(
+    shape,
+    loc=0.0,
+    scale=1.0,
+    min_value=0.0,
+    max_value=float("inf"),
+    device="cpu",
+    dtype=torch.float32,
+):
     """Draws samples from an optionally truncated log-logistic distribution."""
     min_value = torch.as_tensor(min_value, device=device, dtype=torch.float64)
     max_value = torch.as_tensor(max_value, device=device, dtype=torch.float64)
     min_cdf = min_value.log().sub(loc).div(scale).sigmoid()
     max_cdf = max_value.log().sub(loc).div(scale).sigmoid()
-    u = stratified_with_settings(shape, device=device, dtype=torch.float64) * (max_cdf - min_cdf) + min_cdf
+    u = (
+        stratified_with_settings(shape, device=device, dtype=torch.float64)
+        * (max_cdf - min_cdf)
+        + min_cdf
+    )
     return u.logit().mul(scale).add(loc).exp().to(dtype)
 
 
-def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.float32):
+def rand_log_uniform(shape, min_value, max_value, device="cpu", dtype=torch.float32):
     """Draws samples from an log-uniform distribution."""
     min_value = math.log(min_value)
     max_value = math.log(max_value)
-    return (stratified_with_settings(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
+    return (
+        stratified_with_settings(shape, device=device, dtype=dtype)
+        * (max_value - min_value)
+        + min_value
+    ).exp()
 
 
-def rand_v_diffusion(shape, sigma_data=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
+def rand_v_diffusion(
+    shape,
+    sigma_data=1.0,
+    min_value=0.0,
+    max_value=float("inf"),
+    device="cpu",
+    dtype=torch.float32,
+):
     """Draws samples from a truncated v-diffusion training timestep distribution."""
     min_cdf = math.atan(min_value / sigma_data) * 2 / math.pi
     max_cdf = math.atan(max_value / sigma_data) * 2 / math.pi
-    u = stratified_with_settings(shape, device=device, dtype=dtype) * (max_cdf - min_cdf) + min_cdf
+    u = (
+        stratified_with_settings(shape, device=device, dtype=dtype)
+        * (max_cdf - min_cdf)
+        + min_cdf
+    )
     return torch.tan(u * math.pi / 2) * sigma_data
 
 
-def rand_cosine_interpolated(shape, image_d, noise_d_low, noise_d_high, sigma_data=1., min_value=1e-3, max_value=1e3, device='cpu', dtype=torch.float32):
+def rand_cosine_interpolated(
+    shape,
+    image_d,
+    noise_d_low,
+    noise_d_high,
+    sigma_data=1.0,
+    min_value=1e-3,
+    max_value=1e3,
+    device="cpu",
+    dtype=torch.float32,
+):
     """Draws samples from an interpolated cosine timestep distribution (from simple diffusion)."""
 
     def logsnr_schedule_cosine(t, logsnr_min, logsnr_max):
@@ -194,19 +238,29 @@ def rand_cosine_interpolated(shape, image_d, noise_d_low, noise_d_high, sigma_da
         shift = 2 * math.log(noise_d / image_d)
         return logsnr_schedule_cosine(t, logsnr_min - shift, logsnr_max - shift) + shift
 
-    def logsnr_schedule_cosine_interpolated(t, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max):
-        logsnr_low = logsnr_schedule_cosine_shifted(t, image_d, noise_d_low, logsnr_min, logsnr_max)
-        logsnr_high = logsnr_schedule_cosine_shifted(t, image_d, noise_d_high, logsnr_min, logsnr_max)
+    def logsnr_schedule_cosine_interpolated(
+        t, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max
+    ):
+        logsnr_low = logsnr_schedule_cosine_shifted(
+            t, image_d, noise_d_low, logsnr_min, logsnr_max
+        )
+        logsnr_high = logsnr_schedule_cosine_shifted(
+            t, image_d, noise_d_high, logsnr_min, logsnr_max
+        )
         return torch.lerp(logsnr_low, logsnr_high, t)
 
     logsnr_min = -2 * math.log(min_value / sigma_data)
     logsnr_max = -2 * math.log(max_value / sigma_data)
     u = stratified_with_settings(shape, device=device, dtype=dtype)
-    logsnr = logsnr_schedule_cosine_interpolated(u, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max)
+    logsnr = logsnr_schedule_cosine_interpolated(
+        u, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max
+    )
     return torch.exp(-logsnr / 2) * sigma_data
 
 
-def rand_split_log_normal(shape, loc, scale_1, scale_2, device='cpu', dtype=torch.float32):
+def rand_split_log_normal(
+    shape, loc, scale_1, scale_2, device="cpu", dtype=torch.float32
+):
     """Draws samples from a split lognormal distribution."""
     n = torch.randn(shape, device=device, dtype=dtype).abs()
     u = torch.rand(shape, device=device, dtype=dtype)
@@ -223,7 +277,7 @@ def dct(x):
         return df.dct2(x)
     if x.ndim == 5:
         return df.dct3(x)
-    raise ValueError(f'Unsupported dimensionality {x.ndim}')
+    raise ValueError(f"Unsupported dimensionality {x.ndim}")
 
 
 @lru_cache
@@ -237,8 +291,13 @@ def freq_weight_1d(n, scales=0, dtype=None, device=None):
 
 @lru_cache
 def freq_weight_nd(shape, scales=0, dtype=None, device=None):
-    indexers = [[slice(None) if i == j else None for j in range(len(shape))] for i in range(len(shape))]
-    weights = [freq_weight_1d(n, scales, dtype, device)[ix] for n, ix in zip(shape, indexers)]
+    indexers = [
+        [slice(None) if i == j else None for j in range(len(shape))]
+        for i in range(len(shape))
+    ]
+    weights = [
+        freq_weight_1d(n, scales, dtype, device)[ix] for n, ix in zip(shape, indexers)
+    ]
     return reduce(torch.minimum, weights)
 
 
@@ -265,7 +324,6 @@ def get_safetensors_metadata(path):
     return safetensors.safe_open(path, "pt").metadata()
 
 
-
 def npy(x: ArrayLike):
     if isinstance(x, torch.Tensor):
         return x.detach().cpu().numpy()
@@ -280,7 +338,7 @@ def to_tensor(x, device=None, dtype=None):
         x = torch.from_numpy(x)
     else:
         x = torch.tensor(x)
-    
+
     if device is not None:
         x = x.to(device)
     if dtype is not None:
@@ -364,7 +422,7 @@ def write_to_fasta(sequences, outpath, headers: T.Optional[T.List[str]] = None):
     if headers is None:
         headers = [f"sequence_{i}" for i in range(len(sequences))]
     assert len(headers) == len(sequences)
-        
+
     with open(outpath, "w") as f:
         for i, seq in enumerate(sequences):
             f.write(f">{headers[i]}\n")
@@ -384,10 +442,10 @@ def load_from_fasta(fpath: PathLike) -> T.List[str]:
 
 
 def extract_avg_b_factor_per_residue(pdb_file: PathLike) -> T.List[float]:
-    """ Mostly used for OmegaFold. """
+    """Mostly used for OmegaFold."""
     b_factors = []
 
-    with open(pdb_file, 'r') as file:
+    with open(pdb_file, "r") as file:
         for line in file:
             if line.startswith("ATOM") or line.startswith("HETATM"):
                 try:
@@ -402,7 +460,7 @@ def extract_avg_b_factor_per_residue(pdb_file: PathLike) -> T.List[float]:
 def _get_random_sequence_crop(s, length):
     if len(s) > length:
         start = random.randint(0, len(s) - length)
-        return s[start:start + length]
+        return s[start : start + length]
     else:
         return s
 
@@ -415,12 +473,17 @@ def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
 
 def print_cuda_memory_usage():
     if torch.cuda.is_available():
-        print(f'Current CUDA memory allocated: {torch.cuda.memory_allocated() / 1024 ** 2} MB')
-        print(f'Current CUDA memory reserved: {torch.cuda.memory_reserved() / 1024 ** 2} MB')
+        print(
+            f"Current CUDA memory allocated: {torch.cuda.memory_allocated() / 1024 ** 2} MB"
+        )
+        print(
+            f"Current CUDA memory reserved: {torch.cuda.memory_reserved() / 1024 ** 2} MB"
+        )
 
 
 def view_py3Dmol(pdbstr):
     import py3Dmol
+
     view = py3Dmol.view(width=400, height=300)
     view.addModelsAsFrames(pdbstr)
     view.setStyle({"model": -1}, {"cartoon": {"color": "spectrum"}})
@@ -429,7 +492,7 @@ def view_py3Dmol(pdbstr):
 
 
 def parse_sequence_from_structure(pdb_data, id="") -> str:
-    """ Returns a string where chains are separated by : and assumes one model per PDB file"""
+    """Returns a string where chains are separated by : and assumes one model per PDB file"""
     from Bio.PDB import PDBParser
     import io
 
@@ -446,7 +509,7 @@ def parse_sequence_from_structure(pdb_data, id="") -> str:
     model = structure[0]
     chains = []
     for chain in model:
-        sequence = ''
+        sequence = ""
         for residue in chain.get_residues():
             res_name = residue.get_resname()
             sequence += restype_3to1[res_name]
@@ -487,6 +550,7 @@ def output_to_pdb(output: T.Dict) -> T.List[str]:
 
 def build_contact_map(pdb_file, threshold=5.0):
     from Bio.PDB import PDBParser
+
     def calculate_distance(residue1, residue2):
         """Calculate the distance between the center of masses of two residues."""
         diff_vector = residue1["CA"].coord - residue2["CA"].coord
@@ -497,7 +561,9 @@ def build_contact_map(pdb_file, threshold=5.0):
     structure = parser.get_structure("protein", pdb_file)
     model = structure[0]  # Assuming we are working with the first model
 
-    residues = [residue for residue in model.get_residues() if residue.get_id()[0] == ' ']
+    residues = [
+        residue for residue in model.get_residues() if residue.get_id()[0] == " "
+    ]
     n = len(residues)
     contact_map = np.zeros((n, n), dtype=int)
 
@@ -514,12 +580,15 @@ def build_contact_map(pdb_file, threshold=5.0):
 # https://arxiv.org/abs/2301.10972
 ######
 
+
 def sigmoid(x):
-  return 1 / (1 + math.exp(-x))
+    return 1 / (1 + math.exp(-x))
+
 
 def simple_linear_schedule(t, clip_min=1e-9):
     # A gamma function that simply is 1-t.
-    return np.clip(1 - t, clip_min, 1.)
+    return np.clip(1 - t, clip_min, 1.0)
+
 
 def sigmoid_schedule(t, start=-3, end=3, tau=1.0, clip_min=1e-9):
     # A gamma function based on sigmoid function.
@@ -527,7 +596,8 @@ def sigmoid_schedule(t, start=-3, end=3, tau=1.0, clip_min=1e-9):
     v_end = sigmoid(end / tau)
     output = sigmoid((t * (end - start) + start) / tau)
     output = (v_end - output) / (v_end - v_start)
-    return np.clip(output, clip_min, 1.)
+    return np.clip(output, clip_min, 1.0)
+
 
 def cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
     # A gamma function based on cosine function.
@@ -535,6 +605,7 @@ def cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
     v_end = math.cos(end * math.pi / 2) ** (2 * tau)
     output = math.cos((t * (end - start) + start) * math.pi / 2) ** (2 * tau)
     output = (v_end - output) / (v_end - v_start)
-    return np.clip(output, clip_min, 1.)
+    return np.clip(output, clip_min, 1.0)
+
 
 ######

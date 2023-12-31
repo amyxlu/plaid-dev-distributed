@@ -4,7 +4,6 @@ import math
 import numpy as np
 
 
-
 import torch
 import abc
 import math
@@ -15,13 +14,14 @@ import math
 # https://arxiv.org/abs/2301.10972
 ######
 
+
 def sigmoid(x):
-  return 1 / (1 + math.exp(-x))
+    return 1 / (1 + math.exp(-x))
 
 
 def simple_linear_schedule(t, clip_min=1e-9):
     # A gamma function that simply is 1-t.
-    return np.clip(1 - t, clip_min, 1.)
+    return np.clip(1 - t, clip_min, 1.0)
 
 
 def sigmoid_schedule(t, start=-3, end=3, tau=1.0, clip_min=1e-9):
@@ -30,7 +30,7 @@ def sigmoid_schedule(t, start=-3, end=3, tau=1.0, clip_min=1e-9):
     v_end = sigmoid(end / tau)
     output = sigmoid((t * (end - start) + start) / tau)
     output = (v_end - output) / (v_end - v_start)
-    return np.clip(output, clip_min, 1.)
+    return np.clip(output, clip_min, 1.0)
 
 
 def modified_cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
@@ -39,11 +39,13 @@ def modified_cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
     v_end = math.cos(end * math.pi / 2) ** (2 * tau)
     output = math.cos((t * (end - start) + start) * math.pi / 2) ** (2 * tau)
     output = (v_end - output) / (v_end - v_start)
-    return np.clip(output, clip_min, 1.)
+    return np.clip(output, clip_min, 1.0)
+
 
 ######
 # openai guided diffusion codebase
 ######
+
 
 def adm_cosine_schedule(t):
     return math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
@@ -79,17 +81,15 @@ class BetaScheduler(abc.ABC):
 
 
 class LinearBetaScheduler(BetaScheduler):
-    def __init__(self, beta_start = 0.0001, beta_end = 0.02):
+    def __init__(self, beta_start=0.0001, beta_end=0.02):
         self.beta_start = beta_start
         self.beta_end = beta_end
-    
+
     def __call__(self, timesteps):
-        scale = 1000 /  timesteps
+        scale = 1000 / timesteps
         beta_start = scale * 0.0001
         beta_end = scale * 0.02
-        return np.linspace(
-            beta_start, beta_end, timesteps, dtype=np.float64
-        )
+        return np.linspace(beta_start, beta_end, timesteps, dtype=np.float64)
 
 
 class SigmoidBetaScheduler(BetaScheduler):
@@ -98,9 +98,12 @@ class SigmoidBetaScheduler(BetaScheduler):
         self.start = start
         self.end = end
         self.tau = tau
-    
+
     def __call__(self, timesteps):
-        return betas_for_alpha_bar(timesteps, lambda t: sigmoid_schedule(t, start=self.start, end=self.end, tau=self.tau))
+        return betas_for_alpha_bar(
+            timesteps,
+            lambda t: sigmoid_schedule(t, start=self.start, end=self.end, tau=self.tau),
+        )
 
 
 class CosineBetaScheduler(BetaScheduler):
@@ -109,9 +112,14 @@ class CosineBetaScheduler(BetaScheduler):
         self.start = start
         self.end = end
         self.tau = tau
-    
+
     def __call__(self, timesteps):
-        return betas_for_alpha_bar(timesteps, lambda t: modified_cosine_schedule(t, start=self.start, end=self.end, tau=self.tau))
+        return betas_for_alpha_bar(
+            timesteps,
+            lambda t: modified_cosine_schedule(
+                t, start=self.start, end=self.end, tau=self.tau
+            ),
+        )
 
 
 class ADMCosineBetaScheduler(BetaScheduler):
@@ -120,4 +128,3 @@ class ADMCosineBetaScheduler(BetaScheduler):
 
     def __call__(self, timesteps):
         return betas_for_alpha_bar(timesteps, lambda t: adm_cosine_schedule(t))
-

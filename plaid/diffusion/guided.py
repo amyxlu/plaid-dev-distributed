@@ -21,7 +21,11 @@ from tqdm.auto import tqdm
 import lightning as L
 
 from plaid.denoisers import BaseDenoiser
-from plaid.utils import LatentScaler, get_lr_scheduler, sequences_to_secondary_structure_fracs
+from plaid.utils import (
+    LatentScaler,
+    get_lr_scheduler,
+    sequences_to_secondary_structure_fracs,
+)
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
 
 
@@ -58,7 +62,6 @@ def extract_into_tensor(arr, timesteps, broadcast_shape):
     return res.expand(broadcast_shape)
 
 
-
 class GaussianDiffusion(L.LightningModule):
     def __init__(
         self,
@@ -77,13 +80,13 @@ class GaussianDiffusion(L.LightningModule):
         sampling_seq_len=64,
         use_ddim=True,
         # optimization
-        lr = 1e-4,
-        adam_betas = (0.9, 0.999),
+        lr=1e-4,
+        adam_betas=(0.9, 0.999),
         lr_sched_type: str = "constant",
         lr_num_warmup_steps: int = 0,
         lr_num_training_steps: int = 10_000_000,
         lr_num_cycles: int = 1,
-        add_secondary_structure_conditioning: bool = False
+        add_secondary_structure_conditioning: bool = False,
     ):
         super().__init__()
         self.model = model
@@ -143,9 +146,9 @@ class GaussianDiffusion(L.LightningModule):
         )  # default num sampling timesteps to number of timesteps at training
         assert self.sampling_timesteps <= timesteps
         self.sampling_seq_len = sampling_seq_len
-        self.is_ddim_sampling = use_ddim 
+        self.is_ddim_sampling = use_ddim
         self.ddim_sampling_eta = ddim_sampling_eta
-        
+
         # loss weight
         self.snr = self.alphas_cumprod / (1 - self.alphas_cumprod)
         maybe_clipped_snr = self.snr.copy()
@@ -166,9 +169,11 @@ class GaussianDiffusion(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
         self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
-        self.save_hyperparameters(ignore=['model'])
-    
-    def get_secondary_structure_fractions(self, sequences: T.List[str], origin_dataset: str = "uniref"):
+        self.save_hyperparameters(ignore=["model"])
+
+    def get_secondary_structure_fractions(
+        self, sequences: T.List[str], origin_dataset: str = "uniref"
+    ):
         # currently only does secondary structure
         sec_struct_fracs = sequences_to_secondary_structure_fracs(
             sequences, quantized=True, origin_dataset=origin_dataset
@@ -180,7 +185,8 @@ class GaussianDiffusion(L.LightningModule):
     def predict_start_from_noise(self, x_t, t, noise):
         return (
             extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
-            - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+            - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
+            * noise
         )
 
     def predict_noise_from_start(self, x_t, t, x0):
@@ -191,7 +197,8 @@ class GaussianDiffusion(L.LightningModule):
     def predict_v(self, x_start, t, noise):
         return (
             extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * noise
-            - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * x_start
+            - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
+            * x_start
         )
 
     def predict_start_from_v(self, x_t, t, v):
@@ -239,9 +246,7 @@ class GaussianDiffusion(L.LightningModule):
 
         return ModelPrediction(pred_noise, x_start)
 
-    def p_mean_variance(
-        self, x, t, model_kwargs={}, clip_denoised=True
-    ):
+    def p_mean_variance(self, x, t, model_kwargs={}, clip_denoised=True):
         preds = self.model_predictions(x, t, model_kwargs=model_kwargs)
         x_start = preds.pred_x_start
 
@@ -267,7 +272,15 @@ class GaussianDiffusion(L.LightningModule):
         return new_mean
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, model_kwargs={}, cond_fn=None, guidance_kwargs=None, clip_denoised=True):
+    def p_sample(
+        self,
+        x,
+        t: int,
+        model_kwargs={},
+        cond_fn=None,
+        guidance_kwargs=None,
+        clip_denoised=True,
+    ):
         B, L, C = x.shape
         batched_times = torch.full((B,), t, device=x.device, dtype=torch.long)
         model_mean, variance, model_log_variance, x_start = self.p_mean_variance(
@@ -290,7 +303,7 @@ class GaussianDiffusion(L.LightningModule):
         model_kwargs={},
         cond_fn=None,
         guidance_kwargs=None,
-        clip_denoised=True
+        clip_denoised=True,
     ):
         batch, device = shape[0], self.betas.device
 
@@ -306,7 +319,9 @@ class GaussianDiffusion(L.LightningModule):
         ):
             self_cond = x_start if self.self_condition else None
             model_kwargs["x_self_cond"] = self_cond
-            img, x_start = self.p_sample(img, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised)
+            img, x_start = self.p_sample(
+                img, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised
+            )
             imgs.append(img)
 
         ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
@@ -383,7 +398,7 @@ class GaussianDiffusion(L.LightningModule):
         model_kwargs={},
         cond_fn=None,
         guidance_kwargs=None,
-        clip_denoised=True
+        clip_denoised=True,
     ):
         sample_fn = (
             self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
@@ -394,7 +409,7 @@ class GaussianDiffusion(L.LightningModule):
             model_kwargs=model_kwargs,
             cond_fn=cond_fn,
             guidance_kwargs=guidance_kwargs,
-            clip_denoised=clip_denoised
+            clip_denoised=clip_denoised,
         )
 
     @torch.no_grad()
@@ -425,7 +440,8 @@ class GaussianDiffusion(L.LightningModule):
 
         return (
             extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-            + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+            + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
+            * noise
         )
 
     def p_losses(self, x_start, t, model_kwargs={}, noise=None):
@@ -467,15 +483,17 @@ class GaussianDiffusion(L.LightningModule):
         loss = reduce(loss, "b ... -> b", "mean")
         loss = loss * extract_into_tensor(self.loss_weight, t, loss.shape)
         return loss.mean(), log_dict
-    
+
     def forward(self, x_unnormalized, mask, model_kwargs={}, noise=None):
         x = self.latent_scaler.scale(x_unnormalized)
         t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long().to(x.device)
-        model_kwargs['mask'] = mask
+        model_kwargs["mask"] = mask
         loss, log_dict = self.p_losses(x, t, model_kwargs, noise)
         return loss, log_dict
 
-    def get_secondary_structure_fractions(self, sequences: T.List[str], origin_dataset: str = "uniref"):
+    def get_secondary_structure_fractions(
+        self, sequences: T.List[str], origin_dataset: str = "uniref"
+    ):
         # currently only does secondary structure
         sec_struct_fracs = sequences_to_secondary_structure_fracs(
             sequences, quantized=True, origin_dataset=origin_dataset
@@ -488,24 +506,35 @@ class GaussianDiffusion(L.LightningModule):
         x, mask, sequence = batch
         model_kwargs = {}
         if self.add_secondary_structure_conditioning:
-            model_kwargs['cond_dict'] = self.get_secondary_structure_fractions(sequence)
+            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(sequence)
         return self(x, mask, model_kwargs)
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch)
-        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(
+            "train/loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
         self.log_dict({f"train/{k}": v for k, v in log_dict.items()}, sync_dist=True)
         return loss
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
         loss, log_dict = self.compute_loss(batch)
-        self.log("val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log(
+            "val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True
+        )
         self.log_dict({f"val/{k}": v for k, v in log_dict.items()}, sync_dist=True)
-        return loss 
+        return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, betas=self.adam_betas)
+        optimizer = torch.optim.AdamW(
+            self.parameters(), lr=self.lr, betas=self.adam_betas
+        )
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
             sched_type=self.lr_sched_type,
@@ -569,7 +598,9 @@ if __name__ == "__main__":
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
     x, mask, sequence = batch
-    x, mask = x.to(device=device, dtype=torch.float32), mask.to(device, dtype=torch.float32)
+    x, mask = x.to(device=device, dtype=torch.float32), mask.to(
+        device, dtype=torch.float32
+    )
     x = x[:4, :64, :]
     mask = mask[:4, :64]
     N, L, _ = x.shape
@@ -580,4 +611,6 @@ if __name__ == "__main__":
     diffusion = GaussianDiffusion(model)
     diffusion.to(device=device)
     diffusion.p_losses(x, t)
-    import IPython; IPython.embed()
+    import IPython
+
+    IPython.embed()

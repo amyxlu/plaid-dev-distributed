@@ -49,7 +49,9 @@ class FoldingTrunkConfig:
     chunk_size: T.Optional[int] = None
 
     # structure_module: StructureModuleConfig = StructureModuleConfig()
-    structure_module: StructureModuleConfig = field(default_factory=StructureModuleConfig)
+    structure_module: StructureModuleConfig = field(
+        default_factory=StructureModuleConfig
+    )
 
 
 def get_axial_mask(mask):
@@ -125,7 +127,9 @@ class FoldingTrunk(nn.Module):
         assert c_z % self.cfg.pairwise_head_width == 0
         block = TriangularSelfAttentionBlock
 
-        self.pairwise_positional_embedding = RelativePosition(self.cfg.position_bins, c_z)
+        self.pairwise_positional_embedding = RelativePosition(
+            self.cfg.position_bins, c_z
+        )
 
         self.blocks = nn.ModuleList(
             [
@@ -160,7 +164,15 @@ class FoldingTrunk(nn.Module):
         # where the chunk_size is the size of the chunks, so 128 would mean to parse 128-lengthed chunks.
         self.chunk_size = chunk_size
 
-    def forward(self, seq_feats, pair_feats, true_aa, residx, mask, no_recycles: T.Optional[int] = None):
+    def forward(
+        self,
+        seq_feats,
+        pair_feats,
+        true_aa,
+        residx,
+        mask,
+        no_recycles: T.Optional[int] = None,
+    ):
         """
         Inputs:
           seq_feats:     B x L x C            tensor of sequence features
@@ -186,7 +198,9 @@ class FoldingTrunk(nn.Module):
             z = z + self.pairwise_positional_embedding(residx, mask=mask)
 
             for block in self.blocks:
-                s, z = block(s, z, mask=mask, residue_index=residx, chunk_size=self.chunk_size)
+                s, z = block(
+                    s, z, mask=mask, residue_index=residx, chunk_size=self.chunk_size
+                )
             return s, z
 
         s_s = s_s_0
@@ -203,7 +217,9 @@ class FoldingTrunk(nn.Module):
                 recycle_z = self.recycle_z_norm(recycle_z.detach())
                 recycle_z += self.recycle_disto(recycle_bins.detach())
 
-                s_s, s_z = trunk_iter(s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask)
+                s_s, s_z = trunk_iter(
+                    s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask
+                )
 
                 # === Structure module ===
                 structure = self.structure_module(
@@ -244,6 +260,10 @@ class FoldingTrunk(nn.Module):
         c = C - CA
         a = b.cross(c, dim=-1)
         CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA
-        dists = (CB[..., None, :, :] - CB[..., :, None, :]).pow(2).sum(dim=-1, keepdims=True)
+        dists = (
+            (CB[..., None, :, :] - CB[..., :, None, :])
+            .pow(2)
+            .sum(dim=-1, keepdims=True)
+        )
         bins = torch.sum(dists > boundaries, dim=-1)  # [..., L, L]
         return bins

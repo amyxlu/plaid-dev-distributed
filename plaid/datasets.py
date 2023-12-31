@@ -45,7 +45,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
-        dtype: str = "bf16"
+        dtype: str = "bf16",
     ):
         super().__init__()
         assert split in ("train", "val")
@@ -66,7 +66,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
         ordered_headers = open(datadir / "shard0000.txt").readlines()
         ordered_headers = [h.rstrip("\n") for h in ordered_headers]
         return emb, mask, ordered_headers
-    
+
     def __len__(self):
         return self.embs.size(0)
 
@@ -86,7 +86,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 4,
-        dtype: str = "bf16"
+        dtype: str = "bf16",
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -103,14 +103,14 @@ class CATHShardedDataModule(L.LightningDataModule):
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
-                dtype=self.dtype
+                dtype=self.dtype,
             )
             self.val_dataset = TensorShardDataset(
                 "val",
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
-                dtype=self.dtype
+                dtype=self.dtype,
             )
         elif stage == "predict":
             self.test_dataset = TensorShardDataset(
@@ -118,7 +118,7 @@ class CATHShardedDataModule(L.LightningDataModule):
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
-                dtype=self.dtype
+                dtype=self.dtype,
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")

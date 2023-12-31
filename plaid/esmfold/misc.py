@@ -63,7 +63,6 @@ def batch_encode_sequences(
     residue_index_offset: T.Optional[int] = 512,
     chain_linker: T.Optional[str] = "G" * 25,
 ) -> T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-
     aatype_list = []
     residx_list = []
     linker_mask_list = []

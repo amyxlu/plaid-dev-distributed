@@ -3,7 +3,7 @@ defaults:
   - paths: pcluster 
   - datamodule: cath
   - denoiser: utsa.yaml 
-  - beta_scheduler: sigmoid
+  - beta_scheduler: adm_cosine 
   - latent_scaler: cath
   - diffusion: diffusion
   - trainer: default

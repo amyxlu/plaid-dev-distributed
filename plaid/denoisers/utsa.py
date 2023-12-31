@@ -19,7 +19,7 @@ from plaid.esmfold import (
 )
 from plaid.denoisers import BaseDenoiser
 from plaid.constants import c_s, c_z, structure_module_c_s, structure_module_c_z
-from plaid.denoisers.modules import TriangularSelfAttentionBlock 
+from plaid.denoisers.modules import TriangularSelfAttentionBlock
 from plaid.esmfold import get_esmfold_model_state
 
 
@@ -44,7 +44,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             pos_embedding_strategy=pos_embedding_strategy,
             use_self_conditioning=use_self_conditioning,
             label_num_classes=label_num_classes,
-            cfg_dropout=cfg_dropout
+            cfg_dropout=cfg_dropout,
         )
 
         # fixed dimensions
@@ -52,27 +52,27 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         self.trunk_cfg = trunk_cfg
         self.chunk_size = trunk_cfg.chunk_size
         self.pairwise_positional_embedding = RelativePosition(
-            trunk_cfg.position_bins, c_z 
+            trunk_cfg.position_bins, c_z
         )
 
         self.conditioning_strategy = conditioning_strategy
         self.make_blocks()
-    
+
     @abc.abstractmethod
     def make_blocks(self, *args, **kwargs):
         raise NotImplementedError
-    
+
     @abc.abstractmethod
     def _iteration(self, *args, **kwargs):
-        raise NotImplementedError 
-    
+        raise NotImplementedError
+
     def set_chunk_size(self, chunk_size):
         # This parameter means the axial attention will be computed
         # in a chunked manner. This should make the memory used more or less O(L) instead of O(L^2).
         # It's equivalent to running a for loop over chunks of the dimension we're iterative over,
         # where the chunk_size is the size of the chunks, so 128 would mean to parse 128-lengthed chunks.
         self.chunk_size = chunk_size
-    
+
     def forward(self, x, t, mask=None, z=None, y=None, x_self_cond=None):
         """
         x: (B, L, C) sequence representation
@@ -84,24 +84,26 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         # self conditioning should be either zeros or x_prev, determined in outer loop
         if mask is None:
             mask = x.new_ones(x.shape[:2]).long()
-            
+
         if not x_self_cond is None:
             x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
-        
+
         B, L, _ = x.shape
         if z is None:
             z = x.new_zeros(B, L, L, c_z)
-        
+
         t = self.timestep_embedder(t)
 
-        #TODO: this might have multiple labels?
+        # TODO: this might have multiple labels?
         if not y is None:
             y = self.label_embedder(y)
             c = t + y
         else:
             c = t
 
-        residx = einops.repeat(torch.arange(L, device=x.device, dtype=int), "L -> B L", B=B)
+        residx = einops.repeat(
+            torch.arange(L, device=x.device, dtype=int), "L -> B L", B=B
+        )
         z = z + self.pairwise_positional_embedding(residx, mask=mask)
 
         # TODO: multiple iterations?
@@ -132,10 +134,10 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             pos_embedding_strategy=pos_embedding_strategy,
             use_self_conditioning=use_self_conditioning,
             label_num_classes=label_num_classes,
-            cfg_dropout=cfg_dropout
+            cfg_dropout=cfg_dropout,
         )
         assert hid_dim == c_s
-    
+
     def _filter_state_dict(self, state_dict):
         orig_keys = list(state_dict.keys())
         for k in orig_keys:
@@ -153,13 +155,15 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         missing_keys = unmatched_keys.missing_keys
         # unexpected_keys = unmatched_keys.unexpected_keys
         missing_keys = list(filter(lambda x: not "conditioning_mlp" in x, missing_keys))
-        print(f"Loaded pretrained weights for {len(model_state) - len(unmatched_keys)} keys.")
+        print(
+            f"Loaded pretrained weights for {len(model_state) - len(unmatched_keys)} keys."
+        )
         print(f"Missing keys: block conditioning_mlp weights, {','.join(missing_keys)}")
-    
+
     def make_blocks(self):
         # NOTE: this imports our modified denoiser block, but is named the same as the original
         # in order to load in weights more easily and also have the same size.
-        block = TriangularSelfAttentionBlock 
+        block = TriangularSelfAttentionBlock
         self.blocks = nn.ModuleList(
             [
                 block(
@@ -169,18 +173,25 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
                     pairwise_head_width=self.trunk_cfg.pairwise_head_width,
                     conditioning_strategy=self.conditioning_strategy,
                     dropout=self.trunk_cfg.dropout,
-                    skip=False
+                    skip=False,
                 )
                 for i in range(self.trunk_cfg.num_blocks)
             ]
         )
         self.load_pretrained_weights()
-    
+
     def _iteration(self, x, z, c, mask, *args, **kwargs):
         for block in self.blocks:
             # this looks similar to https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/trunk.py#L183
             # except that our modified block also takes in the conditioning, c.
-            x, z = block(x, z, c, mask=mask, chunk_size=self.chunk_size, conditioning_strategy=self.conditioning_strategy)
+            x, z = block(
+                x,
+                z,
+                c,
+                mask=mask,
+                chunk_size=self.chunk_size,
+                conditioning_strategy=self.conditioning_strategy,
+            )
         return x, z
 
 
@@ -188,7 +199,7 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
     def __init__(
         self,
         hid_dim: int,
-        num_blocks: int, 
+        num_blocks: int,
         conditioning_strategy: T.Optional[str] = "hidden_concat",
         timestep_embedding_strategy: str = "fourier",
         pos_embedding_strategy: str = "rotary",
@@ -207,11 +218,11 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             pos_embedding_strategy=pos_embedding_strategy,
             use_self_conditioning=use_self_conditioning,
             label_num_classes=label_num_classes,
-            cfg_dropout=cfg_dropout
+            cfg_dropout=cfg_dropout,
         )
-    
+
     def make_blocks(self):
-        block = TriangularSelfAttentionBlock 
+        block = TriangularSelfAttentionBlock
 
         # TODO: make the sequence and pairwise state dims configurable
         # in case of using VQVAE
@@ -282,11 +293,12 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
                 skip_seq_state=x_skip,
                 skip_pairwise_state=z_skip,
             )
-        return x, z 
+        return x, z
 
 
 if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
+
     device = torch.device("cuda:1")
 
     model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
@@ -315,6 +327,8 @@ if __name__ == "__main__":
     mask = mask[:4, :64]
     N, L, _ = x.shape
     t = torch.randint(0, 100, (N,)).to(device)
-    import IPython; IPython.embed()
+    import IPython
+
+    IPython.embed()
     epsilon_pred = model(x, t, mask)
     print(epsilon_pred)

@@ -28,12 +28,13 @@ from .misc import (
 )
 from .trunk import FoldingTrunk, FoldingTrunkConfig
 
+
 @dataclass
 class ESMFoldConfig:
     trunk: FoldingTrunkConfig = field(default_factory=FoldingTrunkConfig)
     lddt_head_hid_dim: int = 128
     esm_type: str = "esm2_3B"  # added
-    use_esm_attn_map: bool = False # added
+    use_esm_attn_map: bool = False  # added
 
 
 load_fn = esm.pretrained.load_model_and_alphabet
@@ -177,7 +178,7 @@ class ESMFold(nn.Module):
         masking_pattern: T.Optional[torch.Tensor] = None,
     ):
         """First half of original `forward` function to get s_s_0 and s_z_0.
-        
+
         Runs a forward pass given input tokens. Use `model.infer` to
         run inference from a sequence.
 
@@ -231,8 +232,10 @@ class ESMFold(nn.Module):
         s_s_0 += self.embedding(aa)
 
         return s_s_0, s_z_0, aa, residx, mask
-    
-    def folding_trunk(self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None):
+
+    def folding_trunk(
+        self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None
+    ):
         assert not self.trunk is None
         B, L = aa.shape
         structure: dict = self.trunk(
@@ -302,10 +305,12 @@ class ESMFold(nn.Module):
         )
 
         return structure
-    
+
     def forward(self, aa, mask, residx, masking_pattern=None, num_recycles=None):
         assert not self.trunk is None
-        s_s_0, s_z_0, aa, residx, mask = self.embed_for_folding_trunk(aa, mask, residx, masking_pattern)
+        s_s_0, s_z_0, aa, residx, mask = self.embed_for_folding_trunk(
+            aa, mask, residx, masking_pattern
+        )
         structure = self.folding_trunk(s_s_0, s_z_0, aa, residx, mask, num_recycles)
         return structure
 
@@ -370,7 +375,7 @@ class ESMFold(nn.Module):
         output["chain_index"] = chain_index
 
         return output
-    
+
     @torch.no_grad()
     def infer_embedding(
         self,
@@ -413,7 +418,9 @@ class ESMFold(nn.Module):
         )
 
         with torch.no_grad():
-            s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(aatype, mask, residx, masking_pattern)
+            s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(
+                aatype, mask, residx, masking_pattern
+            )
 
         return {
             "s": s_s_0,

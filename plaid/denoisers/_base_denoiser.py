@@ -25,11 +25,13 @@ class BaseDenoiser(nn.Module):
         self.timestep_embedder = self.make_timestep_embedding(
             timestep_embedding_strategy, hid_dim
         )
-        self.pos_embedder = self.make_positional_embedding(pos_embedding_strategy, hid_dim)
+        self.pos_embedder = self.make_positional_embedding(
+            pos_embedding_strategy, hid_dim
+        )
 
         self.self_conditioning_mlp = None
         self.label_embedder = None
-        self.use_self_conditioning = use_self_conditioning 
+        self.use_self_conditioning = use_self_conditioning
         if use_self_conditioning:
             self.self_conditioning_mlp = self.make_projection_mlp(hid_dim * 2, hid_dim)
         if label_num_classes:
@@ -38,7 +40,7 @@ class BaseDenoiser(nn.Module):
                 hidden_size=hid_dim,
                 dropout_prob=cfg_dropout,
             )
-    
+
     @abc.abstractmethod
     def make_denoising_blocks(self, *args, **kwargs):
         raise NotImplementedError
