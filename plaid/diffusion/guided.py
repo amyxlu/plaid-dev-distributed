@@ -7,6 +7,7 @@ from random import random
 from functools import partial
 from collections import namedtuple
 
+import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -21,7 +22,7 @@ import lightning as L
 
 from plaid.denoisers import BaseDenoiser
 from plaid.utils import LatentScaler, get_lr_scheduler, sequences_to_secondary_structure_fracs
-from plaid.diffusion.beta_schedulers import BetaScheduler, SigmoidBetaScheduler
+from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
 
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
@@ -41,19 +42,31 @@ def identity(t, *args, **kwargs):
     return t
 
 
-def extract(a, t, x_shape):
-    b, *_ = t.shape
-    out = a.gather(-1, t)
-    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+def extract_into_tensor(arr, timesteps, broadcast_shape):
+    """
+    Extract values from a 1-D numpy array for a batch of indices.
+
+    :param arr: the 1-D numpy array.
+    :param timesteps: a tensor of indices into the array to extract.
+    :param broadcast_shape: a larger shape of K dimensions with the batch
+                            dimension equal to the length of timesteps.
+    :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
+    """
+    res = torch.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
+    while len(res.shape) < len(broadcast_shape):
+        res = res[..., None]
+    return res.expand(broadcast_shape)
 
 
-class GaussianDiffusion(nn.Module):
+
+class GaussianDiffusion(L.LightningModule):
     def __init__(
         self,
         model: BaseDenoiser,
         latent_scaler: LatentScaler = LatentScaler(),
-        beta_scheduler: BetaScheduler = SigmoidBetaScheduler(),
+        beta_scheduler: BetaScheduler = ADMCosineBetaScheduler(),
         *,
+        x_downscale_factor: float = 1.0,
         timesteps=1000,
         objective="pred_noise",
         min_snr_loss_weight=False,
@@ -63,11 +76,21 @@ class GaussianDiffusion(nn.Module):
         sampling_timesteps=None,
         sampling_seq_len=64,
         use_ddim=True,
+        # optimization
+        lr = 1e-4,
+        adam_betas = (0.9, 0.999),
+        lr_sched_type: str = "constant",
+        lr_num_warmup_steps: int = 0,
+        lr_num_training_steps: int = 10_000_000,
+        lr_num_cycles: int = 1,
+        add_secondary_structure_conditioning: bool = False
     ):
         super().__init__()
         self.model = model
+        self.beta_scheduler = beta_scheduler
         self.latent_scaler = latent_scaler
         self.self_condition = self.model.use_self_conditioning
+        self.x_downscale_factor = x_downscale_factor
         self.objective = objective
         assert objective in {
             "pred_noise",
@@ -75,13 +98,45 @@ class GaussianDiffusion(nn.Module):
             "pred_v",
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
 
-        betas = beta_scheduler(timesteps)
-        alphas = 1.0 - betas
-        alphas_cumprod = torch.cumprod(alphas, dim=0)
-        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+        # Use float64 for accuracy.
+        betas = self.beta_scheduler(timesteps)
+        betas = np.array(betas, dtype=np.float64)
+        self.betas = betas
+        assert len(betas.shape) == 1, "betas must be 1-D"
+        assert (betas > 0).all() and (betas <= 1).all()
 
-        (timesteps,) = betas.shape
-        self.num_timesteps = int(timesteps)
+        self.num_timesteps = int(betas.shape[0])
+
+        alphas = 1.0 - betas
+        self.alphas_cumprod = np.cumprod(alphas, axis=0)
+        self.alphas_cumprod_prev = np.append(1.0, self.alphas_cumprod[:-1])
+        self.alphas_cumprod_next = np.append(self.alphas_cumprod[1:], 0.0)
+        assert self.alphas_cumprod_prev.shape == (self.num_timesteps,)
+
+        # calculations for diffusion q(x_t | x_{t-1}) and others
+        self.sqrt_alphas_cumprod = np.sqrt(self.alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = np.sqrt(1.0 - self.alphas_cumprod)
+        self.log_one_minus_alphas_cumprod = np.log(1.0 - self.alphas_cumprod)
+        self.sqrt_recip_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod)
+        self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
+
+        # calculations for posterior q(x_{t-1} | x_t, x_0)
+        self.posterior_variance = (
+            betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
+        )
+        # log calculation clipped because the posterior variance is 0 at the
+        # beginning of the diffusion chain.
+        self.posterior_log_variance_clipped = np.log(
+            np.append(self.posterior_variance[1], self.posterior_variance[1:])
+        )
+        self.posterior_mean_coef1 = (
+            betas * np.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
+        )
+        self.posterior_mean_coef2 = (
+            (1.0 - self.alphas_cumprod_prev)
+            * np.sqrt(alphas)
+            / (1.0 - self.alphas_cumprod)
+        )
 
         self.sampling_timesteps = default(
             sampling_timesteps, timesteps
@@ -90,84 +145,72 @@ class GaussianDiffusion(nn.Module):
         self.sampling_seq_len = sampling_seq_len
         self.is_ddim_sampling = use_ddim 
         self.ddim_sampling_eta = ddim_sampling_eta
-
-        # helper function to register buffer to bfloat16
-        register_buffer = lambda name, val: self.register_buffer(
-            name, val.to(torch.bfloat16)
-        )
-        register_buffer("betas", betas)
-        register_buffer("alphas_cumprod", alphas_cumprod)
-        register_buffer("alphas_cumprod_prev", alphas_cumprod_prev)
-        register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
-        register_buffer(
-            "sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod)
-        )
-        register_buffer("log_one_minus_alphas_cumprod", torch.log(1.0 - alphas_cumprod))
-        register_buffer("sqrt_recip_alphas_cumprod", torch.sqrt(1.0 / alphas_cumprod))
-        register_buffer(
-            "sqrt_recipm1_alphas_cumprod", torch.sqrt(1.0 / alphas_cumprod - 1)
-        )
-        posterior_variance = (
-            betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
-        )
-        register_buffer("posterior_variance", posterior_variance)
-        register_buffer(
-            "posterior_log_variance_clipped",
-            torch.log(posterior_variance.clamp(min=1e-20)),
-        )
-        register_buffer(
-            "posterior_mean_coef1",
-            betas * torch.sqrt(alphas_cumprod_prev) / (1.0 - alphas_cumprod),
-        )
-        register_buffer(
-            "posterior_mean_coef2",
-            (1.0 - alphas_cumprod_prev) * torch.sqrt(alphas) / (1.0 - alphas_cumprod),
-        )
-
+        
         # loss weight
-        snr = alphas_cumprod / (1 - alphas_cumprod)
-        maybe_clipped_snr = snr.clone()
+        self.snr = self.alphas_cumprod / (1 - self.alphas_cumprod)
+        maybe_clipped_snr = self.snr.copy()
         if min_snr_loss_weight:
             maybe_clipped_snr.clamp_(max=min_snr_gamma)
 
         if objective == "pred_noise":
-            loss_weight = maybe_clipped_snr / snr
+            self.loss_weight = maybe_clipped_snr / self.snr
         elif objective == "pred_x0":
-            loss_weight = maybe_clipped_snr
+            self.loss_weight = maybe_clipped_snr
         elif objective == "pred_v":
-            loss_weight = maybe_clipped_snr / (snr + 1)
-        register_buffer("loss_weight", loss_weight)
+            self.loss_weight = maybe_clipped_snr / (self.snr + 1)
+
+        self.lr = lr
+        self.adam_betas = adam_betas
+        self.lr_sched_type = lr_sched_type
+        self.lr_num_warmup_steps = lr_num_warmup_steps
+        self.lr_num_training_steps = lr_num_training_steps
+        self.lr_num_cycles = lr_num_cycles
+        self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
+        self.save_hyperparameters(ignore=['model'])
+    
+    def get_secondary_structure_fractions(self, sequences: T.List[str], origin_dataset: str = "uniref"):
+        # currently only does secondary structure
+        sec_struct_fracs = sequences_to_secondary_structure_fracs(
+            sequences, quantized=True, origin_dataset=origin_dataset
+        )
+        sec_struct_fracs = torch.tensor(sec_struct_fracs).to(self.device)
+        cond_dict = {"secondary_structure": sec_struct_fracs}
+        return cond_dict
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
-            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
-            - extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+            extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
+            - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
         )
 
     def predict_noise_from_start(self, x_t, t, x0):
         return (
-            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0
-        ) / extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
+            extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0
+        ) / extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
 
     def predict_v(self, x_start, t, noise):
         return (
-            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * noise
-            - extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * x_start
+            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * noise
+            - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * x_start
         )
 
     def predict_start_from_v(self, x_t, t, v):
         return (
-            extract(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t
-            - extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
+            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t
+            - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
         )
 
     def q_posterior(self, x_start, x_t, t):
+        """
+        Compute the mean and variance of the diffusion posterior:
+            q(x_{t-1} | x_t, x_0)
+        """
         posterior_mean = (
-            extract(self.posterior_mean_coef1, t, x_t.shape) * x_start
-            + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+            extract_into_tensor(self.posterior_mean_coef1, t, x_t.shape) * x_start
+            + extract_into_tensor(self.posterior_mean_coef2, t, x_t.shape) * x_t
         )
-        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
-        posterior_log_variance_clipped = extract(
+        posterior_variance = extract_into_tensor(self.posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = extract_into_tensor(
             self.posterior_log_variance_clipped, t, x_t.shape
         )
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
@@ -177,7 +220,6 @@ class GaussianDiffusion(nn.Module):
         maybe_clip = (
             partial(torch.clamp, min=-1.0, max=1.0) if clip_x_start else identity
         )
-        # TODO: add dynamic thresholding from Imagen
 
         if self.objective == "pred_noise":
             pred_noise = model_output
@@ -382,13 +424,15 @@ class GaussianDiffusion(nn.Module):
         noise = default(noise, lambda: torch.randn_like(x_start))
 
         return (
-            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-            + extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
+            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
+            + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
     def p_losses(self, x_start, t, model_kwargs={}, noise=None):
         B, L, C = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
+
+        x_start *= self.x_downscale_factor
 
         # noise sample
         x = self.q_sample(x_start=x_start, t=t, noise=noise)
@@ -421,8 +465,7 @@ class GaussianDiffusion(nn.Module):
 
         loss = F.mse_loss(model_out, target, reduction="none")
         loss = reduce(loss, "b ... -> b", "mean")
-
-        loss = loss * extract(self.loss_weight, t, loss.shape)
+        loss = loss * extract_into_tensor(self.loss_weight, t, loss.shape)
         return loss.mean(), log_dict
     
     def forward(self, x_unnormalized, mask, model_kwargs={}, noise=None):
@@ -431,51 +474,6 @@ class GaussianDiffusion(nn.Module):
         model_kwargs['mask'] = mask
         loss, log_dict = self.p_losses(x, t, model_kwargs, noise)
         return loss, log_dict
-
-
-class GaussianDiffusionLightningModule(L.LightningModule):
-    def __init__(
-        self,
-        model: BaseDenoiser,
-        latent_scaler: LatentScaler = LatentScaler(),
-        beta_scheduler: BetaScheduler = SigmoidBetaScheduler(),
-        timesteps=1000,
-        objective="pred_noise",
-        min_snr_loss_weight=False,
-        min_snr_gamma=5,
-        ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
-        sampling_timesteps=None,
-        sampling_seq_len=64,
-        # optimization
-        lr = 1e-4,
-        adam_betas = (0.9, 0.999),
-        lr_sched_type: str = "constant",
-        lr_num_warmup_steps: int = 0,
-        lr_num_training_steps: int = 10_000_000,
-        lr_num_cycles: int = 1,
-        add_secondary_structure_conditioning: bool = False
-    ):
-        super().__init__()
-        self.diffusion = GaussianDiffusion(
-            model=model,
-            latent_scaler=latent_scaler,
-            beta_scheduler=beta_scheduler,
-            timesteps=timesteps,
-            objective=objective,
-            min_snr_loss_weight=min_snr_loss_weight,
-            min_snr_gamma=min_snr_gamma,
-            ddim_sampling_eta=ddim_sampling_eta,
-            sampling_timesteps=sampling_timesteps,
-            sampling_seq_len=sampling_seq_len
-        )
-        self.lr = lr
-        self.adam_betas = adam_betas
-        self.lr_sched_type = lr_sched_type
-        self.lr_num_warmup_steps = lr_num_warmup_steps
-        self.lr_num_training_steps = lr_num_training_steps
-        self.lr_num_cycles = lr_num_cycles
-        self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
-        self.save_hyperparameters(ignore=['model'])
 
     def get_secondary_structure_fractions(self, sequences: T.List[str], origin_dataset: str = "uniref"):
         # currently only does secondary structure
@@ -491,7 +489,7 @@ class GaussianDiffusionLightningModule(L.LightningModule):
         model_kwargs = {}
         if self.add_secondary_structure_conditioning:
             model_kwargs['cond_dict'] = self.get_secondary_structure_fractions(sequence)
-        return self.diffusion(x, mask, model_kwargs)
+        return self(x, mask, model_kwargs)
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch)
@@ -520,22 +518,49 @@ class GaussianDiffusionLightningModule(L.LightningModule):
 
 
 if __name__ == "__main__":
-    from plaid.denoisers import UTriSelfAttnDenoiser
+    # from plaid.denoisers import UTriSelfAttnDenoiser
+    # from plaid.datasets import CATHShardedDataModule
+
+    # torch.set_default_dtype(torch.bfloat16)
+    # device = torch.device("cuda")
+
+    # model = UTriSelfAttnDenoiser(
+    #     num_blocks=7,
+    #     hid_dim=1024,
+    #     conditioning_strategy="hidden_concat",
+    #     use_self_conditioning=True
+    # )
+    # # model.to(device)
+
+    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    # dm = CATHShardedDataModule(
+    #     shard_dir=datadir,
+    #     header_to_sequence_file=pklfile,
+    # )
+    # dm.setup("fit")
+    # train_dataloader = dm.train_dataloader()
+    # batch = next(iter(train_dataloader))
+    # # x, mask, sequence = next(iter(train_dataloader))
+    # # x = x.cuda()
+    # # mask = mask.cuda()
+
+    # diffusion = GaussianDiffusion(model)
+    # import IPython;IPython.embed()
+    # # module = GaussianDiffusionLightningModule(model)
+    # # loss = module.training_step(batch)
+    # # loss = module.training_step((x, mask, sequence))
+    # # x, seqlens = batch
     from plaid.datasets import CATHShardedDataModule
+    from plaid.denoisers import PreinitializedTriSelfAttnDenoiser
 
-    torch.set_default_dtype(torch.bfloat16)
-    device = torch.device("cuda")
-
-    model = UTriSelfAttnDenoiser(
-        num_blocks=7,
-        hid_dim=1024,
-        conditioning_strategy="hidden_concat",
-        use_self_conditioning=True
-    )
-    # model.to(device)
-
-    datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    device = torch.device("cuda:1")
+    model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
+    model.to(device)
+    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    datadir = "/shared/amyxlu/data/cath/shards/"
+    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
     dm = CATHShardedDataModule(
         shard_dir=datadir,
         header_to_sequence_file=pklfile,
@@ -543,13 +568,16 @@ if __name__ == "__main__":
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
-    # x, mask, sequence = next(iter(train_dataloader))
-    # x = x.cuda()
-    # mask = mask.cuda()
+    x, mask, sequence = batch
+    x, mask = x.to(device=device, dtype=torch.float32), mask.to(device, dtype=torch.float32)
+    x = x[:4, :64, :]
+    mask = mask[:4, :64]
+    N, L, _ = x.shape
+
+    t = torch.randint(0, 100, (N,)).to(device).long()
+    model_kwargs = {}
 
     diffusion = GaussianDiffusion(model)
-    import IPython;IPython.embed()
-    # module = GaussianDiffusionLightningModule(model)
-    # loss = module.training_step(batch)
-    # loss = module.training_step((x, mask, sequence))
-    # x, seqlens = batch
+    diffusion.to(device=device)
+    diffusion.p_losses(x, t)
+    import IPython; IPython.embed()

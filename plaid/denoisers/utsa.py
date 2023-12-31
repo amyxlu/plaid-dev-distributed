@@ -287,8 +287,6 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
 
 if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
-
-    torch.set_default_dtype(torch.bfloat16)
     device = torch.device("cuda:1")
 
     model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
