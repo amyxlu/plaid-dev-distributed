@@ -41,23 +41,26 @@ from plaid.transforms import mask_from_seq_lens
 class TensorShardDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        split: str,
+        split: T.Optional[str] = None,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
         dtype: str = "bf16",
     ):
         super().__init__()
-        assert split in ("train", "val")
         self.dtype = dtype
         self.seq_len = seq_len
         self.shard_dir = Path(shard_dir)
         self.header_to_seq = pickle.load(open(header_to_sequence_file, "rb"))
         self.embs, self.masks, self.ordered_headers = self.load_partition(split)
 
-    def load_partition(self, split: str):
-        assert split in ("train", "val")
-        datadir = self.shard_dir / split / f"seqlen_{self.seq_len}" / self.dtype
+    def load_partition(self, split: T.Optional[str] = None):
+        if not split is None:
+            assert split in ("train", "val")
+            datadir = self.shard_dir / split
+        else:
+            datadir = self.shard_dir
+        datadir = datadir / f"seqlen_{self.seq_len}" / self.dtype
         data = load_file(datadir / "shard0000.pt")
         assert data.keys() == set(("embeddings", "seq_len"))
         emb, seqlen = data["embeddings"], data["seq_len"]
