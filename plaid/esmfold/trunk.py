@@ -222,11 +222,15 @@ class FoldingTrunk(nn.Module):
                 )
 
                 # === Structure module ===
+                sm_s = self.trunk2sm_s(s_s)
+                sm_z = self.trunk2sm_z(s_z)
                 structure = self.structure_module(
-                    {"single": self.trunk2sm_s(s_s), "pair": self.trunk2sm_z(s_z)},
+                    {"single": sm_s, "pair": sm_z},
                     true_aa,
                     mask.float(),
                 )
+                structure['sm_s'] = sm_s
+                structure['sm_z'] = sm_z
 
                 recycle_s = s_s
                 recycle_z = s_z
@@ -243,7 +247,7 @@ class FoldingTrunk(nn.Module):
         structure["s_z"] = s_z
 
         return structure
-
+    
     @staticmethod
     def distogram(coords, min_bin, max_bin, num_bins):
         # Coords are [... L x 3 x 3], where it's [N, CA, C] x 3 coordinates.

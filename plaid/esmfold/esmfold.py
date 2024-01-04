@@ -241,22 +241,6 @@ class ESMFold(nn.Module):
         structure: dict = self.trunk(
             s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles
         )
-        # Documenting what we expect:
-        structure = {
-            k: v
-            for k, v in structure.items()
-            if k
-            in [
-                "s_z",
-                "s_s",
-                "frames",
-                "sidechain_frames",
-                "unnormalized_angles",
-                "angles",
-                "positions",
-                "states",
-            ]
-        }
 
         disto_logits = self.distogram_head(structure["s_z"])
         disto_logits = (disto_logits + disto_logits.transpose(1, 2)) / 2
@@ -304,6 +288,15 @@ class ESMFold(nn.Module):
             )
         )
 
+        return structure
+
+    def structure_module_pass(self, sm_s, sm_z, true_aa, mask):
+        """Exposes the structure module weights"""
+        structure = self.trunk.structure_module(
+            {"single": sm_s, "pair": sm_z},
+            true_aa,
+            mask.float(),
+        )
         return structure
 
     def forward(self, aa, mask, residx, masking_pattern=None, num_recycles=None):
