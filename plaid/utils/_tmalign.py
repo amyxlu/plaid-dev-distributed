@@ -27,7 +27,7 @@ def write_tmp_file(data, fname) -> str:
 
 
 def run_tmalign(
-    query: str, reference: str, fast: bool = False, delete_tmp=True
+    query: str, reference: str, fast: bool = False, delete_tmp=True, verbose=False
 ) -> float:
     """
     Run TMalign on the two given input pdb files
@@ -35,11 +35,13 @@ def run_tmalign(
     uses_tmp_files = False
     if not os.path.isfile(query):
         query = write_tmp_file(query, "query.pdb")
-        print("saved query to", query)
+        if verbose:
+            print("saved query to", query)
         uses_tmp_files = True
     if not os.path.isfile(reference):
         reference = write_tmp_file(reference, "reference.pdb")
-        print("saved reference to", reference)
+        if verbose:
+            print("saved reference to", reference)
         uses_tmp_files = True
 
     # Check if TMalign is installed
