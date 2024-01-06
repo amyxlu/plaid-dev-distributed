@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
-from openfold.model.structure_module import StructureModule
-
+# from openfold.model.structure_module import StructureModule
+from .structure_module import StructureModule
 from .tri_self_attn_block import TriangularSelfAttentionBlock
+
 
 
 @dataclass
