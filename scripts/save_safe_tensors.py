@@ -6,7 +6,7 @@ import json
 from evo.dataset import FastaDataset
 import torch
 from pathlib import Path
-import h5py
+# import h5py
 
 import dataclasses
 
@@ -18,9 +18,9 @@ import time
 
 @dataclasses.dataclass
 class ShardConfig:
-    fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-    train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
-    val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
+    fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+    train_output_dir: str = "/homefs/home/lux70/cath_data/train"
+    val_output_dir: str = "/homefs/home/lux70/cath_data/val"
     batch_size: int = 256 
     max_seq_len: int = 64
     min_seq_len: int = 16
@@ -127,8 +127,10 @@ def save_h5_embeddings(embs, seq_lens, shard_number, outdir):
 def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
     if cfg.shard:
         num_shards = len(dataloader) // cfg.num_batches_per_shard + 1
+        num_batches_per_shard = cfg.num_batches_per_shard
     else:
-        num_shards = 1
+        num_shards = 1 
+        num_batches_per_shard = len(dataloader)
 
     outdir = Path(output_dir) / f"seqlen_{cfg.max_seq_len}"
     argsdict = dataclasses.asdict(cfg)
@@ -139,7 +141,7 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         json.dump(argsdict, f, indent=2)
 
     for shard_number in tqdm(range(num_shards), desc="Shards"):
-        emb_shard, seq_lens, cur_headers = make_shard(esmfold, dataloader, cfg.num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        emb_shard, seq_lens, cur_headers = make_shard(esmfold, dataloader, num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
         write_headers(cur_headers, outdir, shard_number)
         if cfg.compression == "safetensors":
             save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir, cfg.dtype)
