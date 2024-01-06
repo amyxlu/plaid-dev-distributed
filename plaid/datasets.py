@@ -88,7 +88,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
         batch_size: int = 32,
-        num_workers: int = 4,
+        num_workers: int = 0,
         dtype: str = "bf16",
     ):
         super().__init__()
@@ -131,6 +131,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            pin_memory=True,
         )
 
     def val_dataloader(self):
@@ -138,6 +139,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            pin_memory=True,
         )
 
     def test_dataloader(self):
@@ -145,6 +147,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             self.test_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            pin_memory=True,
         )
 
     def predict_dataloader(self):

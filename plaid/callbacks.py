@@ -31,6 +31,7 @@ class SampleCallback(Callback):
         model: BaseDenoiser,
         n_to_sample: int = 16,
         n_to_construct: int = 4,
+        gen_seq_len: int = 64,
         batch_size: int = -1,
         log_to_wandb: bool = False,
         calc_structure: bool = True,
@@ -61,6 +62,7 @@ class SampleCallback(Callback):
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
         self.batch_size = batch_size
         self.n_to_construct = n_to_construct
+        self.gen_seq_len = gen_seq_len
 
     def _save_setup(self):
         if not self.outdir.exists():
@@ -86,10 +88,10 @@ class SampleCallback(Callback):
             torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
 
-    def sample_latent(self):
+    def sample_latent(self, shape):
         all_samples, n_samples = [], 0
         while n_samples < self.n_to_sample:
-            sample = self.diffusion.sample(self.batch_size, clip_denoised=True)
+            sample = self.diffusion.sample(shape, clip_denoised=True)
             all_samples.append(sample.detach().cpu())
             n_samples += sample.shape[0]
         x_0 = torch.cat(all_samples, dim=0)
@@ -169,14 +171,14 @@ class SampleCallback(Callback):
     def on_val_epoch_start(self, *_):
         print("val epoch start")
 
-    def _run(self, pl_module, log_to_wandb=True):
+    def _run(self, pl_module, shape, log_to_wandb=True):
         log_to_wandb = self.log_to_wandb and log_to_wandb
 
         device = pl_module.device
         logger = pl_module.logger.experiment
 
         maybe_print("sampling latent...")
-        x, log_dict = self.sample_latent()
+        x, log_dict = self.sample_latent(shape)
         if log_to_wandb:
             logger.log(log_dict)
 
@@ -214,15 +216,17 @@ class SampleCallback(Callback):
         #             logger.log({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
 
     def on_sanity_check_start(self, trainer, pl_module):
-        _sampling_timesteps = pl_module.diffusion.sampling_timesteps
+        _sampling_timesteps = pl_module.sampling_timesteps
         # hack
-        pl_module.diffusion.sampling_timesteps = 3
+        pl_module.sampling_timesteps = 3
         if rank_zero_only.rank == 0:
-            self._run(pl_module, log_to_wandb=False)
-        pl_module.diffusion.sampling_timesteps = _sampling_timesteps
+            dummy_shape = (2, 32, self.diffusion.model.hid_dim)
+            self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
+        pl_module.sampling_timesteps = _sampling_timesteps
 
     def on_train_epoch_end(self, trainer, pl_module):
-        self._run(pl_module, log_to_wandb=True)
+        shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim) 
+        self._run(pl_module, shape, log_to_wandb=True)
 
 
 if __name__ == "__main__":

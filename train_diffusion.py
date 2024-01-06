@@ -13,6 +13,7 @@ import torch
 def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
+    
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -46,9 +47,10 @@ def train(cfg: DictConfig):
     # callbacks/home/amyxlu/plaid/plaid/denoisers
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
+    # todo: add a wasserstein distance callback
     sample_callback = hydra.utils.instantiate(
         cfg.callbacks.sample,
-        diffusion=diffusion.diffusion,
+        diffusion=diffusion,
         model=denoiser,
         log_to_wandb=not cfg.dryrun,
     )

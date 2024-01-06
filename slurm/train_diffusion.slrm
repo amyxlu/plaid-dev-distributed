@@ -2,7 +2,7 @@
 
 #SBATCH --job-name train 
 #SBATCH --nodes 1 
-#SBATCH --gpus-per-node 1 
+#SBATCH --gpus-per-node 4
 #SBATCH --partition gpu2
 #SBATCH --cpus-per-gpu 8
 #SBATCH --mem-per-gpu 144G
@@ -16,6 +16,7 @@ echo "SLURMD_NODENAME = ${SLURMD_NODENAME}"
 echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
 export HYDRA_FULL_ERROR=1
+export TOKENIZERS_PARALLELISM=false
 cd /homefs/home/lux70/code/plaid/
 # python train_diffusion.py ++denoiser.use_self_conditioning=True
 python train_diffusion.py $@

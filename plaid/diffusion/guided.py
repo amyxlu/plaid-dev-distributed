@@ -71,14 +71,14 @@ class GaussianDiffusion(L.LightningModule):
         *,
         x_downscale_factor: float = 1.0,
         timesteps=1000,
-        objective="pred_noise",
+        objective="pred_v",
         min_snr_loss_weight=False,
         min_snr_gamma=5,
         # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
-        sampling_timesteps=None,
+        sampling_timesteps=500, # None,
         sampling_seq_len=64,
-        use_ddim=True,
+        use_ddim=False,
         # optimization
         lr=1e-4,
         adam_betas=(0.9, 0.999),
@@ -305,7 +305,7 @@ class GaussianDiffusion(L.LightningModule):
         guidance_kwargs=None,
         clip_denoised=True,
     ):
-        batch, device = shape[0], self.betas.device
+        batch, device = shape[0], self.device
 
         img = torch.randn(shape, device=device)
         imgs = [img]
@@ -313,9 +313,9 @@ class GaussianDiffusion(L.LightningModule):
         x_start = None
 
         for t in tqdm(
-            reversed(range(0, self.num_timesteps)),
+            reversed(range(0, self.sampling_timesteps)),
             desc="sampling loop time step",
-            total=self.num_timesteps,
+            total=self.sampling_timesteps,
         ):
             self_cond = x_start if self.self_condition else None
             model_kwargs["x_self_cond"] = self_cond
@@ -340,8 +340,8 @@ class GaussianDiffusion(L.LightningModule):
     ):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = (
             shape[0],
-            self.betas.device,
-            self.num_timesteps,
+            self.device,
+            self.sampling_timesteps,
             self.sampling_timesteps,
             self.ddim_sampling_eta,
             self.objective,

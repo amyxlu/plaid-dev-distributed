@@ -1,6 +1,0 @@
-# @package _global_
-
-dataset: cath
-
-datamodule: ${dataset}
-latent_scaler: ${dataset}

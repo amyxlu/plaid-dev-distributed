@@ -6,7 +6,7 @@ gradient_clip_val: 2.0
 gradient_clip_algorithm: norm
 precision: bf16-mixed
 num_sanity_val_steps: 2
-max_epochs: 1000
+max_epochs: 5000
 fast_dev_run: False
 # limit_val_batches: 10
 # overfit_batches: 2 
