@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,7 +7,7 @@ from plaid.vqvae.residual import ResidualStack
 
 class Decoder(nn.Module):
     """
-    This is the p_phi (x|z) network. Given a latent sample z p_phi 
+    This is the p_phi (x|z) network. Given a latent sample z p_phi
     maps back to the original space z -> x.
 
     Inputs:
@@ -19,20 +18,23 @@ class Decoder(nn.Module):
 
     """
 
-    def __init__(self, in_dim, h_dim, n_res_layers, res_h_dim):
+    def __init__(
+        self, e_dim, h_dim, out_dim, n_res_layers, res_h_dim, kernel=4, stride=2
+    ):
         super(Decoder, self).__init__()
-        kernel = 4
-        stride = 2
 
         self.inverse_conv_stack = nn.Sequential(
             nn.ConvTranspose1d(
-                in_dim, h_dim, kernel_size=kernel-1, stride=stride-1, padding=1),
+                e_dim, h_dim, kernel_size=kernel - 1, stride=stride - 1, padding=1
+            ),
             ResidualStack(h_dim, h_dim, res_h_dim, n_res_layers),
-            nn.ConvTranspose1d(h_dim, h_dim // 2,
-                               kernel_size=kernel, stride=stride, padding=1),
+            nn.ConvTranspose1d(
+                h_dim, h_dim // 2, kernel_size=kernel, stride=stride, padding=1
+            ),
             nn.SiLU(),
-            nn.ConvTranspose1d(h_dim//2, 3, kernel_size=kernel,
-                               stride=stride, padding=1)
+            nn.ConvTranspose1d(
+                h_dim // 2, out_dim, kernel_size=kernel, stride=stride, padding=1
+            ),
         )
 
     def forward(self, x):
@@ -41,13 +43,12 @@ class Decoder(nn.Module):
 
 if __name__ == "__main__":
     # random data
-    N, L, D_in = 3, 128, 1024
+    N, L, D_in = 8, 8, 1024
     D_hid = 128 // 2
     x = np.random.random_sample((N, D_in, L))
     x = torch.tensor(x).float()
 
-
     # test decoder
     decoder = Decoder(D_in, D_hid, 3, 64)
     decoder_out = decoder(x)
-    print('Dncoder out shape:', decoder_out.shape)
+    print("Decoder out shape:", decoder_out.shape)
