@@ -237,11 +237,13 @@ class ESMFold(nn.Module):
         self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None
     ):
         assert not self.trunk is None
-        B, L = aa.shape
         structure: dict = self.trunk(
             s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles
         )
+        return structure
 
+    def post_processing(self, structure, aa, residx, mask):
+        B, L = aa.shape
         disto_logits = self.distogram_head(structure["s_z"])
         disto_logits = (disto_logits + disto_logits.transpose(1, 2)) / 2
         structure["distogram_logits"] = disto_logits
@@ -305,6 +307,7 @@ class ESMFold(nn.Module):
             aa, mask, residx, masking_pattern
         )
         structure = self.folding_trunk(s_s_0, s_z_0, aa, residx, mask, num_recycles)
+        structure = self.post_processing(structure, aa, residx, mask)
         return structure
 
     @torch.no_grad()
@@ -434,6 +437,10 @@ class ESMFold(nn.Module):
     def infer_pdb(self, sequence: str, *args, **kwargs) -> str:
         """Returns the pdb (file) string from the model given an input sequence."""
         return self.infer_pdbs([sequence], *args, **kwargs)[0]
+    
+    def from_sm_s(self, sm_s, *args, **kwargs):
+        structure, aa, residx, mask = self.trunk.from_sm_s(sm_s, *args, **kwargs)
+        return self.post_processing(structure, aa, residx, mask) 
 
     def set_chunk_size(self, chunk_size: T.Optional[int]):
         # This parameter means the axial attention will be computed

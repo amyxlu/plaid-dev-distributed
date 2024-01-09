@@ -486,7 +486,7 @@ def view_py3Dmol(pdbstr):
 
     view = py3Dmol.view(width=400, height=300)
     view.addModelsAsFrames(pdbstr)
-    view.setStyle({"model": -1}, {"cartoon": {"color": "spectrum"}})
+    view.setStyle({"model": -1}, {"cartoon": {"color": "green"}})
     view.zoomTo()
     view.show()
 
