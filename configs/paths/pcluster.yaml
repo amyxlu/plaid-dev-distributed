@@ -3,3 +3,4 @@ root_dir: /homefs/home/lux70/storage/plaid
 data_dir: /homefs/home/lux70/storage/data/
 checkpoint_dir: ${paths.root_dir}/checkpoints/${paths.timestamp}
 artifacts_dir: ${paths.root_dir}/artifacts/${paths.timestamp}
+entity: lu-amy-al1

@@ -8,6 +8,7 @@ defaults:
   - diffusion: diffusion
   - trainer: default
   - callbacks: default
+  - logger: diffusion
   - experiment: null
 
 dryrun: False 

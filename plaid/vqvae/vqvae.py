@@ -10,7 +10,19 @@ import lightning as L
 
 class VQVAE(L.LightningModule):
     def __init__(
-        self, in_dim, h_dim, res_h_dim, n_res_layers, n_embeddings, embedding_dim, beta
+        self,
+        in_dim,
+        h_dim,
+        res_h_dim,
+        n_res_layers,
+        n_embeddings,
+        embedding_dim,
+        beta,
+        lr,
+        lr_beta1,
+        lr_beta2,
+        lr_num_warmup_steps,
+        lr_num_training_steps,
     ):
         super(VQVAE, self).__init__()
         # encode image into continuous latent space
@@ -30,6 +42,13 @@ class VQVAE(L.LightningModule):
             n_res_layers=n_res_layers,
             res_h_dim=res_h_dim,
         )
+        
+        # optimizer
+        self.lr = lr
+        self.lr_beta1 = lr_beta1
+        self.lr_beta2 = lr_beta2
+        self.lr_num_warmup_steps = lr_num_warmup_steps
+        self.lr_num_training_steps = lr_num_training_steps
 
     def forward(self, x, verbose=False):
         z_e = self.encoder(x)
@@ -46,15 +65,14 @@ class VQVAE(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=self._lr,
-            betas=(self._beta1, self._beta2),
-            eps=self._eps,
+            self.parameters(),
+            lr=self.lr,
+            betas=(self.lr_beta1, self.lr_beta2),
         )
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=self._num_warmup_steps,
-            num_training_steps=self._num_training_steps,
+            num_warmup_steps=self.lr_num_warmup_steps,
+            num_training_steps=self.lr_num_training_steps,
         )
 
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
@@ -68,7 +86,9 @@ class VQVAE(L.LightningModule):
         return loss, recon_loss, embedding_loss, perplexity
 
     def training_step(self, batch, batch_idx):
-        x = batch
+        x, _, _= batch
+        x = x[:, :12, :]  # tmp before patching
+        x = x.permute(0, 2, 1)
         loss, recon_loss, embedding_loss, perplexity = self.loss(x)
         self.log("train_loss", loss)
         self.log("train_recon_loss", recon_loss)
@@ -77,7 +97,9 @@ class VQVAE(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x = batch
+        x, _, _= batch
+        x = x[:, :12, :]  # tmp before patching
+        x = x.permute(0, 2, 1)
         loss, recon_loss, embedding_loss, perplexity = self.loss(x)
         self.log("val_loss", loss)
         self.log("val_recon_loss", recon_loss)
@@ -102,6 +124,11 @@ if __name__ == "__main__":
         n_embeddings=512,
         embedding_dim=64,
         beta=0.25,
+        lr=1e-4,
+        lr_beta1=0.9,
+        lr_beta2=0.999,
+        lr_num_warmup_steps=10000,
+        lr_num_training_steps=100000,
     )
 
     # random data
@@ -113,10 +140,9 @@ if __name__ == "__main__":
     # test vqvae
     # output = vqvae(x, verbose=True)
     output = vqvae(x)
-    print(output)
     loss, recon_loss, embedding_loss, perplexity = vqvae.loss(x)
     print(loss)
     print(recon_loss)
     print(embedding_loss)
     print(perplexity)
-
+    vqvae.training_step(x, 0)

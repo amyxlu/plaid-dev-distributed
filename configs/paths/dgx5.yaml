@@ -3,3 +3,4 @@ root_dir: /shared/amyxlu/plaid
 data_dir: /shared/amyxlu/data
 checkpoint_dir: ${paths.root_dir}/checkpoints/${paths.timestamp}
 artifacts_dir: ${paths.root_dir}/artifacts/${paths.timestamp}
+entity: amyxlu
