@@ -649,7 +649,6 @@ class StructureModule(nn.Module):
             A dictionary of outputs
         """
         s = evoformer_output_dict["single"]
-        
         if mask is None:
             # [*, N]
             mask = s.new_ones(s.shape[:-1])
@@ -736,7 +735,7 @@ class StructureModule(nn.Module):
                 "angles": angles,
                 "positions": pred_xyz,
                 "states": s,
-                #### ADDED ####
+                # #### ADDED ####
                 "s_initial": s_initial,
                 ###############
             }
