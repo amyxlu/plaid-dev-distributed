@@ -40,7 +40,7 @@ class Encoder(nn.Module):
 
 if __name__ == "__main__":
     # random data
-    N, L, D_in = 8, 8, 1024
+    N, L, D_in = 8, 16, 1024
     D_hid = D_in // 2
     x = np.random.random_sample((N, D_in, L))
     x = torch.tensor(x).float()
