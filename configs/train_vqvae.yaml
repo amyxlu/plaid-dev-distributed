@@ -8,5 +8,7 @@ defaults:
   - logger: vqvae
   - experiment: null
 
+callbacks.checkpoint.dirpath: ${paths.checkpoint_dir}/vqvae
+
 dryrun: False 
 run_test: null

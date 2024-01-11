@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+from .losses import masked_mse_loss, masked_huber_loss, masked_l1_loss
+
 
 
 class VectorQuantizer(nn.Module):
@@ -24,7 +26,7 @@ class VectorQuantizer(nn.Module):
         self.embedding = nn.Embedding(self.n_e, self.e_dim)
         self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
 
-    def forward(self, z):
+    def forward(self, z, mask=None):
         """
         Inputs the output of the encoder network z and maps it to a discrete 
         one-hot vector that is the index of the closest embedding vector e_j
@@ -45,7 +47,7 @@ class VectorQuantizer(nn.Module):
         z_flattened = z.view(-1, self.e_dim)
         # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
 
-        d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
+        d = torch.sum((z_flattened ** 2) * mask, dim=1, keepdim=True) + \
             torch.sum(self.embedding.weight**2, dim=1) - 2 * \
             torch.matmul(z_flattened, self.embedding.weight.t())
 
@@ -59,8 +61,9 @@ class VectorQuantizer(nn.Module):
         z_q = torch.matmul(min_encodings, self.embedding.weight).view(z.shape)
 
         # compute loss for embedding
-        loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
-            torch.mean((z_q - z.detach()) ** 2)
+        loss = masked_mse_loss(z_q.detach(), z, mask) + self.beta * masked_mse_loss(z_q, z.detach(), mask)
+        # loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+        #     torch.mean((z_q - z.detach()) ** 2)
 
         # preserve gradients
         z_q = z + (z_q - z).detach()

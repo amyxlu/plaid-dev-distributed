@@ -66,7 +66,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
         emb, seqlen = data["embeddings"], data["seq_len"]
         mask = mask_from_seq_lens(emb, seqlen)
 
-        ordered_headers = open(datadir / "shard0000.txt").readlines()
+        ordered_headers = open(datadir / "../shard0000.txt").readlines()
         ordered_headers = [h.rstrip("\n") for h in ordered_headers]
         return emb, mask, ordered_headers
 
