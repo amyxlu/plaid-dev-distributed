@@ -16,6 +16,7 @@ import lightning as L
 from plaid.vqvae.encoder import Encoder
 from plaid.vqvae.decoder import Decoder
 from plaid.vqvae.quantizer import VectorQuantizer
+from plaid.utils import get_lr_scheduler
 
 
 def maybe_unsqueeze(x):
@@ -58,8 +59,10 @@ class TransformerVQVAE(L.LightningModule):
         lr=1e-4,
         lr_beta1=0.9,
         lr_beta2=0.999,
+        lr_sched_type="constant",
         lr_num_warmup_steps=0,
         lr_num_training_steps=10_000_000,
+        lr_num_cycles=1
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -106,8 +109,10 @@ class TransformerVQVAE(L.LightningModule):
         self.lr = lr
         self.lr_beta1 = lr_beta1
         self.lr_beta2 = lr_beta2
+        self.lr_sched_type = lr_sched_type
         self.lr_num_warmup_steps = lr_num_warmup_steps
         self.lr_num_training_steps = lr_num_training_steps
+        self.lr_num_cycles = lr_num_cycles
 
         xavier_init(self.transformer)
         xavier_init(self.vqvae_encoder)
@@ -168,6 +173,24 @@ class TransformerVQVAE(L.LightningModule):
         )
         return embedding_loss, x_hat, perplexity
 
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.lr,
+            betas=(self.lr_beta1, self.lr_beta2),
+        )
+        scheduler = get_lr_scheduler(
+            optimizer,
+            self.lr_sched_type,
+            num_warmup_steps=self.lr_num_warmup_steps,
+            num_training_steps=self.lr_num_training_steps,
+            num_cycles=self.lr_num_cycles,
+        )
+
+        scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
+
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
     def loss(self, x, verbose=False):
         embedding_loss, x_hat, perplexity = self.forward(x, verbose)
         recon_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
@@ -176,8 +199,6 @@ class TransformerVQVAE(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, _, _ = batch
-        x = x[:, :12, :]  # tmp before patching
-        x = x.permute(0, 2, 1)
         loss, recon_loss, embedding_loss, perplexity = self.loss(x)
         self.log("train_loss", loss)
         self.log("train_recon_loss", recon_loss)
@@ -187,8 +208,6 @@ class TransformerVQVAE(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, _, _ = batch
-        x = x[:, :12, :]  # tmp before patching
-        x = x.permute(0, 2, 1)
         loss, recon_loss, embedding_loss, perplexity = self.loss(x)
         self.log("val_loss", loss)
         self.log("val_recon_loss", recon_loss)

@@ -16,11 +16,16 @@ from plaid.esmfold import esmfold_v1
 import time
 
 
+# fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+# train_output_dir: str = "/homefs/home/lux70/cath_data/train"
+# val_output_dir: str = "/homefs/home/lux70/cath_data/val"
+
+
 @dataclasses.dataclass
 class ShardConfig:
-    fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-    train_output_dir: str = "/homefs/home/lux70/cath_data/train"
-    val_output_dir: str = "/homefs/home/lux70/cath_data/val"
+    fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+    train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
+    val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
     batch_size: int = 256 
     max_seq_len: int = 64
     min_seq_len: int = 16
