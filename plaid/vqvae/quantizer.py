@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+# TODO: account for masking!
 
 class VectorQuantizer(nn.Module):
     """

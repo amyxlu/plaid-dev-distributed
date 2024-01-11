@@ -74,10 +74,13 @@ class TensorShardDataset(torch.utils.data.Dataset):
         return self.embs.size(0)
 
     def __getitem__(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
+        header = self.ordered_headers[idx]
+        if "|" in header:
+            header = header.split("|")[-1].split("/")[0]
         return (
             self.embs[idx, ...],
             self.masks[idx, ...],
-            self.header_to_seq[self.ordered_headers[idx]],
+            self.header_to_seq[header],
         )
 
 

@@ -19,6 +19,8 @@ from plaid.vqvae.quantizer import VectorQuantizer
 from plaid.utils import get_lr_scheduler
 
 
+# TODO: account for masking!
+
 def maybe_unsqueeze(x):
     if len(x.shape) == 1:
         return x.unsqueeze(-1)
@@ -62,7 +64,7 @@ class TransformerVQVAE(L.LightningModule):
         lr_sched_type="constant",
         lr_num_warmup_steps=0,
         lr_num_training_steps=10_000_000,
-        lr_num_cycles=1
+        lr_num_cycles=1,
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -157,9 +159,13 @@ class TransformerVQVAE(L.LightningModule):
             stacked_chunks
         )  # (N * n_chunks, vqvae_h_dim, conv_patch)
         stacked_z_e = self.pre_quantization_conv(stacked_z_e)
-        embedding_loss, stacked_z_q, perplexity, _, _ = self.vector_quantization(
-            stacked_z_e
-        )
+        (
+            embedding_loss,
+            stacked_z_q,
+            perplexity,
+            min_encodings,
+            min_encoding_indices,
+        ) = self.vector_quantization(stacked_z_e)
 
         z_q = self.unstack_z_q(stacked_z_q)
         z_q = self.transformer_forward(z_q)
@@ -171,7 +177,7 @@ class TransformerVQVAE(L.LightningModule):
         x_hat = einops.rearrange(
             chunked_x_hat, "(N n) C L -> N (n L) C", n=self.n_chunks
         )
-        return embedding_loss, x_hat, perplexity
+        return embedding_loss, x_hat, perplexity, min_encodings, min_encoding_indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -192,7 +198,7 @@ class TransformerVQVAE(L.LightningModule):
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     def loss(self, x, verbose=False):
-        embedding_loss, x_hat, perplexity = self.forward(x, verbose)
+        embedding_loss, x_hat, perplexity, _, _ = self.forward(x, verbose)
         recon_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
         loss = recon_loss + embedding_loss
         return loss, recon_loss, embedding_loss, perplexity

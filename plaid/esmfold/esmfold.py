@@ -240,6 +240,7 @@ class ESMFold(nn.Module):
         structure: dict = self.trunk(
             s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles
         )
+        structure = self.post_processing(structure, aa, residx, mask)
         return structure
 
     def post_processing(self, structure, aa, residx, mask):
@@ -307,7 +308,6 @@ class ESMFold(nn.Module):
             aa, mask, residx, masking_pattern
         )
         structure = self.folding_trunk(s_s_0, s_z_0, aa, residx, mask, num_recycles)
-        structure = self.post_processing(structure, aa, residx, mask)
         return structure
 
     @torch.no_grad()
