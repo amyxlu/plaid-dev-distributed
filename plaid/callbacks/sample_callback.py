@@ -77,7 +77,7 @@ class SampleCallback(Callback):
     def _fid_setup(self, device):
         cached_tensors_path = (
             Path(os.path.dirname(__file__))
-            / "../cached_tensors/holdout_esmfold_feats.st"
+            / "../../cached_tensors/holdout_esmfold_feats.st"
         )
 
         def load_saved_features(location, device="cpu"):

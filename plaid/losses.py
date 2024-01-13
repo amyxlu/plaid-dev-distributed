@@ -9,11 +9,11 @@ import torch
 
 def make_mask(broadcast_shape, mask):
     while len(mask.shape) < len(broadcast_shape):
-        mask = [None, ...]
+        mask = mask[..., None]
     return mask.expand(broadcast_shape)
 
-        
-def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask=None):
+
+def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask=None, reduce="mean"):
     """Computes the mean squared error loss.
     assumes that the axis order is (B, L, ...)
     """
@@ -21,11 +21,16 @@ def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask=None):
         return torch.mean((pred - target) ** 2)
     else:
         mask = make_mask(pred.shape, mask)
-        return ((((pred - target) ** 2) * mask).sum()) / mask.sum()
-        # return torch.mean((pred - target) ** 2 * mask)
+        if reduce == "mean":
+            return ((((pred - target) ** 2) * mask).sum()) / mask.sum()
+        elif reduce == "batch":
+            dims = tuple(range(1, len(pred.shape)))
+            return ((((pred - target) ** 2) * mask).sum(dim=dims)) / mask.sum(dim=dims)
+        else:
+            raise ValueError(f"Unknown reduce type: {reduce}. Expected: 'mean' or 'batch'.")
 
 
-def masked_huber_loss(pred: torch.Tensor, target: torch.Tensor, mask=None):
+def masked_huber_loss(pred: torch.Tensor, target: torch.Tensor, mask=None, reduce="mean"):
     """Computes the huber loss; assumes that the axis order is (B, L, ...)
     """
     if mask is None:
@@ -35,10 +40,10 @@ def masked_huber_loss(pred: torch.Tensor, target: torch.Tensor, mask=None):
         mask = make_mask(pred.shape, mask)
         pred = pred * mask
         target = target * mask
-        return F.huber_loss(pred, target)
+        return F.huber_loss(pred, target, reduction=reduce)
 
 
-def masked_l1_loss(pred: torch.Tensor, target: torch.Tensor, mask=None):
+def masked_l1_loss(pred: torch.Tensor, target: torch.Tensor, mask=None, reduce="mean"):
     """Computes the L1 loss; assumes that the axis order is (B, L, ...)
     """
     if mask is None:
@@ -48,7 +53,7 @@ def masked_l1_loss(pred: torch.Tensor, target: torch.Tensor, mask=None):
         mask = make_mask(pred.shape, mask)
         pred = pred * mask
         target = target * mask
-        return F.l1_loss(pred, target)
+        return F.l1_loss(pred, target, reduction=reduce)
 
 
 def masked_token_cross_entropy_loss(

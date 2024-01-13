@@ -27,6 +27,7 @@ from plaid.utils import (
     sequences_to_secondary_structure_fracs,
 )
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
+from plaid.losses import masked_mse_loss
 
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
@@ -222,8 +223,8 @@ class GaussianDiffusion(L.LightningModule):
         )
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
-    def model_predictions(self, x, t, model_kwargs={}, clip_x_start=False):
-        model_output = self.model(x, t, **model_kwargs)
+    def model_predictions(self, x, t, mask=None, model_kwargs={}, clip_x_start=False):
+        model_output = self.model(x, t, mask, **model_kwargs)
         maybe_clip = (
             partial(torch.clamp, min=-1.0, max=1.0) if clip_x_start else identity
         )
@@ -444,7 +445,7 @@ class GaussianDiffusion(L.LightningModule):
             * noise
         )
 
-    def p_losses(self, x_start, t, model_kwargs={}, noise=None):
+    def p_losses(self, x_start, t, mask, model_kwargs={}, noise=None):
         B, L, C = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
 
@@ -457,13 +458,13 @@ class GaussianDiffusion(L.LightningModule):
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self.model_predictions(x, t).pred_x_start
+                x_self_cond = self.model_predictions(x, t, mask).pred_x_start
                 x_self_cond.detach_()
 
         model_kwargs["x_self_cond"] = x_self_cond
 
         # predict and take gradient step
-        model_out = self.model(x, t, **model_kwargs)
+        model_out = self.model(x, t, mask=mask, **model_kwargs)
         log_dict = {
             "model_out_mean": model_out.mean(),
             "model_out_std": model_out.std(),
@@ -479,16 +480,14 @@ class GaussianDiffusion(L.LightningModule):
         else:
             raise ValueError(f"unknown objective {self.objective}")
 
-        loss = F.mse_loss(model_out, target, reduction="none")
-        loss = reduce(loss, "b ... -> b", "mean")
+        loss = masked_mse_loss(model_out, target, mask, reduce="batch") 
         loss = loss * extract_into_tensor(self.loss_weight, t, loss.shape)
         return loss.mean(), log_dict
 
     def forward(self, x_unnormalized, mask, model_kwargs={}, noise=None):
         x = self.latent_scaler.scale(x_unnormalized)
         t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long().to(x.device)
-        model_kwargs["mask"] = mask
-        loss, log_dict = self.p_losses(x, t, model_kwargs, noise)
+        loss, log_dict = self.p_losses(x, t, mask, model_kwargs, noise)
         return loss, log_dict
 
     def get_secondary_structure_fractions(
@@ -608,7 +607,7 @@ if __name__ == "__main__":
 
     diffusion = GaussianDiffusion(model)
     diffusion.to(device=device)
-    diffusion.p_losses(x, t)
+    diffusion.p_losses(x, t, mask)
     import IPython
 
     IPython.embed()

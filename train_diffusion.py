@@ -35,11 +35,7 @@ def train(cfg: DictConfig):
     job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
 
     if not cfg.dryrun:
-        logger = WandbLogger(
-            project="plaid",
-            entity="lu-amy-al1",
-            id=job_id
-        )
+        logger = hydra.utils.instantiate(cfg.logger, id=job_id)
         logger.watch(diffusion, log="all", log_graph=False)
     else:
         logger = None
