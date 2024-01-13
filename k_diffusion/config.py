@@ -77,8 +77,8 @@ DATASET_TO_PATH = {
     },
     "cath": {
         "loader": "ShardedTensorDataset",
-        "full": "/shared/amyxlu/data/cath/shards/",
-        "toy": "/shared/amyxlu/data/cath/shards/",
+        "full": "/shared/amyxlu/data/cath/shards/full",
+        "toy": "/shared/amyxlu/data/cath/shards/full/toy",
         "num_holdout": 0  # ignored
     },
     "pfam": {
@@ -255,7 +255,6 @@ def make_model(config: ModelConfig, max_seq_len: int):
             min_len=config.min_len,
             num_classes=0,
             dropout=config.dropout,
-            sigma_data=config.sigma_data,
         )
     elif config.type == "bert_hf":
         assert config.d_model % config.d_head == 0
@@ -450,7 +449,7 @@ def make_dataset(dataset_config, batch_size, num_workers, max_seq_len, toy=False
     
     elif DATASET_TO_PATH[dataset_config.dataset]["loader"] == "ShardedTensorDataset":
         from . datasets import ShardedTensorDataset
-        shard_dir = Path(dataset_config.path) / f"seqlen_{max_seq_len}"
+        shard_dir = Path(dataset_config.path) / f"seqlen_{max_seq_len}" / "bf16"
         # train_ds = ShardedTensorDataset(shard_dir, split="train")
         # val_ds = ShardedTensorDataset(shard_dir, split="val")
         train_ds = ShardedTensorDataset(shard_dir, split=None)

@@ -395,7 +395,8 @@ def main(args: K.config.TrainArgs):
 
                     # Normalize, maybe
                     x = scaler.scale(x)
-                    extra_args, N = {"mask": mask}, x.shape[0]
+                    # extra_args, N = {"mask": mask}, x.shape[0]
+                    N = x.shape[0]
                     noise = torch.randn_like(x)  # (N, L, d_model)
 
                     with K.utils.enable_stratified_accelerate(
@@ -405,7 +406,7 @@ def main(args: K.config.TrainArgs):
 
                     with K.models.checkpointing(args.checkpointing):
                         losses, model_output = model.loss(
-                            x, noise, sigma, mask, return_model_output=True, **extra_args
+                            x, noise, sigma, mask, return_model_output=True
                         )
                     loss = accelerator.gather(losses).mean().item()
                     model_output = accelerator.gather(model_output)

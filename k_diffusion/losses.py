@@ -9,7 +9,7 @@ import torch
 
 def make_mask(broadcast_shape, mask):
     while len(mask.shape) < len(broadcast_shape):
-        mask = [None, ...]
+        mask = mask[..., None]
     return mask.expand(broadcast_shape)
 
 
