@@ -125,11 +125,16 @@ class TransformerVQVAE(L.LightningModule):
         # z_q shape: (N, L', C')
         return self.transformer(z_q)["last_hidden_state"]  # (N, L', C')
 
-    def stack_patches(self, x):
+    def stack_patches(self, x, mask=None):
         N, L, C = x.shape
+        if mask is not None:
+            assert mask.shape == (N, L)
         n_chunks = math.ceil(L / self.patch_len)
         self.n_chunks = n_chunks
-        chunks = x.chunk(self.n_chunks, dim=1)
+
+        x_chunks = x.chunk(self.n_chunks, dim=1)
+        mask_chunks = default(mask, mask.chunk(self.n_chunks, dim=1))
+
         if L % self.patch_len != 0:
             chunks = chunks[:-1]
         return torch.cat(chunks, dim=0)  # (N * n_chunks, patch_len, C)
