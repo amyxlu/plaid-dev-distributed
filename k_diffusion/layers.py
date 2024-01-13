@@ -8,6 +8,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from . import sampling, utils
+from .losses import make_huber_loss, masked_l1_loss, masked_mse_loss 
 
 
 # Helper functions
@@ -75,7 +76,7 @@ class Denoiser(nn.Module):
         c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         return c_skip, c_out, c_in
 
-    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
+    def loss(self, input, noise, sigma, mask, return_model_output=False, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         c_weight = self.weighting(sigma)
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
@@ -83,14 +84,15 @@ class Denoiser(nn.Module):
         target = (input - c_skip * noised_input) / c_out
         
         if self.loss_distance == "huber":
-            loss = F.huber_loss(model_output, target, reduction="mean") * c_weight
+            loss = masked_huber_loss(model_output, target, mask) * c_weight
         else:
             if self.scales == 1:
-                loss = ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
+                loss = masked_mse_loss(model_output, target, mask) * c_weight
             else:
-                sq_error = dct(model_output - target) ** 2
-                f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
-                loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
+                raise NotImplementedError
+                # sq_error = dct(model_output - target) ** 2
+                # f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
+                # loss = (sq_error * f_weight).flatten(1).mean(1) * c_weight
             
         if return_model_output:
             return loss, model_output
@@ -103,13 +105,15 @@ class Denoiser(nn.Module):
 
 
 class DenoiserWithVariance(Denoiser):
-    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
+    def loss(self, input, noise, sigma, mask, return_model_output=False, **kwargs):
         assert self.loss_distance == "mse"
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
         logvar = utils.append_dims(logvar, model_output.ndim)
         target = (input - c_skip * noised_input) / c_out
+
+        # TODO: masked version
         losses = ((model_output - target) ** 2 / logvar.exp() + logvar) / 2
         loss = losses.flatten(1).mean(1)
         if return_model_output:
@@ -121,14 +125,14 @@ class DenoiserWithVariance(Denoiser):
 class SimpleLossDenoiser(Denoiser):
     """L_simple with the Karras et al. preconditioner."""
 
-    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
+    def loss(self, input, noise, sigma, mask, return_model_output=False, **kwargs):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         denoised = self(noised_input, sigma, **kwargs)
         eps = sampling.to_d(noised_input, sigma, denoised)
         if self.loss_distance == "mse":
-            loss = (eps - noise).pow(2).flatten(1).mean(1)
+            loss = masked_mse_loss(eps, noise, mask)
         elif self.loss_distance == "huber":
-            loss = F.huber_loss(eps, noise, reduction="mean")
+            loss = masked_huber_loss(eps, noise, mask)
         else:
             raise ValueError(f"Unknown loss type {self.loss_distance}")
         
@@ -140,13 +144,13 @@ class SimpleLossDenoiser(Denoiser):
             
 class SimpleVanilla(Denoiser):
     """ Vanilla L_simple without the Karras et al. preconditioner."""
-    def loss(self, input, noise, sigma, return_model_output=False, **kwargs):
+    def loss(self, input, noise, sigma, mask, return_model_output=False, **kwargs):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input, sigma, **kwargs)
         if self.loss_distance == "mse":
-            loss = (model_output - noise).pow(2).flatten(1).mean(1)
+            loss = masked_mse_loss(model_output, noise, mask)
         elif self.loss_distance == "huber":
-            loss = F.huber_loss(model_output, noise, reduction="mean")
+            loss = masked_huber_loss(model_output, noise, mask) 
         else:
             raise ValueError(f"Unknown loss type {self.loss_distance}")
             

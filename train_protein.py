@@ -405,7 +405,7 @@ def main(args: K.config.TrainArgs):
 
                     with K.models.checkpointing(args.checkpointing):
                         losses, model_output = model.loss(
-                            x, noise, sigma, return_model_output=True, **extra_args
+                            x, noise, sigma, mask, return_model_output=True, **extra_args
                         )
                     loss = accelerator.gather(losses).mean().item()
                     model_output = accelerator.gather(model_output)
