@@ -516,19 +516,17 @@ class GaussianDiffusion(L.LightningModule):
             loss,
             on_step=True,
             on_epoch=True,
-            prog_bar=True,
-            sync_dist=True,
         )
-        self.log_dict({f"train/{k}": v for k, v in log_dict.items()}, sync_dist=True)
+        self.log_dict({f"train/{k}": v for k, v in log_dict.items()})
         return loss
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
         loss, log_dict = self.compute_loss(batch)
         self.log(
-            "val/loss", loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True
+            "val/loss", loss, on_step=True, on_epoch=True
         )
-        self.log_dict({f"val/{k}": v for k, v in log_dict.items()}, sync_dist=True)
+        self.log_dict({f"val/{k}": v for k, v in log_dict.items()})
         return loss
 
     def configure_optimizers(self):
