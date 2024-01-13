@@ -8,7 +8,7 @@ early_terminate:
   min_iter: 1000
 metric:
   goal: minimize
-  name: fid
+  name: loss 
   target: 0.0
 parameters:
   model-config.sigma-sample-density.min-value:
@@ -57,13 +57,10 @@ command:
   - ${program}
   - "--dataset-config.dataset"
   - "cath"
-  - "--toy"
   - "--max-seq-len"
-  - "64"
+  - "256"
   - "--dataset-config.path"
   - "/global/scratch/users/amyxlu/data/cath/shards/"
-  - "--dataset-config.toy-data-path"
-  - "/global/scratch/users/amyxlu/data/cath/shards/toy"
   - "--sample-config.model-dir"
   - "/global/scratch/users/amyxlu/artifacts/plaid"
   - "--sample-config.base-artifact-dir"
@@ -71,6 +68,6 @@ command:
   - "--artifacts-dir"
   - "/global/scratch/users/amyxlu/artifacts/plaid/"
   - "--sample-every"
-  - "500"
+  - "1000"
   - "--sample-config.n-to-sample"
-  - "128"
+  - "64"

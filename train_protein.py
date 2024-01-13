@@ -299,11 +299,11 @@ def main(args: K.config.TrainArgs):
             log_to_wandb=should_we_log,
         )
 
-        print("Calculating FID/KID...")
-        fid, kid, _ = sampler.calculate_fid(
-            sampled_latent, log_to_wandb=should_we_log
-        )
-        print("FID:", fid, "KID:", kid)
+        # print("Calculating FID/KID...")
+        # fid, kid, _ = sampler.calculate_fid(
+        #     sampled_latent, log_to_wandb=should_we_log
+        # )
+        # print("FID:", fid, "KID:", kid)
         
 
     # ==============================================================================
