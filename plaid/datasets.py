@@ -84,9 +84,50 @@ class TensorShardDataset(torch.utils.data.Dataset):
         )
 
 
+class H5ShardDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        split: T.Optional[str] = None,
+        shard_dir: str = "/shared/amyxlu/data/cath/shards",
+        header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
+        max_seq_len: int = 64,
+        dtype: str = "bf16",
+    ):
+        super().__init__()
+        self.dtype = dtype
+        self.max_seq_len = max_seq_len
+        self.shard_dir = Path(shard_dir)
+        self.header_to_seq = pickle.load(open(header_to_sequence_file, "rb"))
+        self.seq_to_header = {v: k for k, v in self.header_to_seq.items()}
+        self.embs, self.sequences = self.load_partition(split)
+
+    def load_partition(self, split: T.Optional[str] = None):
+        if not split is None:
+            assert split in ("train", "val")
+            datadir = self.shard_dir / split
+        else:
+            datadir = self.shard_dir
+        datadir = datadir / f"seqlen_{self.seq_len}" / self.dtype
+        data = load_file(datadir / "shard0000.h5")
+        assert data.keys() == set(("embeddings", "sequences"))
+        emb, sequence = data["embeddings"], data["sequences"]
+        sequence = [s[:self.max_seq_len] for s in sequence]
+        return emb, sequence
+
+    def __len__(self):
+        return self.embs.size(0)
+
+    def __getitem__(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
+        return (
+            self.embs[idx, ...],
+            self.sequences[idx]
+        )
+
+
 class CATHShardedDataModule(L.LightningDataModule):
     def __init__(
         self,
+        storage_type: str = "safetensors",
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
@@ -102,16 +143,22 @@ class CATHShardedDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
 
+        assert storage_type in ("safetensors", "hdf5")
+        if storage_type == "safetensors":
+            self.dataset_fn = TensorShardDataset
+        elif storage_type == "hdf5":
+            self.dataset_fn = H5ShardDataset
+
     def setup(self, stage: str = "fit"):
         if stage == "fit":
-            self.train_dataset = TensorShardDataset(
+            self.train_dataset = H5ShardDataset(
                 "train",
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
                 dtype=self.dtype,
             )
-            self.val_dataset = TensorShardDataset(
+            self.val_dataset = H5ShardDataset(
                 "val",
                 self.shard_dir,
                 self.header_to_sequence_file,
@@ -119,7 +166,7 @@ class CATHShardedDataModule(L.LightningDataModule):
                 dtype=self.dtype,
             )
         elif stage == "predict":
-            self.test_dataset = TensorShardDataset(
+            self.test_dataset = H5ShardDataset(
                 "val",
                 self.shard_dir,
                 self.header_to_sequence_file,

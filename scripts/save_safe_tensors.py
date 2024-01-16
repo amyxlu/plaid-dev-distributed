@@ -1,8 +1,10 @@
 import torch
 import safetensors
 from tqdm import tqdm, trange
+import numpy as np
 import json
 
+import h5py
 from evo.dataset import FastaDataset
 import torch
 from pathlib import Path
@@ -27,14 +29,14 @@ class ShardConfig:
     train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
     val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
     batch_size: int = 256 
-    max_seq_len: int = 64
+    max_seq_len: int = 256 
     min_seq_len: int = 16
     num_workers: int = 4
     num_batches_per_shard: int = 20
     compression: str = "safetensors"  # "safetensors", "hdf5"
     shard: bool = False
     train_frac: float = 0.8
-    dtype: str = "bf16"  # "bf16", "fp32", "fp64"
+    dtype: str = "fp32"  # "bf16", "fp32", "fp64"
 
 
 def _get_dtype(dtype):
@@ -84,23 +86,27 @@ def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_le
     cur_shard_tensors = []
     cur_shard_lens = []
     cur_headers = []
+    cur_sequences = []
 
     for _ in trange(n_batches_per_shard, leave=False):
         batch = next(iter(dataloader))
         headers, sequences = batch
         headers = [s.split("|")[2].split("/")[0] for s in headers]
-        cur_headers.extend(headers)
         feats, seq_lens = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
+
+        cur_headers.extend(headers)
+        cur_sequences.extend(sequences)
         cur_shard_tensors.append(feats)
         cur_shard_lens.append(seq_lens)
 
     cur_shard_tensors = torch.cat(cur_shard_tensors, dim=0)
     cur_seq_lens = torch.cat(cur_shard_lens, dim=0)
-    return cur_shard_tensors, cur_seq_lens, cur_headers
+    return cur_shard_tensors, cur_seq_lens, cur_headers, cur_sequences
 
 
 def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
+    # doesn't work with strings, but does work with bfloat16
     assert isinstance(dtype, str)
     outdir = Path(outdir) / dtype
     if not outdir.exists():
@@ -118,13 +124,14 @@ def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
     print(f"saved {embs.shape[0]} sequences to shard {shard_number}")
 
 
-def save_h5_embeddings(embs, seq_lens, shard_number, outdir):
-    # doesn't work with bfloat16
-    embs = embs.to(dtype=torch.float32)
-    seq_lens = seq_lens.to(dtype=torch.int16)
+def save_h5_embeddings(embs, sequences, shard_number, outdir, dtype: str):
+    # doesn't work with bfloat16, but does work with strings
+    assert dtype in ("fp32", "fp64")
+    dtype = _get_dtype(dtype)
+    embs = embs.to(dtype=dtype)
     with h5py.File(str(outdir / f"shard{shard_number:04}.h5"), "w") as f:
         f.create_dataset("embeddings", data=embs.numpy())
-        f.create_dataset("seq_len", data=seq_lens.numpy())
+        f.create_dataset("sequences", data=np.array(sequences, dtype=np.str_))
         print(f"saved {embs.shape[0]} sequences to shard {shard_number} as h5 file")
     del embs, seq_lens
 
@@ -146,12 +153,12 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         json.dump(argsdict, f, indent=2)
 
     for shard_number in tqdm(range(num_shards), desc="Shards"):
-        emb_shard, seq_lens, cur_headers = make_shard(esmfold, dataloader, num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        emb_shard, seq_lens, cur_headers, sequences = make_shard(esmfold, dataloader, num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
         write_headers(cur_headers, outdir, shard_number)
         if cfg.compression == "safetensors":
             save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir, cfg.dtype)
         elif cfg.compression == "hdf5":
-            save_h5_embeddings(emb_shard, seq_lens, shard_number, outdir)
+            save_h5_embeddings(emb_shard, sequences, shard_number, outdir)
         else:
             raise ValueError(f"invalid compression type {cfg.compression}")
 
