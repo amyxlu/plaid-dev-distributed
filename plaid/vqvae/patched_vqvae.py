@@ -19,8 +19,6 @@ from plaid.vqvae.quantizer import VectorQuantizer
 from plaid.utils import get_lr_scheduler
 
 
-# TODO: account for masking!
-
 def maybe_unsqueeze(x):
     if len(x.shape) == 1:
         return x.unsqueeze(-1)
@@ -44,9 +42,9 @@ class TransformerVQVAE(L.LightningModule):
     def __init__(
         self,
         in_dim=1024,
-        vqvae_h_dim=512,
-        vqvae_res_h_dim=512,
-        vqvae_n_res_layers=3,
+        vqvae_h_dim=1024,
+        vqvae_res_h_dim=1024,
+        vqvae_n_res_layers=12,
         vqvae_n_embeddings=1024,
         vqvae_kernel=4,
         vqvae_stride=2,
@@ -54,9 +52,9 @@ class TransformerVQVAE(L.LightningModule):
         vqvae_beta=0.25,
         patch_len: int = 16,
         transformer_hidden_act="gelu",
-        transformer_intermediate_size=3072,
-        transformer_num_attention_heads=16,
-        transformer_num_hidden_layers=12,
+        transformer_intermediate_size=2048,
+        transformer_num_attention_heads=8,
+        transformer_num_hidden_layers=6,
         transformer_position_embedding_type="absolute",
         lr=1e-4,
         lr_beta1=0.9,
@@ -121,44 +119,67 @@ class TransformerVQVAE(L.LightningModule):
         xavier_init(self.pre_quantization_conv)
         xavier_init(self.vqvae_decoder)
 
-    def transformer_forward(self, z_q):
+    def transformer_forward(self, z_q, mask):
         # z_q shape: (N, L', C')
-        return self.transformer(z_q)["last_hidden_state"]  # (N, L', C')
+        # mask shape: (N, L')
+        output = self.transformer(hidden_state=z_q, encoder_attention_mask=mask)
+        return output["last_hidden_state"]  # (N, L', C')
 
-    def stack_patches(self, x, mask=None):
+    def stack_patches(self, x, mask):
         N, L, C = x.shape
-        if mask is not None:
-            assert mask.shape == (N, L)
-        n_chunks = math.ceil(L / self.patch_len)
-        self.n_chunks = n_chunks
+        assert mask.shape == (N, L)
+        self.n_chunks = math.ceil(L / self.patch_len)
+        x, mask = x[:, :self.n_chunks * self.patch_len, :], mask[:, : self.n_chunks * self.patch_len]
 
-        x_chunks = x.chunk(self.n_chunks, dim=1)
-        mask_chunks = default(mask, mask.chunk(self.n_chunks, dim=1))
+        x_chunks = einops.rearrange(x, "N (L l) C -> (N L) l C", l=self.patch_len)
+        mask_chunks = einops.rearrange(mask, "N (L l) -> (N L) l", l=self.patch_len)
+        mask_chunks = mask_chunks.bool().any(dim=-1)
 
-        if L % self.patch_len != 0:
-            chunks = chunks[:-1]
-        return torch.cat(chunks, dim=0)  # (N * n_chunks, patch_len, C)
+        # x_chunks = x.chunk(self.n_chunks, dim=1)
+        # mask_chunks = mask.chunk(self.n_chunks, dim=1)
+        # mask_chunks = [m.bool().any(dim=1) for m in mask_chunks]
 
-    def unstack_z_q(self, stacked_z_q):
-        # stacked_z_q = (N * n_chunks, C', conv_patch)
-        N = stacked_z_q.shape[0] // self.n_chunks
-        chunked_z_q = stacked_z_q.chunk(
-            N, dim=0
-        )  # N element list of (n_chunks, C', conv_patch)
+        # if L % self.patch_len != 0:
+        #     x_chunks = x_chunks[:-1]
+        #     mask_chunks = mask_chunks[:-1]
 
-        def pivot_chunk(chunk):
-            chunk = chunk.transpose(1, 2)  # (n_chunks, conv_patch, C')
-            return chunk.reshape(-1, chunk.shape[-1])  # (n_chunks * conv_patch, C')
+        # x_chunks = torch.cat(x_chunks, dim=0)  # (n_chunks * N, patch_len, C)
+        # mask_chunks = torch.cat(mask_chunks, dim=0).to(
+        #     dtype=x_chunks.dtype
+        # )  # (n_chunks * N)
+        # import pdb;pdb.set_trace()
+        return x_chunks, mask_chunks
 
-        chunked_z_q = [
-            pivot_chunk(chunk) for chunk in chunked_z_q
-        ]  # N element list of (n_chunks * conv_patch, C')
-        z_q = torch.stack(chunked_z_q, dim=0)  # (N, n_chunks * conv_patch, C'
-        return z_q
+    # def unstack_z_q(self, stacked_z_q, stacked_mask):
+    #     # stacked_z_q = (N * n_chunks, C', conv_patch)
+    #     # mask = (N * n_chunks)
+    #     N = stacked_z_q.shape[0] // self.n_chunks
+    #     z_q = einops.rearrange(stacked_z_q, "(N n) c l -> N (n l) c", n=self.n_chunks)
+    #     mask = einops.rearrange(stacked_mask, "(N n) l -> N (n l)", n=self.n_chunks)
+    #     import pdb;pdb.set_trace()
+    #     # chunked_z_q = stacked_z_q.chunk(
+    #     #     N, dim=0
+    #     # )  # N element list of (n_chunks, C', conv_patch)
+    #     # chunk_mask = mask.chunk(N, dim=0)  # N element list of (n_chunks)
 
-    def forward(self, x, verbose=False):
+    #     # def pivot_chunk(chunk):
+    #     #     chunk = chunk.transpose(1, 2)  # (n_chunks, conv_patch, C')
+    #     #     return chunk.reshape(-1, chunk.shape[-1])  # (n_chunks * conv_patch, C')
+
+    #     # chunked_z_q = [
+    #     #     pivot_chunk(chunk) for chunk in chunked_z_q
+    #     # ]  # N element list of (n_chunks * conv_patch, C')
+    #     # z_q = torch.stack(chunked_z_q, dim=0)  # (N, n_chunks * conv_patch, C')
+    #     # chunk_mask = torch.stack(chunk_mask, dim=0)  # (N, n_chunks)
+    #     return z_q, mask
+
+    def forward(self, x, mask, verbose=False):
+        N, L, C = x.shape
+        if mask is None:
+            mask = x.new_ones((N, L))
+
         # C': vqvae_embedding_dim
-        stacked_chunks = self.stack_patches(x)
+        stacked_chunks, stacked_mask = self.stack_patches(x, mask)
         stacked_chunks = einops.rearrange(stacked_chunks, "N L C -> N C L")
         stacked_z_e = self.vqvae_encoder(
             stacked_chunks
@@ -170,10 +191,12 @@ class TransformerVQVAE(L.LightningModule):
             perplexity,
             min_encodings,
             min_encoding_indices,
-        ) = self.vector_quantization(stacked_z_e)
+        ) = self.vector_quantization(stacked_z_e, stacked_mask)
 
-        z_q = self.unstack_z_q(stacked_z_q)
-        z_q = self.transformer_forward(z_q)
+        # unstack z_q and the masks
+        z_q = einops.rearrange(stacked_z_q, "(N n) c l -> N (n l) c", n=self.n_chunks)
+        mask = einops.rearrange(stacked_mask, "(N n) l -> N (n l)", n=self.n_chunks)
+        z_q = self.transformer_forward(z_q, mask)
 
         z_q = einops.rearrange(z_q, "N (n l) c -> N n l c", n=self.n_chunks)
         z_q = einops.rearrange(z_q, "N n l c -> (N n) c l")
@@ -202,14 +225,14 @@ class TransformerVQVAE(L.LightningModule):
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
-    def loss(self, x, verbose=False):
-        embedding_loss, x_hat, perplexity, _, _ = self.forward(x, verbose)
+    def loss(self, x, mask, verbose=False):
+        embedding_loss, x_hat, perplexity, _, _ = self.forward(x, mask, verbose)
         recon_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
         loss = recon_loss + embedding_loss
         return loss, recon_loss, embedding_loss, perplexity
 
     def training_step(self, batch, batch_idx):
-        x, _, _ = batch
+        x, mask, sequence = batch
         loss, recon_loss, embedding_loss, perplexity = self.loss(x)
         self.log("train_loss", loss)
         self.log("train_recon_loss", recon_loss)
@@ -231,13 +254,27 @@ class TransformerVQVAE(L.LightningModule):
 
 
 if __name__ == "__main__":
-    model = TransformerVQVAE()
+    from plaid.datasets import CATHShardedDataModule
 
-    # random data
-    N, L, D_in = 128, 512, 1024
-    x = np.random.random_sample((N, L, D_in))
-    x = torch.tensor(x).float()
+    model = TransformerVQVAE()
+    device = torch.device("cuda:4")
+
+    datadir = "/shared/amyxlu/data/cath/shards/"
+    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
+    dm = CATHShardedDataModule(
+        shard_dir=datadir,
+        header_to_sequence_file=pklfile,
+    )
+    dm.setup("fit")
+    train_dataloader = dm.train_dataloader()
+    batch = next(iter(train_dataloader))
+    x, mask, sequence = batch
+
+    model.to(device)
+    x, mask = x.to(device=device, dtype=torch.float32), mask.to(
+        device, dtype=torch.float32
+    )
 
     # test vqvae
     # output = model(x, verbose=True)
-    print(model.loss(x))
+    print(model.loss(x, mask))
