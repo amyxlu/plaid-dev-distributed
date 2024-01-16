@@ -42,7 +42,7 @@ PROTEINMPNN_AACHAR_TO_AAIDX = {
 }
 
 
-def load_sequence_decoder(ckpt_path=None, device=None, eval_mode=True):
+def load_sequence_decoder(device=None, ckpt_path=None, eval_mode=True):
     if ckpt_path is None:
         ckpt_path = DECODER_CKPT_PATH
     tokenizer = DecoderTokenizer()

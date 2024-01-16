@@ -1,7 +1,7 @@
 _target_: plaid.denoisers.UTriSelfAttnDenoiser
 
 hid_dim: 1024
-num_blocks: 5 
+num_blocks: 13 
 conditioning_strategy: "hidden_concat"
 timestep_embedding_strategy: "fourier"
 pos_embedding_strategy: "rotary"

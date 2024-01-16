@@ -27,8 +27,6 @@ from plaid.utils import (
     sequences_to_secondary_structure_fracs,
 )
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
-from plaid.losses import masked_mse_loss
-
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -88,6 +86,11 @@ class GaussianDiffusion(L.LightningModule):
         lr_num_training_steps: int = 10_000_000,
         lr_num_cycles: int = 1,
         add_secondary_structure_conditioning: bool = False,
+        # auxiliary losses
+        sequence_decoder: torch.nn.Module = None,
+        structure_decoder: torch.nn.Module = None,
+        sequence_decoder_weight: float = 0.0,
+        structure_decoder_weight: float = 0.0,
     ):
         super().__init__()
         self.model = model
@@ -154,7 +157,7 @@ class GaussianDiffusion(L.LightningModule):
         self.snr = self.alphas_cumprod / (1 - self.alphas_cumprod)
         maybe_clipped_snr = self.snr.copy()
         if min_snr_loss_weight:
-            maybe_clipped_snr.clamp_(max=min_snr_gamma)
+            maybe_clipped_snr = maybe_clipped_snr.clip(max=min_snr_gamma)
 
         if objective == "pred_noise":
             self.loss_weight = maybe_clipped_snr / self.snr
@@ -162,6 +165,14 @@ class GaussianDiffusion(L.LightningModule):
             self.loss_weight = maybe_clipped_snr
         elif objective == "pred_v":
             self.loss_weight = maybe_clipped_snr / (self.snr + 1)
+
+        # auxiliary losses
+        self.is_sequence_decoder_setup = False
+        self.is_structure_decoder_setup = False
+        self.sequence_decoder = sequence_decoder
+        self.structure_decoder = structure_decoder
+        self.sequence_decoder_weight = sequence_decoder_weight
+        self.structure_decoder_weight = structure_decoder_weight
 
         self.lr = lr
         self.adam_betas = adam_betas
@@ -171,6 +182,14 @@ class GaussianDiffusion(L.LightningModule):
         self.lr_num_cycles = lr_num_cycles
         self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
         self.save_hyperparameters(ignore=["model"])
+    
+    def setup_sequence_decoder(self):
+        if self.sequence_decoder is None:
+            self.sequence_decoder = load_sequence_decoder(device=self.device)
+        self.is_sequence_decoder_setup = True
+    
+    def setup_structure_decoder(self):
+        pass
 
     def get_secondary_structure_fractions(
         self, sequences: T.List[str], origin_dataset: str = "uniref"
@@ -489,6 +508,13 @@ class GaussianDiffusion(L.LightningModule):
         t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long().to(x.device)
         loss, log_dict = self.p_losses(x, t, mask, model_kwargs, noise)
         return loss, log_dict
+    
+    def sequence_loss(self, latent, mask, sequence):
+        if not self.is_sequence_decoder_setup:
+            self.setup_sequence_decoder()
+        logits = self.sequence_decoder(latent)
+        ce_loss =  masked_token_cross_entropy_loss(logits, aatype, mask)
+
 
     def get_secondary_structure_fractions(
         self, sequences: T.List[str], origin_dataset: str = "uniref"
@@ -544,45 +570,20 @@ class GaussianDiffusion(L.LightningModule):
 
 
 if __name__ == "__main__":
-    # from plaid.denoisers import UTriSelfAttnDenoiser
-    # from plaid.datasets import CATHShardedDataModule
-
-    # torch.set_default_dtype(torch.bfloat16)
-    # device = torch.device("cuda")
-
-    # model = UTriSelfAttnDenoiser(
-    #     num_blocks=7,
-    #     hid_dim=1024,
-    #     conditioning_strategy="hidden_concat",
-    #     use_self_conditioning=True
-    # )
-    # # model.to(device)
-
-    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
-    # dm = CATHShardedDataModule(
-    #     shard_dir=datadir,
-    #     header_to_sequence_file=pklfile,
-    # )
-    # dm.setup("fit")
-    # train_dataloader = dm.train_dataloader()
-    # batch = next(iter(train_dataloader))
-    # # x, mask, sequence = next(iter(train_dataloader))
-    # # x = x.cuda()
-    # # mask = mask.cuda()
-
-    # diffusion = GaussianDiffusion(model)
-    # import IPython;IPython.embed()
-    # # module = GaussianDiffusionLightningModule(model)
-    # # loss = module.training_step(batch)
-    # # loss = module.training_step((x, mask, sequence))
-    # # x, seqlens = batch
+    from plaid.denoisers import UTriSelfAttnDenoiser
     from plaid.datasets import CATHShardedDataModule
-    from plaid.denoisers import PreinitializedTriSelfAttnDenoiser
+    # from plaid.denoisers import PreinitializedTriSelfAttnDenoiser
 
     device = torch.device("cuda:1")
-    model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
+    model = UTriSelfAttnDenoiser(
+        num_blocks=7,
+        hid_dim=1024,
+        conditioning_strategy="hidden_concat",
+        use_self_conditioning=True
+    )
+    # model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
     model.to(device)
+
     # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
     # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
     datadir = "/shared/amyxlu/data/cath/shards/"
@@ -611,3 +612,9 @@ if __name__ == "__main__":
     import IPython
 
     IPython.embed()
+    from plaid.utils import load_sequence_decoder 
+    decoder = load_sequence_decoder(device=device) 
+    from plaid.esmfold.misc import batch_encode_sequences
+    aatype, mask, residx, linker_mask, chain_index_list = batch_encode_sequences(sequence) 
+
+

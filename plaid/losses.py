@@ -6,6 +6,8 @@ import einops
 import torch
 
 
+from plaid.esmfold.misc import batch_encode_sequences 
+
 
 def make_mask(broadcast_shape, mask):
     while len(mask.shape) < len(broadcast_shape):
@@ -95,3 +97,33 @@ def masked_token_accuracy(
     assert pred.shape == targets.shape
     return (pred == targets).sum() / len(pred)
 
+
+class SequenceAuxiliaryLoss:
+    def __init__(self, decoder, weight=1.0, loss_fn=masked_token_cross_entropy_loss):
+        self.decoder = decoder.eval().requires_grad_(False)
+        self.loss_fn = loss_fn
+        self.weight = weight
+        self.device = next(decoder.parameters()).device
+    
+    def __call__(self, latent, sequences, cur_weight=None):
+        """If cur weight is specified, it will override self.weight."""
+        aatype, mask, residx, linker_mask, chain_index_list = batch_encode_sequences(sequences)
+        aatype, latent = aatype.to(self.device), latent.to(self.device)
+        logits = self.decoder(latent)
+        loss = self.loss_fn(logits, aatype, mask)
+        acc = masked_token_accuracy(logits, aatype, mask)
+        weight = self.weight if cur_weight is None else cur_weight
+        logdict = {
+            "loss": loss.item(),
+            "acc": acc.item(),
+        }
+        # TODO: anneal weight by step in outer loop?
+        return weight * loss, logdict
+    
+
+class StructureAuxiliaryLoss:
+    def __init__(self, esmfold_sm, weight=1.0, loss_fn=lambda x: x):
+        pass
+
+    def __call__(self, latent, gt_structures):
+        pass
