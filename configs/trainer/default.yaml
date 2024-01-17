@@ -9,6 +9,8 @@ num_sanity_val_steps: 2
 log_every_n_steps: 20
 max_epochs: 20000
 fast_dev_run: False
+
+
 # limit_val_batches: 10
 # overfit_batches: 2 
 # default_root_dir: hdfs://hdfs:9000/user/username/lightning_logs

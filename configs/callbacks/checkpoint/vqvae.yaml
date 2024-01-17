@@ -1,5 +1,5 @@
 _target_: lightning.pytorch.callbacks.ModelCheckpoint
-dirpath: ${paths.checkpoint_dir}/vqvae
+dirpath: null
 filename: "{epoch}-{step}"
 verbose: true
 save_last: true

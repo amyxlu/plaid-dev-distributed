@@ -11,5 +11,13 @@ defaults:
   - logger: diffusion
   - experiment: null
 
+timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
+
+callbacks/checkpoint:
+  - dirpath: ${paths.root_dir}/checkpoints/diffusion/${timestamp}
+
+callbacks/sample:
+  - outdir: ${paths.root_dir}/artifacts/diffusion/${timestamp}
+
 dryrun: False 
 run_test: null

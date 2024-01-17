@@ -2,3 +2,6 @@
 
 defaults:
   - override /callbacks/checkpoint: sequence_decoder.yaml
+
+callbacks.checkpoint:
+  - val_check_interval: 100

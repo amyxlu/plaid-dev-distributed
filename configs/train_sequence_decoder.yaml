@@ -9,5 +9,9 @@ defaults:
   - logger: sequence_decoder
   - experiment: null
 
+timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
+callbacks/checkpoint:
+  - dirpath: ${paths.root_dir}/checkpoints/sequence_decoder/${timestamp}
+
 dryrun: False 
 run_test: null
