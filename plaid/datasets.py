@@ -1,5 +1,7 @@
 import torch
 from torch.utils.data import IterableDataset, DataLoader
+import numpy as np
+import h5py
 
 from safetensors.torch import load_file
 import glob
@@ -91,7 +93,7 @@ class H5ShardDataset(torch.utils.data.Dataset):
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         max_seq_len: int = 64,
-        dtype: str = "bf16",
+        dtype: str = "fp32",
     ):
         super().__init__()
         self.dtype = dtype
@@ -107,11 +109,13 @@ class H5ShardDataset(torch.utils.data.Dataset):
             datadir = self.shard_dir / split
         else:
             datadir = self.shard_dir
-        datadir = datadir / f"seqlen_{self.seq_len}" / self.dtype
-        data = load_file(datadir / "shard0000.h5")
-        assert data.keys() == set(("embeddings", "sequences"))
-        emb, sequence = data["embeddings"], data["sequences"]
-        sequence = [s[:self.max_seq_len] for s in sequence]
+        datadir = datadir / f"seqlen_{self.max_seq_len}" / self.dtype
+        
+        with h5py.File(datadir / "shard0000.h5", "r") as f:
+            emb = torch.from_numpy(np.array(f["embeddings"]))
+            sequences = list(f["sequences"])
+        
+        sequence = [s.decode()[:self.max_seq_len] for s in sequence]
         return emb, sequence
 
     def __len__(self):
@@ -151,14 +155,14 @@ class CATHShardedDataModule(L.LightningDataModule):
 
     def setup(self, stage: str = "fit"):
         if stage == "fit":
-            self.train_dataset = H5ShardDataset(
+            self.train_dataset = self.dataset_fn(
                 "train",
                 self.shard_dir,
                 self.header_to_sequence_file,
                 self.seq_len,
                 dtype=self.dtype,
             )
-            self.val_dataset = H5ShardDataset(
+            self.val_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
                 self.header_to_sequence_file,
@@ -166,7 +170,7 @@ class CATHShardedDataModule(L.LightningDataModule):
                 dtype=self.dtype,
             )
         elif stage == "predict":
-            self.test_dataset = H5ShardDataset(
+            self.test_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
                 self.header_to_sequence_file,
@@ -202,6 +206,11 @@ class CATHShardedDataModule(L.LightningDataModule):
 
     def predict_dataloader(self):
         return self.test_dataloader()
+
+
+class FastaDataModule(L.LightningDataModule):
+    def __init__(self):
+        super().__init__()
 
 
 if __name__ == "__main__":

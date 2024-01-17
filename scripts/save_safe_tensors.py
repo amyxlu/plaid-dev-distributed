@@ -72,7 +72,7 @@ def embed_batch(esmfold, sequences, max_len=512, min_len=30):
         embed_results = esmfold.infer_embedding(sequences)
         feats = embed_results["s"].detach()  # (N, L, 1024)
         seq_lens = torch.tensor(seq_lens, device="cpu", dtype=torch.int16)
-    return feats, seq_lens
+    return feats, seq_lens, sequences
 
 
 def write_headers(headers, outdir, shard_number):
@@ -92,7 +92,7 @@ def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_le
         batch = next(iter(dataloader))
         headers, sequences = batch
         headers = [s.split("|")[2].split("/")[0] for s in headers]
-        feats, seq_lens = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
+        feats, seq_lens, sequences = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
 
         cur_headers.extend(headers)
@@ -121,7 +121,7 @@ def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
             "seq_len": seq_lens,
         }, outdir / f"shard{shard_number:04}.pt"
     )
-    print(f"saved {embs.shape[0]} sequences to shard {shard_number}")
+    print(f"saved {embs.shape[0]} sequences to shard {shard_number} as safetensor file")
 
 
 def save_h5_embeddings(embs, sequences, shard_number, outdir, dtype: str):
@@ -131,9 +131,9 @@ def save_h5_embeddings(embs, sequences, shard_number, outdir, dtype: str):
     embs = embs.to(dtype=dtype)
     with h5py.File(str(outdir / f"shard{shard_number:04}.h5"), "w") as f:
         f.create_dataset("embeddings", data=embs.numpy())
-        f.create_dataset("sequences", data=np.array(sequences, dtype=np.str_))
+        f.create_dataset("sequences", data=sequences)
         print(f"saved {embs.shape[0]} sequences to shard {shard_number} as h5 file")
-    del embs, seq_lens
+    del embs
 
 
 def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
@@ -158,7 +158,7 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         if cfg.compression == "safetensors":
             save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir, cfg.dtype)
         elif cfg.compression == "hdf5":
-            save_h5_embeddings(emb_shard, sequences, shard_number, outdir)
+            save_h5_embeddings(emb_shard, sequences, shard_number, outdir, cfg.dtype)
         else:
             raise ValueError(f"invalid compression type {cfg.compression}")
 
@@ -170,7 +170,7 @@ def main(cfg: ShardConfig):
     end = time.time()
     print(f"done making esmfold in {end - start:.2f} seconds.")
 
-    device = torch.device("cuda")
+    device = torch.device("cuda:0")
     esmfold.to(device)
     esmfold.eval()
     esmfold.requires_grad_(False)
