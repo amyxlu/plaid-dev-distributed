@@ -62,7 +62,7 @@ def masked_token_cross_entropy_loss(
     pred_logits: torch.Tensor,
     targets: torch.Tensor,
     mask: T.Optional[torch.Tensor] = None,
-    ignore_index: T.Optional[int] = None,
+    ignore_index: T.Optional[int] = -100,
 ):
     # pred_logits: (B, L, C) logits.
     # target: (B, L) indices.
@@ -73,9 +73,10 @@ def masked_token_cross_entropy_loss(
     # The vocab uses 0, which overlaps with the padding idx used by the
     # ESMFold collator, so we use the mask to remove padding positions from
     # array entirely, and then ignore the UNK_IDX when computing the loss.
-    mask = einops.rearrange(mask, "b l -> (b l)").to(torch.bool)
-    pred_logits = pred_logits[mask, :]
-    targets = targets[mask]
+    if not mask is None:
+        mask = einops.rearrange(mask, "b l -> (b l)").to(torch.bool)
+        pred_logits = pred_logits[mask, :]
+        targets = targets[mask]
     return F.cross_entropy(pred_logits, targets, ignore_index=ignore_index)
 
 
@@ -89,9 +90,10 @@ def masked_token_accuracy(
     # mask: (B, L) int or bool.
     pred_logits = einops.rearrange(pred_logits, "b l c -> (b l) c")
     targets = einops.rearrange(target, "b l -> (b l)")
-    mask = einops.rearrange(mask, "b l -> (b l)").to(torch.bool)
-    pred_logits = pred_logits[mask, :]
-    targets = targets[mask]
+    if not mask is None:
+        mask = einops.rearrange(mask, "b l -> (b l)").to(torch.bool)
+        pred_logits = pred_logits[mask, :]
+        targets = targets[mask]
 
     pred = pred_logits.argmax(-1)
     assert pred.shape == targets.shape
@@ -100,7 +102,7 @@ def masked_token_accuracy(
 
 class SequenceAuxiliaryLoss:
     def __init__(self, decoder, weight=1.0, loss_fn=masked_token_cross_entropy_loss):
-        self.decoder = decoder.eval().requires_grad_(False)
+        self.decoder = decoder.eval().requires_grad_(True)
         self.loss_fn = loss_fn
         self.weight = weight
         self.device = next(decoder.parameters()).device
@@ -127,3 +129,36 @@ class StructureAuxiliaryLoss:
 
     def __call__(self, latent, gt_structures):
         pass
+
+
+if __name__ == "__main__":
+    from plaid.datasets import CATHShardedDataModule
+    from plaid.utils import load_sequence_decoder
+    
+    device = torch.device("cuda:1")
+
+    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    datadir = "/shared/amyxlu/data/cath/shards/"
+    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
+    
+    dm = CATHShardedDataModule(
+        # storage_type="hdf5",
+        seq_len=64,
+        shard_dir=datadir,
+        header_to_sequence_file=pklfile,
+        # dtype="fp32"
+    )
+    dm.setup("fit")
+    train_dataloader = dm.train_dataloader()
+    batch = next(iter(train_dataloader))
+    x, mask, sequence = batch
+    x, mask = x.to(device=device, dtype=torch.float32), mask.to(
+        device, dtype=torch.float32
+    )
+    sequence = [s[:64] for s in sequence]
+
+    sequence_decoder = load_sequence_decoder(eval_mode=False, device=device)
+    sequence_loss_fn = SequenceAuxiliaryLoss(sequence_decoder)
+    loss, logdict = sequence_loss_fn(x, sequence, 0.98)
+    import IPython; IPython.embed()

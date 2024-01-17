@@ -50,6 +50,7 @@ def load_sequence_decoder(device=None, ckpt_path=None, eval_mode=True):
     decoder = FullyConnectedNetwork(mlp_num_layers=2, n_classes=n_classes)
     checkpoint = torch.load(ckpt_path, map_location="cpu")
     decoder.load_state_dict(checkpoint["model_state_dict"])
+    print("loaded decoder from", ckpt_path)
     if eval_mode:
         for param in decoder.parameters():
             param.requires_grad = False
@@ -213,7 +214,9 @@ class LatentToSequence:
         self.tokenizer = DecoderTokenizer("vocab_21")
         self.decoder = load_sequence_decoder(device=device).eval().requires_grad_(False)
 
-    def to_sequence(self, latent: ArrayLike):
+    def to_sequence(self, latent: ArrayLike, mask=None):
+        if not mask is None:
+            mask = torch.ones_like(latent)
         latent = to_tensor(latent, device=self.device)
         with torch.no_grad():
             sequence_logits = self.decoder(latent)
