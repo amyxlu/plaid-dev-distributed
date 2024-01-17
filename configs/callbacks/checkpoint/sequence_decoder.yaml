@@ -1,5 +1,5 @@
 _target_: lightning.pytorch.callbacks.ModelCheckpoint
-dirpath: ${paths.checkpoint_dir}/diffusion
+dirpath: ${paths.checkpoint_dir}/sequence_decoder
 filename: "{epoch}-{step}"
 verbose: true
 save_last: true

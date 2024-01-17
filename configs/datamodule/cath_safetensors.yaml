@@ -4,4 +4,4 @@ shard_dir: ${paths.data_dir}/cath/shards
 header_to_sequence_file: ${paths.data_dir}/cath/sequences.pkl
 seq_len: 256
 batch_size: 64 
-num_workers: 4
+num_workers: 0 

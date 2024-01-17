@@ -1,0 +1,6 @@
+_target_: plaid.datasets.FastaDataModule
+
+fasta_file: ${paths.data_dir}/uniref90/uniref90.fasta
+train_frac: 0.999
+batch_size: 64 
+num_workers: 4 

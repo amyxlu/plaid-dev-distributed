@@ -1,0 +1,7 @@
+_target_: plaid.decoder.FullyConnectedNetwork
+
+n_classes: 32
+mlp_hidden_dim: 1024
+mlp_num_layers: 3
+mlp_dropout_p: 0.1
+lr: 1e-4
