@@ -15,6 +15,7 @@ import dataclasses
 from safetensors.torch import save_file, load_file
 from plaid import utils
 from plaid.esmfold import esmfold_v1
+from plaid.transforms import get_random_sequence_crop_batch
 import time
 
 
@@ -65,7 +66,7 @@ def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
 
 def embed_batch(esmfold, sequences, max_len=512, min_len=30):
     with torch.no_grad():
-        sequences = utils.get_random_sequence_crop_batch(
+        sequences = get_random_sequence_crop_batch(
             sequences, max_len=max_len, min_len=min_len
         )
         seq_lens = [len(seq) for seq in sequences]
