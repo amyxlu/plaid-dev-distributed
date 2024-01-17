@@ -23,10 +23,7 @@ def train(cfg: DictConfig):
     # lightning data and model modules
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
-    model = hydra.utils.instantiate(cfg.sequence_decoder)
-
-    esmfold = esmfold_v1()
-    embed_fn = esmfold.infer_embedding
+    model = hydra.utils.instantiate(cfg.sequence_decoder, esmfold=esmfold_v1())
 
     job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
 

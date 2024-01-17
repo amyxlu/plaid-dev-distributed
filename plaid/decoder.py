@@ -91,6 +91,7 @@ class FullyConnectedNetwork(L.LightningModule):
         sequence = get_random_sequence_crop_batch(sequence, self.training_max_seq_len)
         aatype, mask, _, _, _ = self.batch_encode_sequences(sequence)
         latent = self.esmfold.infer_embedding(sequence)['s']
+        aatype, mask = aatype.to(self.device), mask.to(self.device)
         return self(latent), aatype, mask
 
     def training_step(self, batch, batch_idx, **kwargs):
@@ -98,8 +99,8 @@ class FullyConnectedNetwork(L.LightningModule):
         logits, aatype, mask = self.forward_pass_from_sequence(sequence)
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("train/loss", loss)
-        self.log("train/acc", acc)
+        self.log("train/loss", loss, batch_size=logits.shape[0], on_epoch=False)
+        self.log("train/acc", acc, batch_size=logits.shape[0], on_epoch=False)
         return loss
     
     def validation_step(self, batch, batch_idx, **kwargs):
@@ -107,8 +108,8 @@ class FullyConnectedNetwork(L.LightningModule):
         logits, aatype, mask = self.forward_pass_from_sequence(sequence)
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("val/loss", loss)
-        self.log("val/acc", acc)
+        self.log("val/loss", loss, batch_size=logits.shape[0], on_epoch=False)
+        self.log("val/acc", acc, batch_size=logits.shape[0], on_epoch=False)
         return loss
     
     def test_step(self, batch, batch_idx, **kwargs):
@@ -116,8 +117,8 @@ class FullyConnectedNetwork(L.LightningModule):
         logits, aatype, mask = self.forward_pass_from_sequence(sequence)
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("test/loss", loss)
-        self.log("test/acc", acc)
+        self.log("test/loss", loss, batch_size=logits.shape[0], on_epoch=False)
+        self.log("test/acc", acc, batch_size=logits.shape[0], on_epoch=False)
         return loss
     
 
