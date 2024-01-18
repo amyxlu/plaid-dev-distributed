@@ -1,5 +1,7 @@
+timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
+
 _target_: lightning.pytorch.callbacks.ModelCheckpoint
-dirpath: null
+dirpath: ${paths.checkpoint_dir}/vqvae/${callbacks.checkpoint.timestamp}
 filename: "{epoch}-{step}"
 verbose: true
 save_last: true

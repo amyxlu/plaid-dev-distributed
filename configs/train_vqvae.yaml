@@ -1,14 +1,15 @@
+timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
+
 defaults:
   - _self_
   - paths: dgx5
   - datamodule: cath
   - vqvae: patched_vqvae 
   - trainer: default
-  - callbacks: default
+  - callbacks/checkpoint: vqvae 
+  - callbacks/lr_monitor: default
   - logger: vqvae
   - experiment: null
-
-callbacks.checkpoint.dirpath: ${paths.checkpoint_dir}/vqvae
 
 dryrun: False 
 run_test: null

@@ -1,3 +1,6 @@
 root_dir: /shared/amyxlu/plaid
 data_dir: /shared/amyxlu/data
+log_dir: /shared/amyxlu/plaid/logs
+checkpoint_dir: ${paths.root_dir}/checkpoints
+artifacts_dir: ${paths.root_dir}/artifacts
 entity: amyxlu

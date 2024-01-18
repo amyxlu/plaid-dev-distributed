@@ -1,6 +1,6 @@
-timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
 root_dir: /homefs/home/lux70/storage/plaid
 data_dir: /homefs/home/lux70/storage/data/
-checkpoint_dir: ${paths.root_dir}/checkpoints/${paths.timestamp}
-artifacts_dir: ${paths.root_dir}/artifacts/${paths.timestamp}
+log_dir: /homefs/home/lux70/storage/plaid/logs
+checkpoint_dir: ${paths.root_dir}/checkpoints
+artifacts_dir: ${paths.root_dir}/artifacts
 entity: lu-amy-al1

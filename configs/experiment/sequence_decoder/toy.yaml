@@ -1,0 +1,16 @@
+# @package _global_
+
+# defaults:
+#   - override /callbacks/checkpoint: sequence_decoder.yaml
+
+datamodule.fasta_path: ${paths.data_dir}/small.fasta
+
+trainer:
+  val_check_interval: 5
+  limit_val_batches: 0.1
+  log_every_n_steps: 1 
+  fast_dev_run: 10
+
+callbacks:
+  checkpoint:
+    every_n_train_steps: 10

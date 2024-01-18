@@ -24,8 +24,10 @@ class FullyConnectedNetwork(L.LightningModule):
         super().__init__()
         self.batch_encode_sequences = batch_encode_sequences
         self.lr = lr
-        self.esmfold = esmfold.requires_grad_(False).eval()
-        self.esmfold.to(self.device)
+        if not esmfold is None:
+            esmfold.requires_grad_(False).eval()
+            esmfold.to(self.device)
+        self.esmfold = esmfold
         self.training_max_seq_len = training_max_seq_len
 
         if mlp_num_layers == 1:
@@ -79,6 +81,7 @@ class FullyConnectedNetwork(L.LightningModule):
             layers.append(nn.Sigmoid())
 
         self.net = nn.Sequential(*layers)
+        self.save_hyperparameters()
 
     def forward(self, x):
         # for inference
@@ -99,27 +102,30 @@ class FullyConnectedNetwork(L.LightningModule):
         logits, aatype, mask = self.forward_pass_from_sequence(sequence)
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("train/loss", loss, batch_size=logits.shape[0], on_epoch=False)
-        self.log("train/acc", acc, batch_size=logits.shape[0], on_epoch=False)
+        self.log("train/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        self.log("train/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
         return loss
     
     def validation_step(self, batch, batch_idx, **kwargs):
+        print("starting val step")
         _, sequence = batch
         logits, aatype, mask = self.forward_pass_from_sequence(sequence)
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("val/loss", loss, batch_size=logits.shape[0], on_epoch=False)
-        self.log("val/acc", acc, batch_size=logits.shape[0], on_epoch=False)
+        print("val loss: ", loss.item(), "val acc: ", acc.item())
+        self.log("val/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        self.log("val/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
         return loss
     
     def test_step(self, batch, batch_idx, **kwargs):
-        _, sequence = batch
-        logits, aatype, mask = self.forward_pass_from_sequence(sequence)
-        loss = self.loss(logits, aatype, mask)
-        acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("test/loss", loss, batch_size=logits.shape[0], on_epoch=False)
-        self.log("test/acc", acc, batch_size=logits.shape[0], on_epoch=False)
-        return loss
+        pass
+        # _, sequence = batch
+        # logits, aatype, mask = self.forward_pass_from_sequence(sequence)
+        # loss = self.loss(logits, aatype, mask)
+        # acc = masked_token_accuracy(logits, aatype, mask=mask)
+        # self.log("test/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        # self.log("test/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        # return loss
     
 
     def configure_optimizers(self):
