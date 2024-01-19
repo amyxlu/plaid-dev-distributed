@@ -118,6 +118,7 @@ class TransformerVQVAE(L.LightningModule):
         xavier_init(self.vqvae_encoder)
         xavier_init(self.pre_quantization_conv)
         xavier_init(self.vqvae_decoder)
+        self.save_hyperparameters()
 
     def transformer_forward(self, z_q, mask):
         # z_q shape: (N, L', C')

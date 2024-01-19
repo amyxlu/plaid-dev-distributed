@@ -19,7 +19,6 @@ from ._misc import npy, to_tensor
 from ..decoder import FullyConnectedNetwork
 from ..esmfold import ESMFOLD_Z_DIM, esmfold_v1
 from ..esmfold.misc import output_to_pdb, batch_encode_sequences
-from . import DECODER_CKPT_PATH
 
 
 ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
@@ -190,7 +189,7 @@ class LatentToSequence:
         self.temperature = temperature
         self.device = device
         self.tokenizer = DecoderTokenizer("vocab_21")
-        self.decoder = load_sequence_decoder(device=device).eval().requires_grad_(False)
+        self.decoder = FullyConnectedNetwork.from_pretrained() 
 
     def to_sequence(self, latent: ArrayLike, mask=None):
         if not mask is None:

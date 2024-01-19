@@ -3,7 +3,7 @@ timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
 defaults:
   - _self_
   - paths: dgx5
-  - datamodule: cath
+  - datamodule: cath_safetensors
   - vqvae: patched_vqvae 
   - trainer: default
   - callbacks/checkpoint: vqvae 

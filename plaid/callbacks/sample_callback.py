@@ -205,16 +205,6 @@ class SampleCallback(Callback):
             if log_to_wandb:
                 logger.log(log_dict)
 
-        #     if not self.is_save_setup:
-        #         self._save_setup()
-        #     for i, pdb_str in enumerate(pdb_strs[:4]):
-        #         outpath = self.outdir / f"{i:03}.pdb"
-        #         print(outpath)
-        #         # outpath = write_pdb_to_disk(pdb_str, self.outdir / f"{i:03}.pdb")
-        #         write_pdb_to_disk(pdb_str, outpath)
-        #         if rank_zero_only.rank == 0:
-        #             logger.log({f"sampled/structure": wandb.Molecule(outpath)}, sync_dist=True)
-
     def on_sanity_check_start(self, trainer, pl_module):
         _sampling_timesteps = pl_module.sampling_timesteps
         # hack
