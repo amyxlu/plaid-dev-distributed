@@ -3,7 +3,7 @@ timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
 defaults:
   - _self_
   - paths: pcluster 
-  - datamodule: cath
+  - datamodule: cath_safetensors
   - denoiser: utsa.yaml 
   - beta_scheduler: adm_cosine 
   - latent_scaler: cath
@@ -11,6 +11,7 @@ defaults:
   - trainer: default
   - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
+  - callbacks/sample: default
   - logger: diffusion
   - experiment: null
 

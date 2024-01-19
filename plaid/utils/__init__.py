@@ -2,9 +2,6 @@ import os
 from pathlib import Path
 
 CACHED_TENSORS_DIR = Path(os.path.dirname(__file__)) / "../../cached_tensors"
-DECODER_CKPT_PATH = (
-    Path(os.path.dirname(__file__)) / "../../cached_tensors/decoder_mlp.ckpt"
-)
 
 from ._misc import *
 from ._gns import DDPGradientStatsHook, GradientNoiseScale

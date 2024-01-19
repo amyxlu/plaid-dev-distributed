@@ -1,13 +1,18 @@
 import torch.nn as nn
 import torch
 import lightning as L
+from pathlib import Path
+import os
 
 from typing import Optional, Callable
 
 from plaid.losses import masked_token_cross_entropy_loss, masked_token_accuracy
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.transforms import get_random_sequence_crop_batch
-from plaid.utils import DECODER_CKPT_PATH
+
+DECODER_CKPT_PATH = (
+    Path(os.path.dirname(__file__)) / "../cached_tensors/decoder_mlp.ckpt"
+)
 
 
 class FullyConnectedNetwork(L.LightningModule):

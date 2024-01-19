@@ -188,7 +188,7 @@ class LatentToSequence:
     def __init__(self, device, temperature: float = 1.0):
         self.temperature = temperature
         self.device = device
-        self.tokenizer = DecoderTokenizer("vocab_21")
+        self.tokenizer = DecoderTokenizer()
         self.decoder = FullyConnectedNetwork.from_pretrained() 
 
     def to_sequence(self, latent: ArrayLike, mask=None):

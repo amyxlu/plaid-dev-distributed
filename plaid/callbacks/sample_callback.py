@@ -36,6 +36,7 @@ class SampleCallback(Callback):
         log_to_wandb: bool = False,
         calc_structure: bool = True,
         calc_fid: bool = True,
+        fid_reference_dataset: str = "uniref",
         calc_perplexity: bool = True,
         num_recycles: int = 4,
         outdir: str = "sampled",
@@ -49,6 +50,7 @@ class SampleCallback(Callback):
         self.calc_structure = calc_structure
         self.calc_perplexity = calc_perplexity
         self.calc_fid = calc_fid
+        self.fid_reference_dataset = fid_reference_dataset
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
         self.sequence_decode_temperature = sequence_decode_temperature
@@ -75,10 +77,16 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = True
 
     def _fid_setup(self, device):
-        cached_tensors_path = (
-            Path(os.path.dirname(__file__))
-            / "../../cached_tensors/holdout_esmfold_feats.st"
-        )
+        if self.fid_reference_dataset == "uniref":
+            cached_tensors_path = (
+                Path(os.path.dirname(__file__))
+                / "../../cached_tensors/holdout_esmfold_feats.st"
+            )
+        elif self.fid_reference_dataset == "cath":
+            cached_tensors_path = (
+                Path(os.path.dirname(__file__))
+                / "../../cached_tensors/cath_esmfold_feats.st"
+            )
 
         def load_saved_features(location, device="cpu"):
             return st.load_file(location)["features"].to(device)

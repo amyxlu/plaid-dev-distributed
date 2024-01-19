@@ -234,7 +234,7 @@ class TransformerVQVAE(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, mask, sequence = batch
-        loss, recon_loss, embedding_loss, perplexity = self.loss(x)
+        loss, recon_loss, embedding_loss, perplexity = self.loss(x, mask)
         self.log("train_loss", loss)
         self.log("train_recon_loss", recon_loss)
         self.log("train_embedding_loss", embedding_loss)
@@ -242,8 +242,8 @@ class TransformerVQVAE(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, _, _ = batch
-        loss, recon_loss, embedding_loss, perplexity = self.loss(x)
+        x, mask, _ = batch
+        loss, recon_loss, embedding_loss, perplexity = self.loss(x, mask)
         self.log("val_loss", loss)
         self.log("val_recon_loss", recon_loss)
         self.log("val_embedding_loss", embedding_loss)
@@ -278,4 +278,5 @@ if __name__ == "__main__":
 
     # test vqvae
     # output = model(x, verbose=True)
-    print(model.loss(x, mask))
+    # print(model.loss(x, mask))
+    model.training_step((x, mask, None), 0)
