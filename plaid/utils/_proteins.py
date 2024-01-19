@@ -13,7 +13,7 @@ import torch
 import typing as T
 import numpy as np
 import re
-from openfold.np.residue_constants import restype_order_with_x
+from openfold.np import residue_constants
 
 from ._misc import npy, to_tensor
 from ..decoder import FullyConnectedNetwork
@@ -27,10 +27,6 @@ PathLike = T.Union[str, Path]
 
 
 CANONICAL_AA = "ACDEFGHIKLMNPQRSTVWY"
-OPENFOLD_AAIDX_TO_AACHAR = {idx: char for idx, char in enumerate(restype_order_with_x)}
-OPENFOLD_AACHAR_TO_AAINDEX = {
-    char: idx for idx, char in enumerate(restype_order_with_x)
-}
 
 # https://github.com/dauparas/ProteinMPNN/blob/main/protein_mpnn_utils.py#L61
 PROTEINMPNN_AACHAR_TO_AAIDX_ARR = list("ARNDCQEGHILKMFPSTWYV-")
@@ -42,29 +38,11 @@ PROTEINMPNN_AACHAR_TO_AAIDX = {
 }
 
 
-def load_sequence_decoder(device=None, ckpt_path=None, eval_mode=True):
-    if ckpt_path is None:
-        ckpt_path = DECODER_CKPT_PATH
-    tokenizer = DecoderTokenizer()
-    n_classes = len(tokenizer)
-    decoder = FullyConnectedNetwork(mlp_num_layers=2, n_classes=n_classes)
-    checkpoint = torch.load(ckpt_path, map_location="cpu")
-    decoder.load_state_dict(checkpoint["model_state_dict"])
-    print("loaded decoder from", ckpt_path)
-    if eval_mode:
-        for param in decoder.parameters():
-            param.requires_grad = False
-        decoder.eval()
-    if not device is None:
-        decoder.to(device)
-    return decoder
-
-
 class DecoderTokenizer:
-    def __init__(self, vocab="vocab_21"):
-        if vocab == "vocab_21":
-            self.aachar_to_aaidx = OPENFOLD_AACHAR_TO_AAINDEX
-            self.aaidx_to_aachar = OPENFOLD_AAIDX_TO_AACHAR
+    def __init__(self, vocab="openfold"):
+        if vocab == "openfold":
+            self.aachar_to_aaidx = residue_constants.restype_order_with_x
+            self.aaidx_to_aachar = {v: k for k, v in self.aachar_to_aaidx.items()} 
         elif vocab == "proteinmpnn":
             self.aachar_to_aaidx = PROTEINMPNN_AACHAR_TO_AAIDX
             self.aaidx_to_aachar = PROTEINMPNN_AAIDX_TO_AACHAR

@@ -9,6 +9,7 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 
 from plaid.esmfold import esmfold_v1
+from plaid.transforms import ESMFoldEmbed
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_sequence_decoder")
@@ -23,7 +24,10 @@ def train(cfg: DictConfig):
     # lightning data and model modules
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
-    model = hydra.utils.instantiate(cfg.sequence_decoder, esmfold=esmfold_v1())
+
+    esmfold = esmfold_v1().eval().requires_grad_(False)
+    embed_fn = ESMFoldEmbed(esmfold)
+    model = hydra.utils.instantiate(cfg.sequence_decoder, training_embed_from_sequence_fn=embed_fn)
 
     job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
 
@@ -36,7 +40,7 @@ def train(cfg: DictConfig):
     # callbacks/home/amyxlu/plaid/plaid/denoisers
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
-    # run training
+
 
     trainer = hydra.utils.instantiate(
         cfg.trainer,

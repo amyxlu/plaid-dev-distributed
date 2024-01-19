@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 import numpy as np
+from typing import List, Tuple
 import h5py
 
 from evo.dataset import FastaDataset
@@ -112,22 +113,19 @@ class H5ShardDataset(torch.utils.data.Dataset):
         else:
             datadir = self.shard_dir
         datadir = datadir / f"seqlen_{self.max_seq_len}" / self.dtype
-        
+
         with h5py.File(datadir / "shard0000.h5", "r") as f:
             emb = torch.from_numpy(np.array(f["embeddings"]))
             sequence = list(f["sequences"])
-        
-        sequence = [s.decode()[:self.max_seq_len] for s in sequence]
+
+        sequence = [s.decode()[: self.max_seq_len] for s in sequence]
         return emb, sequence
 
     def __len__(self):
         return self.embs.size(0)
 
     def __getitem__(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
-        return (
-            self.embs[idx, ...],
-            self.sequences[idx]
-        )
+        return (self.embs[idx, ...], self.sequences[idx])
 
 
 class CATHShardedDataModule(L.LightningDataModule):
@@ -211,41 +209,97 @@ class CATHShardedDataModule(L.LightningDataModule):
 
 
 class FastaDataModule(L.LightningDataModule):
-    def __init__(self, fasta_file: str, batch_size: int, max_seq_len: int = 512, train_frac: float = 0.8, num_workers: int = 0):
+    def __init__(
+        self,
+        fasta_file: str,
+        batch_size: int,
+        max_seq_len: int = 512,
+        train_frac: float = 0.8,
+        num_workers: int = 0,
+    ):
         super().__init__()
         self.fasta_file = fasta_file
         self.train_frac, self.val_frac = train_frac, 1 - train_frac
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.max_seq_len = max_seq_len
-    
+
     def setup(self, stage: str = "fit"):
         ds = FastaDataset(self.fasta_file, cache_indices=True)
         seed = torch.Generator().manual_seed(42)
-        self.train_dataset, self.val_dataset = torch.utils.data.random_split(ds, [self.train_frac, self.val_frac], generator=seed)
-    
+        self.train_dataset, self.val_dataset = torch.utils.data.random_split(
+            ds, [self.train_frac, self.val_frac], generator=seed
+        )
+
     def train_dataloader(self):
         return DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            shuffle=True
+            shuffle=True,
         )
-    
+
     def val_dataloader(self):
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            shuffle=False
+            shuffle=False,
         )
-    
+
     def test_dataloader(self):
         return self.val_dataloader()
 
 
+class EmbedFastaDataModule(FastaDataModule):
+    """Overrides the dataloader functions to embed with ESMFold instead."""
+
+    def __init__(
+        self,
+        esmfold: torch.nn.Module,
+        fasta_file: str,
+        batch_size: int,
+        max_seq_len: int = 512,
+        train_frac: float = 0.8,
+        num_workers: int = 0,
+    ):
+        super().__init__(fasta_file, batch_size, max_seq_len, train_frac, num_workers)
+        self.esmfold = esmfold
+        self.esmfold = self.esmfold.eval().requires_grad_(False).cuda()
+
+    def embed_fn(self, header, sequence: List[str]) -> Tuple[torch.Tensor, List[str]]:
+        from plaid.utils import get_random_sequence_crop_batch
+
+        sequence = get_random_sequence_crop_batch(sequence, self.max_seq_len)
+        with torch.no_grad():
+            output = self.esmfold.infer_embedding(sequence)
+        return output["s"], header, sequence
+
+    def train_dataloader(self):
+        """Dataloader will load the embedding and the original sequence (truncated to max length)"""
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=True,
+            collate_fn=self.embed_fn,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=False,
+            collate_fn=self.embed_fn,
+        )
+
+    def test_dataloader(self):
+        return self.val_dataloader()
 
 
 if __name__ == "__main__":
@@ -259,10 +313,18 @@ if __name__ == "__main__":
     # train_dataloader = dm.train_dataloader()
     # batch = next(iter(train_dataloader))
     fasta_file = "/shared/amyxlu/data/uniref90/truncated.fasta"
-    dm = FastaDataModule(fasta_file)
-    dm.setup("fit")
-    train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
+
+    from plaid.esmfold import esmfold_v1
+
+    esmfold = esmfold_v1()
+    esmfold = esmfold.eval().requires_grad_(False).cuda()
     import IPython
 
     IPython.embed()
+
+    dm = EmbedFastaDataModule(esmfold, fasta_file, batch_size=32)
+    dm.setup("fit")
+    train_dataloader = dm.train_dataloader()
+    batch = next(iter(train_dataloader))
+
+    transform = esmfold.infer_embedding

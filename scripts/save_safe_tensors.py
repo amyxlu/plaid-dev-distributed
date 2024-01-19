@@ -128,6 +128,7 @@ def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
 def save_h5_embeddings(embs, sequences, shard_number, outdir, dtype: str):
     # doesn't work with bfloat16, but does work with strings
     assert dtype in ("fp32", "fp64")
+    outdir = outdir / dtype
     dtype = _get_dtype(dtype)
     embs = embs.to(dtype=dtype)
     with h5py.File(str(outdir / f"shard{shard_number:04}.h5"), "w") as f:
