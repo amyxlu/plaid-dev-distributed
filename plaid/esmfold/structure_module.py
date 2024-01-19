@@ -655,9 +655,12 @@ class StructureModule(nn.Module):
 
         # [*, N, C_s]
         s = self.layer_norm_s(s)
+        s_ = s.clone()
 
         # [*, N, N, C_z]
         z = self.layer_norm_z(evoformer_output_dict["pair"])
+        z_ = z.clone()
+
 
         z_reference_list = None
         if(_offload_inference):
@@ -737,6 +740,8 @@ class StructureModule(nn.Module):
                 "states": s,
                 # #### ADDED ####
                 "s_initial": s_initial,
+                "s_after_layernorm": s_,
+                "z_after_layernorm": z_,
                 ###############
             }
 

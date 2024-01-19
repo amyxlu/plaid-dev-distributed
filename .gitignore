@@ -10,6 +10,7 @@ wandb/*
 .env
 *.safetensors
 cached_tensors/holdout_esmfold_feats.st
+cached_tensors/decoder_mlp.ckpt
 artifacts
 .vscode
 *.out
