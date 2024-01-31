@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+# hack - place just one level above
 CACHED_TENSORS_DIR = Path(os.path.dirname(__file__)) / "../../cached_tensors"
 
 from ._misc import *
