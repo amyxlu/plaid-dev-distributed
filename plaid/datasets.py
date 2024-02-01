@@ -148,14 +148,15 @@ class CATHStructureDataset(H5ShardDataset):
         from plaid.utils import StructureFeaturizer
         self.structure_featurizer = StructureFeaturizer() 
         self.pdb_path_dir = Path(pdb_path_dir)
+        self.max_seq_len = max_seq_len
 
     def __getitem__(self, idx: int):
         emb, seq, pdb_id = self.get(idx)
         pdb_path = self.pdb_path_dir / pdb_id
         with open(pdb_path, "r") as f:
-            pdb_str = f.read(pdb_path)
-        return emb, seq, self.structure_featurizer(pdb_str)
-
+            pdb_str = f.read()
+        structure_features = self.structure_featurizer(pdb_str, self.max_seq_len)
+        return emb, seq, structure_features 
 
 class CATHShardedDataModule(L.LightningDataModule):
     def __init__(
@@ -187,14 +188,12 @@ class CATHShardedDataModule(L.LightningDataModule):
             self.train_dataset = self.dataset_fn(
                 "train",
                 self.shard_dir,
-                self.header_to_sequence_file,
                 self.seq_len,
                 dtype=self.dtype,
             )
             self.val_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
-                self.header_to_sequence_file,
                 self.seq_len,
                 dtype=self.dtype,
             )
@@ -202,7 +201,6 @@ class CATHShardedDataModule(L.LightningDataModule):
             self.test_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
-                self.header_to_sequence_file,
                 self.seq_len,
                 dtype=self.dtype,
             )
@@ -238,6 +236,15 @@ class CATHShardedDataModule(L.LightningDataModule):
 
 
 class CATHStructureDataModule(L.LightningDataModule):
+    """Lightning datamodule that loads cached CATH tensors and structure features.
+    Returns a tuple of (embedding, sequence_strings, dictionary_of_structure_features)
+    
+    Note: the structure features includes a list of keys that includes 'sequence'; this is the sequence
+    parsed from the PDB file, and includes the full, untrimmed sequence.
+    The sequence strings are saved from the original sequences that produced the
+    embeddings, and always trimmed to self.seq_len. The string identity should be usually the
+    same, unless in cases where the FASTA and PDB files in the CATH database differs in sidechain identity.
+    """
     def __init__(
         self,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
@@ -267,6 +274,7 @@ class CATHStructureDataModule(L.LightningDataModule):
             self.val_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
+                self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
             )
@@ -274,6 +282,7 @@ class CATHStructureDataModule(L.LightningDataModule):
             self.test_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
+                self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
             )
@@ -426,6 +435,10 @@ if __name__ == "__main__":
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    dm = CATHStructureDataModule(shard_dir, pdb_dir, seq_len=64, batch_size=32, num_workers=0)
+    dm = CATHStructureDataModule(
+        shard_dir,
+        pdb_dir, seq_len=64, batch_size=32, num_workers=0)
     dm.setup()
     train_dataloader = dm.train_dataloader()
+    batch = next(iter(train_dataloader))
+    import IPython;IPython.embed()
