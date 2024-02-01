@@ -9,10 +9,7 @@ from typing import Optional, Callable
 from plaid.losses import masked_token_cross_entropy_loss, masked_token_accuracy
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.transforms import get_random_sequence_crop_batch
-
-DECODER_CKPT_PATH = (
-    Path(os.path.dirname(__file__)) / "../cached_tensors/decoder_mlp.ckpt"
-)
+from plaid.constants import DECODER_CKPT_PATH
 
 
 class FullyConnectedNetwork(L.LightningModule):

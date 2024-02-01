@@ -252,16 +252,16 @@ class FoldingTrunk(nn.Module):
 
         return structure
     
-    def from_sm_s(self, sm_s, true_aa, s_s_0=None, s_z_0=None, residx=None, mask=None, no_recycles: T.Optional[int] = None):
-        """
-        For experiments where we diffuse from the structure module level
-        """
-        device = sm_s.device
-        N, L, _ = sm_s.shape
-        from . import ESMFOLD_S_DIM, ESMFOLD_Z_DIM
+    # def from_sm_s(self, sm_s, true_aa, s_s_0=None, s_z_0=None, residx=None, mask=None, no_recycles: T.Optional[int] = None):
+    #     """
+    #     For experiments where we diffuse from the structure module level
+    #     """
+    def from_seq_feat(self, true_aa, s_s_0, s_z_0=None, residx=None, mask=None, no_recycles: T.Optional[int] = None):
+        device = s_s_0.device 
+        N, L, _ = s_s_0.shape
+        from . import ESMFOLD_Z_DIM
 
         # initialize defaults #########################################################
-        s_s_0 = default(s_s_0, sm_s.new_zeros(N, L, ESMFOLD_S_DIM))
         s_z_0 = default(s_z_0, sm_s.new_zeros(N, L, L, ESMFOLD_Z_DIM))
         residx = default(residx, torch.arange(L, device=device).expand(N, L))
         mask = default(mask, torch.ones(N, L, device=device))

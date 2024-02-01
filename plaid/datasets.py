@@ -18,6 +18,7 @@ from plaid.transforms import mask_from_seq_lens
 
 # class ShardedTensorDataset(IterableDataset):
 #     def __init__(self, shard_dir, split=None):
+#         """Iterates through all of the safetensor shards in the directory."""
 #         shard_dir = Path(shard_dir)
 #         shard_files = glob.glob(str(shard_dir / "*.pt"))
 #         num_shards = len(shard_files)
@@ -44,6 +45,7 @@ from plaid.transforms import mask_from_seq_lens
 
 
 class TensorShardDataset(torch.utils.data.Dataset):
+    """Loads entire dataset as one Safetensor dataset. Returns the embedding, mask, and pdb id."""
     def __init__(
         self,
         split: T.Optional[str] = None,
@@ -90,11 +92,12 @@ class TensorShardDataset(torch.utils.data.Dataset):
 
 
 class H5ShardDataset(torch.utils.data.Dataset):
+    """Loads H5 dataset, which is able to actually store strings, but is
+    not able to support bf16 storage."""
     def __init__(
         self,
         split: T.Optional[str] = None,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
-        header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         max_seq_len: int = 64,
         dtype: str = "fp32",
     ):
@@ -102,9 +105,7 @@ class H5ShardDataset(torch.utils.data.Dataset):
         self.dtype = dtype
         self.max_seq_len = max_seq_len
         self.shard_dir = Path(shard_dir)
-        self.header_to_seq = pickle.load(open(header_to_sequence_file, "rb"))
-        self.seq_to_header = {v: k for k, v in self.header_to_seq.items()}
-        self.embs, self.sequences = self.load_partition(split)
+        self.embs, self.sequences, self.pdb_id = self.load_partition(split)
 
     def load_partition(self, split: T.Optional[str] = None):
         if not split is None:
@@ -117,15 +118,43 @@ class H5ShardDataset(torch.utils.data.Dataset):
         with h5py.File(datadir / "shard0000.h5", "r") as f:
             emb = torch.from_numpy(np.array(f["embeddings"]))
             sequence = list(f["sequences"])
+            pdb_id = list(f['pdb_id'])
 
         sequence = [s.decode()[: self.max_seq_len] for s in sequence]
-        return emb, sequence
+        pdb_id = [pid.decode() for pid in pdb_id]
+        return emb, sequence, pdb_id
 
     def __len__(self):
         return self.embs.size(0)
 
+    def get(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
+        return (self.embs[idx, ...], self.sequences[idx], self.pdb_id[idx])
+    
     def __getitem__(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
-        return (self.embs[idx, ...], self.sequences[idx])
+        return self.get(idx)
+
+
+class CATHStructureDataset(H5ShardDataset):
+    """ Wrapper around H5 shard dataset. Returns actual structure features as well."""
+    def __init__(
+        self,
+        split: T.Optional[str] = None,
+        shard_dir: str = "/shared/amyxlu/data/cath/shards",
+        pdb_path_dir: str = "/shared/amyxlu/data/cath/full/dompdb",
+        max_seq_len: int = 64,
+        dtype: str = "fp32",
+    ):
+        super().__init__(split, shard_dir, max_seq_len, dtype)
+        from plaid.utils import StructureFeaturizer
+        self.structure_featurizer = StructureFeaturizer() 
+        self.pdb_path_dir = Path(pdb_path_dir)
+
+    def __getitem__(self, idx: int):
+        emb, seq, pdb_id = self.get(idx)
+        pdb_path = self.pdb_path_dir / pdb_id
+        with open(pdb_path, "r") as f:
+            pdb_str = f.read(pdb_path)
+        return emb, seq, self.structure_featurizer(pdb_str)
 
 
 class CATHShardedDataModule(L.LightningDataModule):
@@ -137,7 +166,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
-        dtype: str = "bf16",
+        dtype: str = "fp32",
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -176,6 +205,77 @@ class CATHShardedDataModule(L.LightningDataModule):
                 self.header_to_sequence_file,
                 self.seq_len,
                 dtype=self.dtype,
+            )
+        else:
+            raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
+
+    def predict_dataloader(self):
+        return self.test_dataloader()
+
+
+class CATHStructureDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        shard_dir: str = "/shared/amyxlu/data/cath/shards",
+        pdb_path_dir: str = "/shared/amyxlu/data/cath/full/dompdb",
+        seq_len: int = 64,
+        batch_size: int = 32,
+        num_workers: int = 0,
+    ):
+        super().__init__()
+        self.shard_dir = shard_dir
+        self.pdb_path_dir = pdb_path_dir
+        self.seq_len = seq_len
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.dataset_fn = CATHStructureDataset 
+        self.dtype = "fp32"
+
+    def setup(self, stage: str = "fit"):
+        if stage == "fit":
+            self.train_dataset = self.dataset_fn(
+                "train",
+                self.shard_dir,
+                self.pdb_path_dir,
+                self.seq_len,
+                self.dtype,
+            )
+            self.val_dataset = self.dataset_fn(
+                "val",
+                self.shard_dir,
+                self.seq_len,
+                self.dtype,
+            )
+        elif stage == "predict":
+            self.test_dataset = self.dataset_fn(
+                "val",
+                self.shard_dir,
+                self.seq_len,
+                self.dtype,
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -303,6 +403,7 @@ class EmbedFastaDataModule(FastaDataModule):
 
 
 if __name__ == "__main__":
+    # from plaid.esmfold import esmfold_v1
     # datadir = "/homefs/home/lux70/data/cath"
     # pklfile = "/homefs/home/lux70/data/cath/sequences.pkl"
     # dm = CATHShardedDataModule(
@@ -312,19 +413,19 @@ if __name__ == "__main__":
     # dm.setup("fit")
     # train_dataloader = dm.train_dataloader()
     # batch = next(iter(train_dataloader))
-    fasta_file = "/shared/amyxlu/data/uniref90/truncated.fasta"
+    # fasta_file = "/shared/amyxlu/data/uniref90/truncated.fasta"
 
-    from plaid.esmfold import esmfold_v1
+    # esmfold = esmfold_v1()
+    # esmfold = esmfold.eval().requires_grad_(False).cuda()
 
-    esmfold = esmfold_v1()
-    esmfold = esmfold.eval().requires_grad_(False).cuda()
-    import IPython
+    # dm = EmbedFastaDataModule(esmfold, fasta_file, batch_size=32)
+    # dm.setup("fit")
+    # train_dataloader = dm.train_dataloader()
+    # batch = next(iter(train_dataloader))
+    # transform = esmfold.infer_embedding
 
-    IPython.embed()
-
-    dm = EmbedFastaDataModule(esmfold, fasta_file, batch_size=32)
-    dm.setup("fit")
+    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
+    dm = CATHStructureDataModule(shard_dir, pdb_dir, seq_len=64, batch_size=32, num_workers=0)
+    dm.setup()
     train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
-
-    transform = esmfold.infer_embedding

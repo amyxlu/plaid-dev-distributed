@@ -5,8 +5,8 @@ import numpy as np
 import einops
 import torch
 
-
 from plaid.esmfold.misc import batch_encode_sequences 
+from openfold.utils.loss import backbone_loss
 
 
 def make_mask(broadcast_shape, mask):
@@ -123,12 +123,15 @@ class SequenceAuxiliaryLoss:
         return weight * loss, logdict
     
 
-class StructureAuxiliaryLoss:
-    def __init__(self, esmfold_sm, weight=1.0, loss_fn=lambda x: x):
-        pass
+class BackboneAuxiliaryLoss:
+    def __init__(self, esmfold_trunk, weight=1.0):
+        self.structure_loss_fn = backbone_loss
+        self.trunk = esmfold_trunk
+        self.weight = weight
 
     def __call__(self, latent, gt_structures):
-        pass
+        pred_structures = self.trunk.from_seq_feat(latent)
+        return self.structure_loss_fn(pred_structures, gt_structures)
 
 
 if __name__ == "__main__":

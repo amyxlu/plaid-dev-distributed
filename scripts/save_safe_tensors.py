@@ -19,22 +19,20 @@ from plaid.transforms import get_random_sequence_crop_batch
 import time
 
 
-# fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-# train_output_dir: str = "/homefs/home/lux70/cath_data/train"
-# val_output_dir: str = "/homefs/home/lux70/cath_data/val"
-
-
 @dataclasses.dataclass
 class ShardConfig:
-    fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-    train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
-    val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
+    # fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+    # train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
+    # val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
+    fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+    train_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/train"
+    val_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/val"
     batch_size: int = 256 
     max_seq_len: int = 256 
     min_seq_len: int = 16
     num_workers: int = 4
     num_batches_per_shard: int = 20
-    compression: str = "safetensors"  # "safetensors", "hdf5"
+    compression: str = "hdf5"  # "safetensors", "hdf5"
     shard: bool = False
     train_frac: float = 0.8
     dtype: str = "fp32"  # "bf16", "fp32", "fp64"
@@ -125,15 +123,18 @@ def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
     print(f"saved {embs.shape[0]} sequences to shard {shard_number} as safetensor file")
 
 
-def save_h5_embeddings(embs, sequences, shard_number, outdir, dtype: str):
+def save_h5_embeddings(embs, sequences, pdb_id, shard_number, outdir, dtype: str):
     # doesn't work with bfloat16, but does work with strings
     assert dtype in ("fp32", "fp64")
     outdir = outdir / dtype
+    if not outdir.exists():
+        outdir.mkdir(parents=True)
     dtype = _get_dtype(dtype)
     embs = embs.to(dtype=dtype)
     with h5py.File(str(outdir / f"shard{shard_number:04}.h5"), "w") as f:
         f.create_dataset("embeddings", data=embs.numpy())
         f.create_dataset("sequences", data=sequences)
+        f.create_dataset("pdb_id", data=pdb_id)
         print(f"saved {embs.shape[0]} sequences to shard {shard_number} as h5 file")
     del embs
 
@@ -155,12 +156,12 @@ def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
         json.dump(argsdict, f, indent=2)
 
     for shard_number in tqdm(range(num_shards), desc="Shards"):
-        emb_shard, seq_lens, cur_headers, sequences = make_shard(esmfold, dataloader, num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
-        write_headers(cur_headers, outdir, shard_number)
+        emb_shard, seq_lens, headers, sequences, = make_shard(esmfold, dataloader, num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
+        write_headers(headers, outdir, shard_number)
         if cfg.compression == "safetensors":
             save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir, cfg.dtype)
         elif cfg.compression == "hdf5":
-            save_h5_embeddings(emb_shard, sequences, shard_number, outdir, cfg.dtype)
+            save_h5_embeddings(emb_shard, sequences, headers, shard_number, outdir, cfg.dtype)
         else:
             raise ValueError(f"invalid compression type {cfg.compression}")
 
