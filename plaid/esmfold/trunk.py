@@ -257,6 +257,7 @@ class FoldingTrunk(nn.Module):
     #     For experiments where we diffuse from the structure module level
     #     """
     def from_seq_feat(self, true_aa, s_s_0, s_z_0=None, residx=None, mask=None, no_recycles: T.Optional[int] = None):
+        """ Modified forward pass that starts from the sequence feature, e.g. during inference-time generation."""
         device = s_s_0.device 
         N, L, _ = s_s_0.shape
         from . import ESMFOLD_Z_DIM
@@ -337,3 +338,18 @@ class FoldingTrunk(nn.Module):
         )
         bins = torch.sum(dists > boundaries, dim=-1)  # [..., L, L]
         return bins
+   
+    @classmethod
+    def from_pretrained(cls, device=None, eval_mode=True):
+        from .misc import get_esmfold_model_state
+        esmfold_cfg, esmfold_weights_cpu = get_esmfold_model_state()
+        model = cls(esmfold_cfg.trunk)
+        trunk_weights_cpu = {k: v for k, v in esmfold_weights_cpu.items() if k[:6] == "trunk."}
+        trunk_weights_cpu = {k[6:]: v for k, v in trunk_weights_cpu.items()}
+        missing_keys = model.load_state_dict(trunk_weights_cpu, strict=False)
+        assert len(missing_keys.missing_keys) == 0
+        if not device is None:
+            model = model.to(device)
+        if eval_mode:
+            model = model.eval()
+        return model

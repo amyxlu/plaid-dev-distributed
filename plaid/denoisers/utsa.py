@@ -20,7 +20,7 @@ from plaid.esmfold import (
 from plaid.denoisers import BaseDenoiser
 from plaid.constants import c_s, c_z, structure_module_c_s, structure_module_c_z
 from plaid.denoisers.modules import TriangularSelfAttentionBlock
-from plaid.esmfold import get_esmfold_model_state
+from plaid.esmfold.misc import get_esmfold_model_state
 
 
 PathLike = T.Union[str, Path]

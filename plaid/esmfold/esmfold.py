@@ -53,20 +53,6 @@ esm_registry = {
 }
 
 
-def get_esmfold_model_state(model_name="esmfold_3B_v1"):
-    if model_name.endswith(".pt"):  # local, treat as filepath
-        model_path = Path(model_name)
-        model_data = torch.load(str(model_path), map_location="cpu")
-    else:  # load from hub
-        url = f"https://dl.fbaipublicfiles.com/fair-esm/models/{model_name}.pt"
-        model_data = torch.hub.load_state_dict_from_url(
-            url, progress=False, map_location="cpu"
-        )
-    esmfold_config = model_data["cfg"]["model"]
-    model_state = model_data["model"]
-    return esmfold_config, model_state
-
-
 class ESMFold(nn.Module):
     def __init__(self, esmfold_config=None, **kwargs):
         super().__init__()
