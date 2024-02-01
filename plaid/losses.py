@@ -7,6 +7,8 @@ import torch
 
 from plaid.esmfold.misc import batch_encode_sequences 
 from openfold.utils.loss import backbone_loss
+from plaid.esmfold.trunk import FoldingTrunk  # for typing only
+from plaid.decoder import FullyConnectedNetwork  # for typing only
 
 
 def make_mask(broadcast_shape, mask):
@@ -101,7 +103,7 @@ def masked_token_accuracy(
 
 
 class SequenceAuxiliaryLoss:
-    def __init__(self, decoder, weight=1.0, loss_fn=masked_token_cross_entropy_loss):
+    def __init__(self, decoder: FullyConnectedNetwork, weight: float = 1.0, loss_fn: T.Callable = masked_token_cross_entropy_loss):
         self.decoder = decoder.eval().requires_grad_(True)
         self.loss_fn = loss_fn
         self.weight = weight
@@ -124,44 +126,66 @@ class SequenceAuxiliaryLoss:
     
 
 class BackboneAuxiliaryLoss:
-    def __init__(self, esmfold_trunk, weight=1.0):
-        self.structure_loss_fn = backbone_loss
+    def __init__(self, esmfold_trunk: FoldingTrunk, weight=1.0):
+        self.loss_fn = backbone_loss
         self.trunk = esmfold_trunk
         self.weight = weight
 
-    def __call__(self, latent, gt_structures):
+    def __call__(self, latent, gt_structures, cur_weight=None):
         pred_structures = self.trunk.from_seq_feat(latent)
-        return self.structure_loss_fn(pred_structures, gt_structures)
+        loss = self.loss_fn(pred_structures, gt_structures)
+        weight = self.weight if cur_weight is None else cur_weight
+        logdict = {
+            "loss": loss.item()
+        }
+        return weight * loss, logdict
 
 
 if __name__ == "__main__":
-    from plaid.datasets import CATHShardedDataModule
-    from plaid.utils import load_sequence_decoder
+    ####
+    # test sequence loss
+    ####
+    # from plaid.datasets import CATHShardedDataModule
+    # from plaid.utils import load_sequence_decoder
     
-    device = torch.device("cuda:1")
+    # device = torch.device("cuda:1")
 
-    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
-    datadir = "/shared/amyxlu/data/cath/shards/"
-    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
+    # # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    # datadir = "/shared/amyxlu/data/cath/shards/"
+    # pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
     
-    dm = CATHShardedDataModule(
-        # storage_type="hdf5",
-        seq_len=64,
-        shard_dir=datadir,
-        header_to_sequence_file=pklfile,
-        # dtype="fp32"
-    )
-    dm.setup("fit")
+    # dm = CATHShardedDataModule(
+    #     # storage_type="hdf5",
+    #     seq_len=64,
+    #     shard_dir=datadir,
+    #     header_to_sequence_file=pklfile,
+    #     # dtype="fp32"
+    # )
+    # dm.setup("fit")
+    # train_dataloader = dm.train_dataloader()
+    # batch = next(iter(train_dataloader))
+    # x, mask, sequence = batch
+    # x, mask = x.to(device=device, dtype=torch.float32), mask.to(
+    #     device, dtype=torch.float32
+    # )
+    # sequence = [s[:64] for s in sequence]
+
+    # sequence_decoder = load_sequence_decoder(eval_mode=False, device=device)
+    # sequence_loss_fn = SequenceAuxiliaryLoss(sequence_decoder)
+    # loss, logdict = sequence_loss_fn(x, sequence, 0.98)
+    # import IPython; IPython.embed()
+
+
+    ####
+    # test structure loss
+    ####
+    from plaid.datasets import CATHStructureDataModule
+    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
+    dm = CATHStructureDataModule(
+        shard_dir,
+        pdb_dir, seq_len=64, batch_size=32, num_workers=0)
+    dm.setup()
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
-    x, mask, sequence = batch
-    x, mask = x.to(device=device, dtype=torch.float32), mask.to(
-        device, dtype=torch.float32
-    )
-    sequence = [s[:64] for s in sequence]
-
-    sequence_decoder = load_sequence_decoder(eval_mode=False, device=device)
-    sequence_loss_fn = SequenceAuxiliaryLoss(sequence_decoder)
-    loss, logdict = sequence_loss_fn(x, sequence, 0.98)
-    import IPython; IPython.embed()

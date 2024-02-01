@@ -27,7 +27,9 @@ from plaid.utils import (
     sequences_to_secondary_structure_fracs,
 )
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
-from plaid.losses import masked_mse_loss
+from plaid.losses import masked_mse_loss, masked_huber_loss, SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
+from plaid.decoder import FullyConnectedNetwork
+from plaid.esmfold.trunk import FoldingTrunk
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -92,6 +94,7 @@ class GaussianDiffusion(L.LightningModule):
         structure_decoder: torch.nn.Module = None,
         sequence_decoder_weight: float = 0.0,
         structure_decoder_weight: float = 0.0,
+        latent_reconstruction_method: str = "unnormalized_x_recons"
     ):
         super().__init__()
         self.model = model
@@ -105,6 +108,14 @@ class GaussianDiffusion(L.LightningModule):
             "pred_x0",
             "pred_v",
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
+
+        self.latent_recons_method = latent_reconstruction_method
+        assert latent_reconstruction_method in {
+            "model_out",
+            "x_recons",
+            "unnormalized_x_recons",
+            "unnormalized_upscale_x_recons"
+        }
 
         # Use float64 for accuracy.
         betas = self.beta_scheduler(timesteps)
@@ -168,40 +179,44 @@ class GaussianDiffusion(L.LightningModule):
             self.loss_weight = maybe_clipped_snr / (self.snr + 1)
 
         # auxiliary losses
-        self.is_sequence_decoder_setup = False
-        self.is_structure_decoder_setup = False
+        self.need_to_setup_sequence_decoder = (self.sequence_decoder_weight > 0.) and (sequence_decoder is None) 
+        self.need_to_setup_structure_decoder = (self.structure_decoder_weight > 0.) and (structure_decoder is None)
+
         self.sequence_decoder = sequence_decoder
         self.structure_decoder = structure_decoder
         self.sequence_decoder_weight = sequence_decoder_weight
         self.structure_decoder_weight = structure_decoder_weight
+        self.sequence_loss_fn = None
+        self.structure_loss_fn = None
 
+        # learning rates and optimization
         self.lr = lr
         self.adam_betas = adam_betas
         self.lr_sched_type = lr_sched_type
         self.lr_num_warmup_steps = lr_num_warmup_steps
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
+
+        # other hyperparameteres
         self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
         self.save_hyperparameters(ignore=["model"])
     
     def setup_sequence_decoder(self):
+        """ If a reference pointer to the auxiliary sequence decoder wasn't already passed in
+        at the construction of the class, load the sequence decoder onto the GPU now. 
+        """
+        assert self.need_to_setup_sequence_decoder
         if self.sequence_decoder is None:
-            self.sequence_decoder = load_sequence_decoder(device=self.device)
-        self.is_sequence_decoder_setup = True
+            self.sequence_decoder = FullyConnectedNetwork.from_pretrained(device=self.device, eval_mode=True)
+        self.sequence_loss_fn = SequenceAuxiliaryLoss(self.sequence_decoder, weight=self.sequence_decoder_weight)
+        self.need_to_setup_sequence_decoder = False
     
     def setup_structure_decoder(self):
-        pass
-
-    def get_secondary_structure_fractions(
-        self, sequences: T.List[str], origin_dataset: str = "uniref"
-    ):
-        # currently only does secondary structure
-        sec_struct_fracs = sequences_to_secondary_structure_fracs(
-            sequences, quantized=True, origin_dataset=origin_dataset
-        )
-        sec_struct_fracs = torch.tensor(sec_struct_fracs).to(self.device)
-        cond_dict = {"secondary_structure": sec_struct_fracs}
-        return cond_dict
+        assert self.need_to_setup_structure_decoder
+        if self.structure_decoder is None:
+            self.structure_decoder = FoldingTrunk.from_pretrained(device=self.device, eval_mode=True) 
+        self.structure_loss_fn = BackboneAuxiliaryLoss(esmfold_trunk=self.structure_decoder, weight=self.structure_decoder_weight)
+        self.need_to_setup_structure_decoder = False
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
@@ -465,13 +480,16 @@ class GaussianDiffusion(L.LightningModule):
             * noise
         )
 
-    def p_losses(self, x_start, t, mask, model_kwargs={}, noise=None):
+    def forward(self, x_unnormalized, mask, model_kwargs={}, gt_structures=None, noise=None):
+        x_start = self.latent_scaler.scale(x_unnormalized)
+        t = torch.randint(0, self.num_timesteps, (x_start.shape[0],)).long().to(x.device)
+
+        # potentially unscale
+        x_start *= self.x_downscale_factor
+        
+        # noise sample
         B, L, C = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
-
-        x_start *= self.x_downscale_factor
-
-        # noise sample
         x = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
@@ -480,16 +498,16 @@ class GaussianDiffusion(L.LightningModule):
             with torch.no_grad():
                 x_self_cond = self.model_predictions(x, t, mask).pred_x_start
                 x_self_cond.detach_()
-
         model_kwargs["x_self_cond"] = x_self_cond
 
-        # predict and take gradient step
-        model_out = self.model(x, t, mask=mask, **model_kwargs)
-        log_dict = {
-            "model_out_mean": model_out.mean(),
-            "model_out_std": model_out.std(),
-        }
+        # add conditioning information here
+        if self.add_secondary_structure_conditioning:
+            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(sequence)
 
+        # main inner model forward pass
+        model_out = self.model(x, t, mask=mask, **model_kwargs)
+
+        # reconstruction / "main diffusion loss"
         if self.objective == "pred_noise":
             target = noise
         elif self.objective == "pred_x0":
@@ -499,23 +517,62 @@ class GaussianDiffusion(L.LightningModule):
             target = v
         else:
             raise ValueError(f"unknown objective {self.objective}")
+        recons_loss = masked_mse_loss(model_out, target, mask, reduce="batch") 
+        recons_loss = recons_loss * extract_into_tensor(self.loss_weight, t, recons_loss.shape)
 
-        loss = masked_mse_loss(model_out, target, mask, reduce="batch") 
-        loss = loss * extract_into_tensor(self.loss_weight, t, loss.shape)
-        return loss.mean(), log_dict
+        # auxiliary losses
+        x_recons = self.model_predictions(x, t, noise).pred_x_start
+        latent_forms = {
+            "model_out": model_out,
+            "x_recons": x_recons,
+            "unnormalized_x_recons": self.latent_scaler.unscale(x_recons), 
+            "unnormalized_upscale_x_recons": self.latent_scaler.unscale(x_recons / self.x_downscale_factor)
+        }
 
-    def forward(self, x_unnormalized, mask, model_kwargs={}, noise=None):
-        x = self.latent_scaler.scale(x_unnormalized)
-        t = torch.randint(0, self.num_timesteps, (x.shape[0],)).long().to(x.device)
-        loss, log_dict = self.p_losses(x, t, mask, model_kwargs, noise)
+        log_dict = {
+            "means/model_out": model_out.mean(),
+            "means/x_recons": x_recons.mean(),
+            "means/unnormalized_x_recons": latent_forms['unnormalized_x_recons'].mean(),
+            "means/unnormalized_upscale_x_recons": latent_forms['unnormalized_upscale_x_recons'].mean(),
+            "stds/model_out": model_out.std(),
+            "stds/x_recons": x_recons.std(),
+            "stds/unnormalized_x_recons": latent_forms['unnormalized_x_recons'].std(),
+            "stds/unnormalized_upscale_x_recons": latent_forms['unnormalized_upscale_x_recons'].std(),
+            "recons_loss": recons_loss
+        }
+        latent = latent_forms[self.latent_recons_method]
+
+        # TODO: anneal losses
+        if self.sequence_decoder_weight > 0.:
+            seq_loss = self.sequence_loss(latent, sequence, cur_weight=None)
+            log_dict['seq_loss'] = seq_loss
+        else:
+            seq_loss = 0.
+        
+        if self.structure_decoder_weight > 0.:
+            assert not gt_structures is None, "If using structure as an auxiliary loss, ground truth structures must be provided"
+            struct_loss = self.structure_loss(latent, gt_structures, cur_weight=None)
+            log_dict['struct_loss'] = struct_loss
+        else:
+            struct_loss = 0.
+        
+        loss = recons_loss + seq_loss + struct_loss
+        log_dict['loss'] = loss
         return loss, log_dict
     
-    def sequence_loss(self, latent, mask, sequence):
-        if not self.is_sequence_decoder_setup:
+    def sequence_loss(self, latent, sequence, cur_weight=None):
+        if self.need_to_setup_sequence_decoder:
             self.setup_sequence_decoder()
-        logits = self.sequence_decoder(latent)
-        ce_loss =  masked_token_cross_entropy_loss(logits, aatype, mask)
-
+        # sequence should be the one generated when saving the latents,
+        # i.e. lengths are already trimmed to self.max_seq_len
+        # if cur_weight is None, no annealing is done except for the weighting
+        # specified when specifying the class
+        return self.sequence_loss_fn(latent, sequence, cur_weight)
+    
+    def structure_loss(self, latent, gt_structures, cur_weight=None):
+        if self.need_to_setup_structure_decoder:
+            self.setup_structure_decoder()
+        return self.structure_loss_fn(latent, gt_structures, cur_weight)
 
     def get_secondary_structure_fractions(
         self, sequences: T.List[str], origin_dataset: str = "uniref"
@@ -527,13 +584,10 @@ class GaussianDiffusion(L.LightningModule):
         sec_struct_fracs = torch.tensor(sec_struct_fracs).to(self.device)
         cond_dict = {"secondary_structure": sec_struct_fracs}
         return cond_dict
-
+    
     def compute_loss(self, batch):
-        x, mask, sequence = batch
-        model_kwargs = {}
-        if self.add_secondary_structure_conditioning:
-            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(sequence)
-        return self(x, mask, model_kwargs)
+        # loss logic is in the forward function, make wrapper for pytorch lightning
+        return self(batch)
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch)
@@ -541,7 +595,7 @@ class GaussianDiffusion(L.LightningModule):
             "train/loss",
             loss,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
         )
         self.log_dict({f"train/{k}": v for k, v in log_dict.items()})
         return loss
@@ -550,7 +604,7 @@ class GaussianDiffusion(L.LightningModule):
         # Extract the starting images from data batch
         loss, log_dict = self.compute_loss(batch)
         self.log(
-            "val/loss", loss, on_step=True, on_epoch=True
+            "val/loss", loss, on_step=True, on_epoch=False
         )
         self.log_dict({f"val/{k}": v for k, v in log_dict.items()})
         return loss
@@ -609,13 +663,3 @@ if __name__ == "__main__":
 
     diffusion = GaussianDiffusion(model)
     diffusion.to(device=device)
-    diffusion.p_losses(x, t, mask)
-    import IPython
-
-    IPython.embed()
-    from plaid.utils import load_sequence_decoder 
-    decoder = load_sequence_decoder(device=device) 
-    from plaid.esmfold.misc import batch_encode_sequences
-    aatype, mask, residx, linker_mask, chain_index_list = batch_encode_sequences(sequence) 
-
-
