@@ -7,8 +7,6 @@ import torch
 
 from plaid.esmfold.misc import batch_encode_sequences 
 from openfold.utils.loss import backbone_loss
-from plaid.esmfold.trunk import FoldingTrunk  # for typing only
-from plaid.decoder import FullyConnectedNetwork  # for typing only
 
 
 def make_mask(broadcast_shape, mask):
@@ -103,7 +101,7 @@ def masked_token_accuracy(
 
 
 class SequenceAuxiliaryLoss:
-    def __init__(self, decoder: FullyConnectedNetwork, weight: float = 1.0, loss_fn: T.Callable = masked_token_cross_entropy_loss):
+    def __init__(self, decoder, weight: float = 1.0, loss_fn: T.Callable = masked_token_cross_entropy_loss):
         self.decoder = decoder.eval().requires_grad_(True)
         self.loss_fn = loss_fn
         self.weight = weight
@@ -126,7 +124,7 @@ class SequenceAuxiliaryLoss:
     
 
 class BackboneAuxiliaryLoss:
-    def __init__(self, esmfold_trunk: FoldingTrunk, weight=1.0):
+    def __init__(self, esmfold_trunk, weight=1.0):
         self.loss_fn = backbone_loss
         self.trunk = esmfold_trunk
         self.weight = weight
