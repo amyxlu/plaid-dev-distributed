@@ -481,12 +481,13 @@ class GaussianDiffusion(L.LightningModule):
             * noise
         )
 
-    def forward(self, x_unnormalized, sequences, gt_structures=None, model_kwargs={}, noise=None):
-        x_start = self.latent_scaler.scale(x_unnormalized)
+    def forward(self, x_unnormalized, sequences, gt_structures=None, model_kwargs={}, noise=None, clip_x_start=True):
+        x_start = self.latent_scaler.scale(x_unnormalized).to(self.device)
         t = torch.randint(0, self.num_timesteps, (x_start.shape[0],)).long().to(self.device)
 
         # get mask 
-        _, mask, _, _, _ = batch_encode_sequences(sequences)
+        true_aatype, mask, _, _, _ = batch_encode_sequences(sequences)
+        mask = mask.to(self.device)
 
         # potentially unscale
         x_start *= self.x_downscale_factor
@@ -525,7 +526,7 @@ class GaussianDiffusion(L.LightningModule):
         recons_loss = recons_loss * extract_into_tensor(self.loss_weight, t, recons_loss.shape)
 
         # auxiliary losses
-        x_recons = self.model_predictions(x, t, noise).pred_x_start
+        x_recons = self.model_predictions(x, t, mask, model_kwargs, clip_x_start).pred_x_start
         latent_forms = {
             "model_out": model_out,
             "x_recons": x_recons,
@@ -548,14 +549,14 @@ class GaussianDiffusion(L.LightningModule):
 
         # TODO: anneal losses
         if self.sequence_decoder_weight > 0.:
-            seq_loss = self.sequence_loss(latent, sequence, cur_weight=None)
+            seq_loss = self.sequence_loss(latent, sequences, cur_weight=None)
             log_dict['seq_loss'] = seq_loss
         else:
             seq_loss = 0.
         
         if self.structure_decoder_weight > 0.:
             assert not gt_structures is None, "If using structure as an auxiliary loss, ground truth structures must be provided"
-            struct_loss = self.structure_loss(latent, gt_structures, cur_weight=None)
+            struct_loss = self.structure_loss(true_aatype, latent, gt_structures, cur_weight=None)
             log_dict['struct_loss'] = struct_loss
         else:
             struct_loss = 0.
@@ -573,10 +574,10 @@ class GaussianDiffusion(L.LightningModule):
         # specified when specifying the class
         return self.sequence_loss_fn(latent, sequence, cur_weight)
     
-    def structure_loss(self, latent, gt_structures, cur_weight=None):
+    def structure_loss(self, true_aa, latent, gt_structures, cur_weight=None):
         if self.need_to_setup_structure_decoder:
             self.setup_structure_decoder()
-        return self.structure_loss_fn(latent, gt_structures, cur_weight)
+        return self.structure_loss_fn(true_aa, latent, gt_structures, cur_weight)
 
     def get_secondary_structure_fractions(
         self, sequences: T.List[str], origin_dataset: str = "uniref"
@@ -589,7 +590,7 @@ class GaussianDiffusion(L.LightningModule):
         cond_dict = {"secondary_structure": sec_struct_fracs}
         return cond_dict
     
-    def compute_loss(self, batch):
+    def compute_loss(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
         """
         loss logic is in the forward function, make wrapper for pytorch lightning
         sequence must be the same length as the embs (ie. saved during emb caching)
@@ -598,7 +599,7 @@ class GaussianDiffusion(L.LightningModule):
         return self(embs, sequences, gt_structures)
 
     def training_step(self, batch):
-        loss, log_dict = self.compute_loss(batch)
+        loss, log_dict = self.compute_loss(batch, model_kwargs={}, noise=None, clip_x_start=True)
         self.log(
             "train/loss",
             loss,
@@ -610,7 +611,7 @@ class GaussianDiffusion(L.LightningModule):
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
-        loss, log_dict = self.compute_loss(batch)
+        loss, log_dict = self.compute_loss(batch, model_kwargs={}, noise=None, clip_x_start=True)
         self.log(
             "val/loss", loss, on_step=True, on_epoch=False
         )
@@ -643,7 +644,8 @@ if __name__ == "__main__":
         shard_dir,
         pdb_dir,
         seq_len=64,
-        batch_size=32,num_workers=0
+        batch_size=2,
+        num_workers=0
     )
     dm.setup()
     train_dataloader = dm.train_dataloader()
@@ -651,13 +653,18 @@ if __name__ == "__main__":
 
     device = torch.device("cuda:0")
     model = UTriSelfAttnDenoiser(
-        num_blocks=7,
+        num_blocks=3,
         hid_dim=1024,
         conditioning_strategy="hidden_concat",
         use_self_conditioning=True
     )
     model.to(device)
 
-    diffusion = GaussianDiffusion(model)
+    diffusion = GaussianDiffusion(
+        model,
+        sequence_decoder_weight=1.0,
+        structure_decoder_weight=1.0
+    )
     diffusion.to(device=device)
+    diffusion.training_step(batch)
     import IPython; IPython.embed()
