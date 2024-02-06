@@ -261,8 +261,9 @@ class GaussianDiffusion(L.LightningModule):
 
     def model_predictions(self, x, t, mask=None, model_kwargs={}, clip_x_start=False):
         model_output = self.model(x, t, mask, **model_kwargs)
+        # do a soft clip since we're in latent space and min/max stats are not global
         maybe_clip = (
-            partial(torch.clamp, min=-1.0, max=1.0) if clip_x_start else identity
+            partial(torch.clamp, min=-1.1, max=1.1) if clip_x_start else identity
         )
 
         if self.objective == "pred_noise":
@@ -524,6 +525,7 @@ class GaussianDiffusion(L.LightningModule):
             raise ValueError(f"unknown objective {self.objective}")
         recons_loss = masked_mse_loss(model_out, target, mask, reduce="batch") 
         recons_loss = recons_loss * extract_into_tensor(self.loss_weight, t, recons_loss.shape)
+        recons_loss = recons_loss.mean()
 
         # auxiliary losses
         x_recons = self.model_predictions(x, t, mask, model_kwargs, clip_x_start).pred_x_start
@@ -600,21 +602,12 @@ class GaussianDiffusion(L.LightningModule):
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch, model_kwargs={}, noise=None, clip_x_start=True)
-        self.log(
-            "train/loss",
-            loss,
-            on_step=True,
-            on_epoch=False,
-        )
         self.log_dict({f"train/{k}": v for k, v in log_dict.items()})
         return loss
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
         loss, log_dict = self.compute_loss(batch, model_kwargs={}, noise=None, clip_x_start=True)
-        self.log(
-            "val/loss", loss, on_step=True, on_epoch=False
-        )
         self.log_dict({f"val/{k}": v for k, v in log_dict.items()})
         return loss
 

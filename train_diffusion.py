@@ -32,7 +32,9 @@ def train(cfg: DictConfig):
         latent_scaler=latent_scaler,
     )
 
-    job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
+    # job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
+    print(os.environ.get("SLUMR_JOB_ID"))
+    job_id = None
 
     if not cfg.dryrun:
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)

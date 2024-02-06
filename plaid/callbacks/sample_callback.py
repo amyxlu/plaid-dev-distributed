@@ -131,6 +131,7 @@ class SampleCallback(Callback):
         self,
         x_0,
         device,
+        log_to_wandb=False
     ):
         if self.sequence_constructor is None:
             self.sequence_constructor = LatentToSequence(
@@ -150,11 +151,14 @@ class SampleCallback(Callback):
             perplexity = self.perplexity_calc.batch_eval(strs)
             print(f"Perplexity: {perplexity:.3f}")
 
-        log_dict = {
-            f"sampled/sequences": wandb.Table(dataframe=sequence_results),
-            f"sampled/perplexity": perplexity,
-        }
-        return strs, log_dict
+        if log_to_wandb:
+            log_dict = {
+                f"sampled/sequences": wandb.Table(dataframe=sequence_results),
+                f"sampled/perplexity": perplexity,
+            }
+            return strs, log_dict
+        else:
+            return strs, None
 
     def construct_structure(self, x_0, seq_str, device):
         # TODO: maybe save & log artifact
@@ -203,7 +207,7 @@ class SampleCallback(Callback):
             x = x[torch.randperm(x.shape[0])][: self.n_to_construct]
 
         maybe_print("constructing sequence...")
-        seq_str, log_dict = self.construct_sequence(x, device)
+        seq_str, log_dict = self.construct_sequence(x, device, log_to_wandb)
         if log_to_wandb:
             logger.log(log_dict)
 
@@ -214,13 +218,14 @@ class SampleCallback(Callback):
                 logger.log(log_dict)
 
     def on_sanity_check_start(self, trainer, pl_module):
-        _sampling_timesteps = pl_module.sampling_timesteps
-        # hack
-        pl_module.sampling_timesteps = 3
-        if rank_zero_only.rank == 0:
-            dummy_shape = (2, 32, self.diffusion.model.hid_dim)
-            self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
-        pl_module.sampling_timesteps = _sampling_timesteps
+        # _sampling_timesteps = pl_module.sampling_timesteps
+        # # hack
+        # pl_module.sampling_timesteps = 3
+        # if rank_zero_only.rank == 0:
+        #     dummy_shape = (2, 16, self.diffusion.model.hid_dim)
+        #     self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
+        # pl_module.sampling_timesteps = _sampling_timesteps
+        pass
 
     def on_train_epoch_end(self, trainer, pl_module):
         shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim) 

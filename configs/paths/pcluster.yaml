@@ -1,5 +1,5 @@
 root_dir: /homefs/home/lux70/storage/plaid
-data_dir: /homefs/home/lux70/storage/data/
+data_dir: /homefs/home/lux70/storage/data
 log_dir: /homefs/home/lux70/storage/plaid/logs
 checkpoint_dir: ${paths.root_dir}/checkpoints
 artifacts_dir: ${paths.root_dir}/artifacts
