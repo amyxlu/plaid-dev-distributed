@@ -64,3 +64,6 @@ $ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME
 - k-diffusion can calculate, during training, the gradient noise scale (1 / SNR), from _An Empirical Model of Large-Batch Training_, https://arxiv.org/abs/1812.06162).
 
 
+
+# Notes
+* `https://github.com/amyxlu/plaid-dev/commit/6ac51a838a172a8761e02dbe98fc0b0eb439fb61#diff-0da7caefdb1257895597fa2dfd7c4c9380642739bb740c242bea69d81815b54c` dropped list of PDB ids calculated in prev. project

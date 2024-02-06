@@ -1,0 +1,16 @@
+# @package _global_
+defaults:
+  - override /datamodule: cath_structure_h5.yaml
+
+diffusion:
+  timesteps: 1000
+  min_snr_loss_weight: True
+  min_snr_gamma: 5
+  x_downscale_factor: 1.0
+
+  lr: 5e-4
+  lr_sched_type: "constant"
+
+  sequence_decoder_weight: 1.0
+  structure_decoder_weight: 1.0
+  latent_reconstruction_method: unnormalized_x_recons

@@ -179,8 +179,8 @@ class GaussianDiffusion(L.LightningModule):
             self.loss_weight = maybe_clipped_snr / (self.snr + 1)
 
         # auxiliary losses
-        self.need_to_setup_sequence_decoder = (self.sequence_decoder_weight > 0.) and (sequence_decoder is None) 
-        self.need_to_setup_structure_decoder = (self.structure_decoder_weight > 0.) and (structure_decoder is None)
+        self.need_to_setup_sequence_decoder = sequence_decoder_weight > 0.
+        self.need_to_setup_structure_decoder = structure_decoder_weight > 0.
 
         self.sequence_decoder = sequence_decoder
         self.structure_decoder = structure_decoder
@@ -626,40 +626,30 @@ class GaussianDiffusion(L.LightningModule):
 
 if __name__ == "__main__":
     from plaid.denoisers import UTriSelfAttnDenoiser
-    from plaid.datasets import CATHShardedDataModule
+    from plaid.datasets import CATHStructureDataModule
     # from plaid.denoisers import PreinitializedTriSelfAttnDenoiser
 
-    device = torch.device("cuda:1")
+    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
+    dm = CATHStructureDataModule(
+        shard_dir,
+        pdb_dir,
+        seq_len=64,
+        batch_size=32,num_workers=0
+    )
+    dm.setup()
+    train_dataloader = dm.train_dataloader()
+    batch = next(iter(train_dataloader))
+
+    device = torch.device("cuda:0")
     model = UTriSelfAttnDenoiser(
         num_blocks=7,
         hid_dim=1024,
         conditioning_strategy="hidden_concat",
         use_self_conditioning=True
     )
-    # model = PreinitializedTriSelfAttnDenoiser(hid_dim=1024)
     model.to(device)
-
-    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
-    datadir = "/shared/amyxlu/data/cath/shards/"
-    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
-    dm = CATHShardedDataModule(
-        shard_dir=datadir,
-        header_to_sequence_file=pklfile,
-    )
-    dm.setup("fit")
-    train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
-    x, mask, sequence = batch
-    x, mask = x.to(device=device, dtype=torch.float32), mask.to(
-        device, dtype=torch.float32
-    )
-    x = x[:4, :64, :]
-    mask = mask[:4, :64]
-    N, L, _ = x.shape
-
-    t = torch.randint(0, 100, (N,)).to(device).long()
-    model_kwargs = {}
 
     diffusion = GaussianDiffusion(model)
     diffusion.to(device=device)
+    import IPython; IPython.embed()
