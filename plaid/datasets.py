@@ -100,12 +100,21 @@ class H5ShardDataset(torch.utils.data.Dataset):
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         max_seq_len: int = 64,
         dtype: str = "fp32",
+        ids_to_drop: T.Optional[T.List[str]] = None
     ):
         super().__init__()
+        self.ids_to_drop = ids_to_drop
         self.dtype = dtype
         self.max_seq_len = max_seq_len
         self.shard_dir = Path(shard_dir)
-        self.embs, self.sequences, self.pdb_id = self.load_partition(split)
+        self.data = self.load_partition(split)
+        self.pdb_ids = list(self.data.keys())
+
+    def drop_protein(self, pid):
+        drop = False
+        if not (self.ids_to_drop is None) and (pid in self.ids_to_drop):
+            drop = True
+        return drop
 
     def load_partition(self, split: T.Optional[str] = None):
         if not split is None:
@@ -115,22 +124,27 @@ class H5ShardDataset(torch.utils.data.Dataset):
             datadir = self.shard_dir
         datadir = datadir / f"seqlen_{self.max_seq_len}" / self.dtype
 
+        outdict = {}
+
         with h5py.File(datadir / "shard0000.h5", "r") as f:
             emb = torch.from_numpy(np.array(f["embeddings"]))
             sequence = list(f["sequences"])
             pdb_id = list(f['pdb_id'])
-
-        sequence = [s.decode()[: self.max_seq_len] for s in sequence]
-        pdb_id = [pid.decode() for pid in pdb_id]
-        return emb, sequence, pdb_id
+            for i in range(len(pdb_id)):
+                pid = pdb_id[i].decode()
+                if not self.drop_protein(pid): 
+                    outdict[pid] = (emb[i, ...], sequence[i].decode())
+        return outdict
 
     def __len__(self):
-        return self.embs.size(0)
+        return len(self.pdb_ids)
 
-    def get(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
-        return (self.embs[idx, ...], self.sequences[idx], self.pdb_id[idx])
+    def get(self, idx: int) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
+        # return (self.embs[idx, ...], self.sequences[idx], self.pdb_id[idx])
+        pid = self.pdb_ids[idx]
+        return pid, self.data[pid]
     
-    def __getitem__(self, idx: int) -> T.Tuple[torch.Tensor, torch.Tensor, str]:
+    def __getitem__(self, idx: int) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
         return self.get(idx)
 
 
@@ -143,15 +157,21 @@ class CATHStructureDataset(H5ShardDataset):
         pdb_path_dir: str = "/shared/amyxlu/data/cath/full/dompdb",
         max_seq_len: int = 64,
         dtype: str = "fp32",
+        path_to_dropped_ids: T.Optional[str] = None,
     ):
-        super().__init__(split, shard_dir, max_seq_len, dtype)
+        ids_to_drop = None
+        if not path_to_dropped_ids is None:
+            with open(path_to_dropped_ids, "r") as f:
+                ids_to_drop = f.read().splitlines()
+        super().__init__(split, shard_dir, max_seq_len, dtype, ids_to_drop)
+
         from plaid.utils import StructureFeaturizer
         self.structure_featurizer = StructureFeaturizer() 
         self.pdb_path_dir = Path(pdb_path_dir)
         self.max_seq_len = max_seq_len
 
     def __getitem__(self, idx: int):
-        emb, seq, pdb_id = self.get(idx)
+        pdb_id, (emb, seq) = self.get(idx)
         pdb_path = self.pdb_path_dir / pdb_id
         with open(pdb_path, "r") as f:
             pdb_str = f.read()
@@ -163,7 +183,6 @@ class CATHShardedDataModule(L.LightningDataModule):
         self,
         storage_type: str = "safetensors",
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
-        header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
@@ -172,7 +191,6 @@ class CATHShardedDataModule(L.LightningDataModule):
         super().__init__()
         self.shard_dir = shard_dir
         self.dtype = dtype
-        self.header_to_sequence_file = header_to_sequence_file
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -252,6 +270,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
+        path_to_dropped_ids: T.Optional[str] = None
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -261,6 +280,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.dataset_fn = CATHStructureDataset 
         self.dtype = "fp32"
+        self.path_to_dropped_ids = path_to_dropped_ids
 
     def setup(self, stage: str = "fit"):
         if stage == "fit":
@@ -270,6 +290,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
+                self.path_to_dropped_ids
             )
             self.val_dataset = self.dataset_fn(
                 "val",
@@ -277,6 +298,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
+                self.path_to_dropped_ids
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
@@ -285,6 +307,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
+                self.path_to_dropped_ids
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -435,10 +458,16 @@ if __name__ == "__main__":
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
+    path_to_dropped_ids = "/homefs/home/lux70/code/plaid/plaid/cath_dropped_pdb_list.txt"
+
     dm = CATHStructureDataModule(
         shard_dir,
-        pdb_dir, seq_len=64, batch_size=32, num_workers=0)
+        pdb_dir,
+        seq_len=256,
+        batch_size=32,
+        num_workers=0,
+        path_to_dropped_ids=path_to_dropped_ids)
     dm.setup()
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
-    import IPython;IPython.embed()
+    print(len(train_dataloader.dataset))
