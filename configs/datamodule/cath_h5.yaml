@@ -2,7 +2,6 @@ _target_: plaid.datasets.CATHShardedDataModule
 
 storage_type: hdf5
 shard_dir: ${paths.data_dir}/cath/shards
-header_to_sequence_file: ${paths.data_dir}/cath/sequences.pkl
 seq_len: 256
 batch_size: 64 
 num_workers: 0 

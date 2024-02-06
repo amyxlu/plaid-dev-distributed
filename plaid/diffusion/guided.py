@@ -549,15 +549,15 @@ class GaussianDiffusion(L.LightningModule):
 
         # TODO: anneal losses
         if self.sequence_decoder_weight > 0.:
-            seq_loss = self.sequence_loss(latent, sequences, cur_weight=None)
-            log_dict['seq_loss'] = seq_loss
+            seq_loss, seq_loss_dict = self.sequence_loss(latent, sequences, cur_weight=None)
+            log_dict = log_dict | seq_loss_dict   # shorthand for combining dictionaries, requires python >= 3.9
         else:
             seq_loss = 0.
         
         if self.structure_decoder_weight > 0.:
             assert not gt_structures is None, "If using structure as an auxiliary loss, ground truth structures must be provided"
-            struct_loss = self.structure_loss(true_aatype, latent, gt_structures, cur_weight=None)
-            log_dict['struct_loss'] = struct_loss
+            struct_loss, struct_loss_dict = self.structure_loss(true_aatype, latent, gt_structures, cur_weight=None)
+            log_dict = log_dict | struct_loss_dict
         else:
             struct_loss = 0.
         
