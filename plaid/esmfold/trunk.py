@@ -263,7 +263,7 @@ class FoldingTrunk(nn.Module):
         from . import ESMFOLD_Z_DIM
 
         # initialize defaults #########################################################
-        s_z_0 = default(s_z_0, sm_s.new_zeros(N, L, L, ESMFOLD_Z_DIM))
+        s_z_0 = default(s_z_0, s_s_0.new_zeros(N, L, L, ESMFOLD_Z_DIM))
         residx = default(residx, torch.arange(L, device=device).expand(N, L))
         mask = default(mask, torch.ones(N, L, device=device))
         if no_recycles is None:
