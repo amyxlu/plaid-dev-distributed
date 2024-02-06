@@ -116,8 +116,8 @@ class SequenceAuxiliaryLoss:
         acc = masked_token_accuracy(logits, aatype, mask)
         weight = self.weight if cur_weight is None else cur_weight
         logdict = {
-            "loss": loss.item(),
-            "acc": acc.item(),
+            "seq_loss": loss.item(),
+            "seq_acc": acc.item(),
         }
         # TODO: anneal weight by step in outer loop?
         return weight * loss, logdict
@@ -125,16 +125,27 @@ class SequenceAuxiliaryLoss:
 
 class BackboneAuxiliaryLoss:
     def __init__(self, esmfold_trunk, weight=1.0):
-        self.loss_fn = backbone_loss
         self.trunk = esmfold_trunk
         self.weight = weight
 
-    def __call__(self, latent, gt_structures, cur_weight=None):
-        pred_structures = self.trunk.from_seq_feat(latent)
-        loss = self.loss_fn(pred_structures, gt_structures)
+    def __call__(self, true_aa, latent, gt_structures, cur_weight=None):
+        batch_size, seq_len, _ = latent.shape
+        device = latent.device
+        assert gt_structures["backbone_rigid_tensor"].shape == torch.Size([batch_size, seq_len, 4, 4])
+        assert gt_structures["backbone_rigid_mask"].shape == torch.Size([batch_size, seq_len])
+
+        pred_structures = self.trunk.from_seq_feat(true_aa, latent)[0]
+        assert pred_structures["frames"].shape == torch.Size([8, batch_size, seq_len, 7])
+
+        loss = backbone_loss(
+            backbone_rigid_tensor=gt_structures["backbone_rigid_tensor"].to(device),
+            backbone_rigid_mask=gt_structures["backbone_rigid_mask"].to(device),
+            traj=pred_structures["frames"],
+        )
+
         weight = self.weight if cur_weight is None else cur_weight
         logdict = {
-            "loss": loss.item()
+            "backbone_loss": loss.item()
         }
         return weight * loss, logdict
 
