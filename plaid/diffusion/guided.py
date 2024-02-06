@@ -30,6 +30,7 @@ from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaSchedule
 from plaid.losses import masked_mse_loss, masked_huber_loss, SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.decoder import FullyConnectedNetwork
 from plaid.esmfold.trunk import FoldingTrunk
+from plaid.esmfold.misc import batch_encode_sequences
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -480,9 +481,12 @@ class GaussianDiffusion(L.LightningModule):
             * noise
         )
 
-    def forward(self, x_unnormalized, mask, model_kwargs={}, gt_structures=None, noise=None):
+    def forward(self, x_unnormalized, sequences, gt_structures=None, model_kwargs={}, noise=None):
         x_start = self.latent_scaler.scale(x_unnormalized)
-        t = torch.randint(0, self.num_timesteps, (x_start.shape[0],)).long().to(x.device)
+        t = torch.randint(0, self.num_timesteps, (x_start.shape[0],)).long().to(self.device)
+
+        # get mask 
+        _, mask, _, _, _ = batch_encode_sequences(sequences)
 
         # potentially unscale
         x_start *= self.x_downscale_factor
@@ -502,7 +506,7 @@ class GaussianDiffusion(L.LightningModule):
 
         # add conditioning information here
         if self.add_secondary_structure_conditioning:
-            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(sequence)
+            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(sequences)
 
         # main inner model forward pass
         model_out = self.model(x, t, mask=mask, **model_kwargs)
@@ -586,8 +590,12 @@ class GaussianDiffusion(L.LightningModule):
         return cond_dict
     
     def compute_loss(self, batch):
-        # loss logic is in the forward function, make wrapper for pytorch lightning
-        return self(batch)
+        """
+        loss logic is in the forward function, make wrapper for pytorch lightning
+        sequence must be the same length as the embs (ie. saved during emb caching)
+        """
+        embs, sequences, gt_structures = batch
+        return self(embs, sequences, gt_structures)
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch)
