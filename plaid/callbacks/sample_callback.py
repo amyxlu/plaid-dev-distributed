@@ -15,7 +15,7 @@ import safetensors.torch as st
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, calc_fid_fn, calc_kid_fn
-from plaid.proteins import LatentToSequence, LatentToStructure, write_pdb_to_disk
+from plaid.proteins import LatentToSequence, LatentToStructure
 import pandas as pd
 import wandb
 
