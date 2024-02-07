@@ -201,7 +201,7 @@ class LatentToSequence:
         self.decoder = self.decoder.to(device)
         self.device = device
 
-    def to_sequence(self, latent: ArrayLike, mask=None, return_logits=False):
+    def to_sequence(self, latent: ArrayLike, mask=None, return_logits=False, drop_mask_idx=True):
         if not mask is None:
             mask = torch.ones_like(latent)
         latent = to_tensor(latent, device=self.device)
@@ -211,15 +211,16 @@ class LatentToSequence:
             output_logits = self.decoder(latent)
 
         # remove UNK token
-        _mask = (
-            torch.arange(output_logits.shape[-1], device=self.device)
-            != self.tokenizer.unk_idx
-        )
-        sequence_logits = torch.index_select(
-            input=output_logits,
-            dim=-1,
-            index=torch.arange(output_logits.shape[-1], device=self.device)[_mask],
-        )
+        if drop_mask_idx:
+            _mask = (
+                torch.arange(output_logits.shape[-1], device=self.device)
+                != self.tokenizer.unk_idx
+            )
+            sequence_logits = torch.index_select(
+                input=output_logits,
+                dim=-1,
+                index=torch.arange(output_logits.shape[-1], device=self.device)[_mask],
+            )
 
         # adjust by temperature
         sequence_logits /= self.temperature
@@ -265,7 +266,7 @@ class LatentToStructure:
         self.device = device
     
     @torch.no_grad()
-    def run_batch(self, s_, aa_, mask_, residx_, num_recycles):
+    def run_batch(self, s_, aa_, mask_, residx_, num_recycles, return_raw_features=False):
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
         _, L, _ = s_.shape
@@ -281,8 +282,11 @@ class LatentToStructure:
                 num_recycles=num_recycles,
             )
         pdb_str = output_to_pdb(output)
-        metric = outputs_to_avg_metric(output)
-        return pdb_str, metric
+        if return_raw_features:
+            return pdb_str, output
+        else:
+            metric = outputs_to_avg_metric(output)
+            return pdb_str, metric
 
     def to_structure(
         self,
@@ -290,6 +294,7 @@ class LatentToStructure:
         sequences: T.List[str],
         num_recycles: int = 1,
         batch_size: T.Optional[int] = None,
+        return_raw_features: bool = False
     ) -> T.Tuple[T.List[PathLike], pd.DataFrame]:
 
         """set up devices and tensors"""
@@ -302,10 +307,10 @@ class LatentToStructure:
 
         if batch_size is None:
             print("Generating structure from latents")
-            return self.run_batch(latent, aatype, mask, residx, num_recycles) 
+            return self.run_batch(latent, aatype, mask, residx, num_recycles, return_raw_features) 
             
         else:
-            metrics = []
+            results = []
             all_pdb_strs = []
             for start in trange(0, len(latent), batch_size, desc="(Generating structure)"):
                 s_, aa_, mask_, residx_ = tuple(
@@ -314,11 +319,17 @@ class LatentToStructure:
                         (latent, aatype, mask, residx),
                     )
                 )
-                pdb_str, metric = self.run_batch(s_, aa_, mask_, residx_, num_recycles)
-                metrics.append(metric)
+                pdb_str, result = self.run_batch(s_, aa_, mask_, residx_, num_recycles, return_raw_features)
+                results.append(result)
                 all_pdb_strs.extend(pdb_str)
-            metrics = pd.concat(metrics)
-            return all_pdb_strs, metrics
+            
+            # combine results at the end of the batches 
+            if return_raw_features:
+                results = {k: v for D in results for k, v in D.items()}
+            else:
+                results = pd.concat(results)
+
+            return all_pdb_strs, results
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ import safetensors.torch as st
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, calc_fid_fn, calc_kid_fn
-from plaid.proteins import LatentTotToSequence, LatentToStructure, write_pdb_to_disk
+from plaid.proteins import LatentToSequence, LatentToStructure, write_pdb_to_disk
 import pandas as pd
 import wandb
 
@@ -41,8 +41,8 @@ class SampleCallback(Callback):
         num_recycles: int = 4,
         outdir: str = "sampled",
         sequence_decode_temperature: float = 1.0,
-        sequence_constructor: T.Optional[T.Any] = None,
-        structure_constructor: T.Optional[T.Any] = None,
+        sequence_constructor: T.Optional[LatentToSequence] = None,
+        structure_constructor: T.Optional[LatentToStructure] = None,
     ):
         super().__init__()
         self.outdir = Path(outdir)
@@ -134,46 +134,40 @@ class SampleCallback(Callback):
         self,
         x_0,
         device,
-        log_to_wandb=False
     ):
-        """If gradients are not needed, make sure to turn it off in the outer function call"""
         if self.sequence_constructor is None:
-            self.sequence_constructor = LatentToSequence(
-                device=device, temperature=self.sequence_decode_temperature
-            )
-
-        # use this for inference only
-        self.sequence_constructor.decoder.to(device).eval()
+            self.sequence_constructor = LatentToSequence()
+        
+        # forward pass  
+        self.sequence_constructor.to(device)
         x_0 = x_0.to(device=device)
         with torch.no_grad():
-            probs, idxs, strs = self.sequence_constructor.to_sequence(x_0)
+            probs, idxs, strs = self.sequence_constructor.to_sequence(x_0, return_logits=False)
+        
+        # organize results for logging
         sequence_results = pd.DataFrame(
             {
                 "sequences": strs,
                 "mean_residue_confidence": probs.mean(dim=1).cpu().numpy(),
             }
         )
+        log_dict = {f"sampled/sequences": wandb.Table(dataframe=sequence_results)}
+
         if self.calc_perplexity:
             if not self.is_perplexity_setup:
                 self._perplexity_setup(device)
             perplexity = self.perplexity_calc.batch_eval(strs)
             print(f"Perplexity: {perplexity:.3f}")
+            log_dict[f"sampled/perplexity"] = perplexity,
 
-        if log_to_wandb:
-            log_dict = {
-                f"sampled/sequences": wandb.Table(dataframe=sequence_results),
-                f"sampled/perplexity": perplexity,
-            }
-            return strs, log_dict
-        else:
-            return strs, None
+        return strs, log_dict
 
     def construct_structure(self, x_0, seq_str, device):
-        """If gradients are not needed, make sure to turn it off in the outer function call"""
-        # TODO: maybe save & log artifact
         if self.structure_constructor is None:
-            self.structure_constructor = LatentToStructure(device=device)
-        self.structure_constructor.esmfold.to(device).eval()
+            # warning: this implicitly creates an ESMFold inference model, can be very memory consuming
+            self.structure_constructor = LatentToStructure()
+        
+        self.structure_constructor.to(device)
         x_0 = x_0.to(device=device)
         
         with torch.no_grad():
@@ -183,7 +177,7 @@ class SampleCallback(Callback):
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
             )
-
+        
         log_dict = {
             f"sampled/plddt_mean": metrics["plddt"].mean(),
             f"sampled/plddt_std": metrics["plddt"].std(),

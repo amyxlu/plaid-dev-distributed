@@ -5,8 +5,11 @@ import numpy as np
 import einops
 import torch
 
-from plaid.esmfold.misc import batch_encode_sequences 
 from openfold.utils.loss import backbone_loss
+import pandas as pd
+
+from .esmfold.misc import batch_encode_sequences 
+from .proteins import LatentToSequence, LatentToStructure
 
 
 def make_mask(broadcast_shape, mask):
@@ -101,17 +104,21 @@ def masked_token_accuracy(
 
 
 class SequenceAuxiliaryLoss:
-    def __init__(self, decoder, weight: float = 1.0, loss_fn: T.Callable = masked_token_cross_entropy_loss):
-        self.decoder = decoder.eval().requires_grad_(True)
+    def __init__(self, sequence_constructor: LatentToSequence, weight: float = 1.0, loss_fn: T.Callable = masked_token_cross_entropy_loss):
+        self.sequence_constructor = sequence_constructor
         self.loss_fn = loss_fn
         self.weight = weight
-        self.device = next(decoder.parameters()).device
     
-    def __call__(self, latent, sequences, cur_weight=None):
+    def __call__(self, latent, sequences, cur_weight=None, log_recons_strs=False):
         """If cur weight is specified, it will override self.weight."""
-        aatype, mask, residx, linker_mask, chain_index_list = batch_encode_sequences(sequences)
-        aatype, latent = aatype.to(self.device), latent.to(self.device)
-        logits = self.decoder(latent)
+        device = latent.device
+        self.sequence_constructor.to(device)
+       
+        # grab ground-truth tokenized sequence & loss mask 
+        aatype, mask, _, _, _ = batch_encode_sequences(sequences)
+
+        # grab logits and calculate masked cross entropy
+        logits, _, recons_strs = self.sequence_constructor.to_sequence(latent, mask, return_logits=True, drop_mask_idx=False)
         loss = self.loss_fn(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask)
         weight = self.weight if cur_weight is None else cur_weight
@@ -119,28 +126,40 @@ class SequenceAuxiliaryLoss:
             "seq_loss": loss.item(),
             "seq_acc": acc.item(),
         }
+
+        if log_recons_strs:
+            logdict['recons_strs_tbl'] = pd.DataFrame({
+                "recons_strs": recons_strs
+            })
         # TODO: anneal weight by step in outer loop?
         return weight * loss, logdict
     
 
 class BackboneAuxiliaryLoss:
-    def __init__(self, esmfold_trunk, weight=1.0):
-        self.trunk = esmfold_trunk
+    def __init__(self, structure_constructor: LatentToStructure, weight=1.0):
+        self.structure_constructor = structure_constructor
         self.weight = weight
 
-    def __call__(self, true_aa, latent, gt_structures, cur_weight=None):
-        batch_size, seq_len, _ = latent.shape
+    def __call__(self, latent, gt_structures, sequences, num_recycles=1, inner_batch_size=None, cur_weight=None):
         device = latent.device
+        self.structure_constructor.to(device)
+
+        # check shapes
+        batch_size, seq_len, _ = latent.shape
         assert gt_structures["backbone_rigid_tensor"].shape == torch.Size([batch_size, seq_len, 4, 4])
         assert gt_structures["backbone_rigid_mask"].shape == torch.Size([batch_size, seq_len])
 
-        pred_structures = self.trunk.from_seq_feat(true_aa, latent)[0]
-        assert pred_structures["frames"].shape == torch.Size([8, batch_size, seq_len, 7])
+        # todo: maybe also log pdb strs 
+        # pred_structures = self.trunk.from_seq_feat(true_aa, latent)[0]
+        pred_pdb_strs, pred_raw_outputs = self.structure_constructor.to_structure(
+            latent, sequences, num_recycles, batch_size=inner_batch_size, return_raw_features=True
+        )
+        assert pred_raw_outputs["frames"].shape == torch.Size([8, batch_size, seq_len, 7])
 
         loss = backbone_loss(
             backbone_rigid_tensor=gt_structures["backbone_rigid_tensor"].to(device),
             backbone_rigid_mask=gt_structures["backbone_rigid_mask"].to(device),
-            traj=pred_structures["frames"],
+            traj=pred_raw_outputs["frames"],
         )
 
         weight = self.weight if cur_weight is None else cur_weight

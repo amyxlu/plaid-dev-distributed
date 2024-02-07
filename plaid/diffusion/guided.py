@@ -31,6 +31,7 @@ from plaid.losses import masked_mse_loss, masked_huber_loss, SequenceAuxiliaryLo
 from plaid.decoder import FullyConnectedNetwork
 from plaid.esmfold.trunk import FoldingTrunk
 from plaid.esmfold.misc import batch_encode_sequences
+from plaid.proteins import LatentToSequence, LatentToStructure
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -91,8 +92,8 @@ class GaussianDiffusion(L.LightningModule):
         lr_num_cycles: int = 1,
         add_secondary_structure_conditioning: bool = False,
         # auxiliary losses
-        sequence_decoder: torch.nn.Module = None,
-        structure_decoder: torch.nn.Module = None,
+        sequence_constructor: T.Optional[LatentToSequence] = None,
+        structure_constructor: T.Optional[LatentToStructure] = None,
         sequence_decoder_weight: float = 0.0,
         structure_decoder_weight: float = 0.0,
         latent_reconstruction_method: str = "unnormalized_x_recons"
@@ -183,8 +184,8 @@ class GaussianDiffusion(L.LightningModule):
         self.need_to_setup_sequence_decoder = sequence_decoder_weight > 0.
         self.need_to_setup_structure_decoder = structure_decoder_weight > 0.
 
-        self.sequence_decoder = sequence_decoder
-        self.structure_decoder = structure_decoder
+        self.sequence_decoder = sequence_constructor 
+        self.structure_decoder = structure_constructor
         self.sequence_decoder_weight = sequence_decoder_weight
         self.structure_decoder_weight = structure_decoder_weight
         self.sequence_loss_fn = None
@@ -207,28 +208,19 @@ class GaussianDiffusion(L.LightningModule):
         at the construction of the class, load the sequence decoder onto the GPU now. 
         """
         assert self.need_to_setup_sequence_decoder
-        if self.sequence_decoder is None:
-            self.sequence_decoder = FullyConnectedNetwork.from_pretrained(eval_mode=False)
+        if self.sequence_constructor is None:
+            self.sequence_constructor = LatentToSequence()
 
-        self.sequence_decoder.eval()
-        self.sequence_decoder.to(self.device)
-        for param in self.sequence_decoder.parameters():
-            param.requires_grad = False 
-
-        self.sequence_loss_fn = SequenceAuxiliaryLoss(self.sequence_decoder, weight=self.sequence_decoder_weight)
+        self.sequence_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor, weight=self.sequence_decoder_weight)
         self.need_to_setup_sequence_decoder = False
     
     def setup_structure_decoder(self):
         assert self.need_to_setup_structure_decoder
-        if self.structure_decoder is None:
-            self.structure_decoder = FoldingTrunk.from_pretrained(eval_mode=False) 
+        if self.structure_constructor is None:
+            # Note: this will make ESMFold in the function and might be expensive
+            self.structure_constructor = LatentToStructure()
         
-        self.structure_decoder.eval()
-        self.structure_decoder.to(self.device)
-        for param in self.structure_decoder.parameters():
-            param.requires_grad = False
-        
-        self.structure_loss_fn = BackboneAuxiliaryLoss(esmfold_trunk=self.structure_decoder, weight=self.structure_decoder_weight)
+        self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor, weight=self.structure_decoder_weight)
         self.need_to_setup_structure_decoder = False
 
     def predict_start_from_noise(self, x_t, t, noise):
@@ -498,6 +490,13 @@ class GaussianDiffusion(L.LightningModule):
         x_start = self.latent_scaler.scale(x_unnormalized).to(self.device)
         t = torch.randint(0, self.num_timesteps, (x_start.shape[0],)).long().to(self.device)
 
+        """
+        sequence strings must be the trimmed version that matches latent
+        if the length of the structure doesn't match, we prioritize choosing a sequence string that
+        matches the latent 
+        """
+        assert max([len(s) for s in sequences]) <= x_unnormalized.shape[1]
+
         # get mask 
         true_aatype, mask, _, _, _ = batch_encode_sequences(sequences)
         mask = mask.to(self.device)
@@ -535,6 +534,7 @@ class GaussianDiffusion(L.LightningModule):
             target = v
         else:
             raise ValueError(f"unknown objective {self.objective}")
+        
         recons_loss = masked_mse_loss(model_out, target, mask, reduce="batch") 
         recons_loss = recons_loss * extract_into_tensor(self.loss_weight, t, recons_loss.shape)
         recons_loss = recons_loss.mean()
@@ -570,7 +570,7 @@ class GaussianDiffusion(L.LightningModule):
         
         if self.structure_decoder_weight > 0.:
             assert not gt_structures is None, "If using structure as an auxiliary loss, ground truth structures must be provided"
-            struct_loss, struct_loss_dict = self.structure_loss(true_aatype, latent, gt_structures, cur_weight=None)
+            struct_loss, struct_loss_dict = self.structure_loss(latent, gt_structures, sequences, cur_weight=None)
             log_dict = log_dict | struct_loss_dict
         else:
             struct_loss = 0.
@@ -588,10 +588,10 @@ class GaussianDiffusion(L.LightningModule):
         # specified when specifying the class
         return self.sequence_loss_fn(latent, sequence, cur_weight)
     
-    def structure_loss(self, true_aa, latent, gt_structures, cur_weight=None):
+    def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
         if self.need_to_setup_structure_decoder:
             self.setup_structure_decoder()
-        return self.structure_loss_fn(true_aa, latent, gt_structures, cur_weight)
+        return self.structure_loss_fn(latent, gt_structures, sequences, cur_weight)
 
     def get_secondary_structure_fractions(
         self, sequences: T.List[str], origin_dataset: str = "uniref"

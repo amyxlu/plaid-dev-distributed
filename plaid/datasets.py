@@ -13,7 +13,7 @@ import pickle
 import typing as T
 import lightning as L
 
-from plaid.transforms import mask_from_seq_lens
+from .transforms import mask_from_seq_lens
 
 
 # class ShardedTensorDataset(IterableDataset):
