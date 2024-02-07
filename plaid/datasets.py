@@ -53,6 +53,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
         dtype: str = "bf16",
+        *args, **kwargs
     ):
         super().__init__()
         self.dtype = dtype
@@ -145,7 +146,9 @@ class H5ShardDataset(torch.utils.data.Dataset):
         return pid, self.data[pid]
     
     def __getitem__(self, idx: int) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
-        return self.get(idx)
+        # wrapper for non-structure dataloaders, rearrange output tuple 
+        pdb_id, (emb, seq) = self.get(idx)
+        return emb, seq, pdb_id 
 
 
 class CATHStructureDataset(H5ShardDataset):
@@ -161,6 +164,7 @@ class CATHStructureDataset(H5ShardDataset):
     ):
         ids_to_drop = None
         if not path_to_dropped_ids is None:
+            print("using CATH dropped IDs at", path_to_dropped_ids)
             with open(path_to_dropped_ids, "r") as f:
                 ids_to_drop = f.read().splitlines()
         super().__init__(split, shard_dir, max_seq_len, dtype, ids_to_drop)
@@ -183,6 +187,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         self,
         storage_type: str = "safetensors",
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
+        header_to_sequence_file: T.Optional[str] = None,
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
@@ -194,26 +199,35 @@ class CATHShardedDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.storage_type = storage_type
 
         assert storage_type in ("safetensors", "hdf5")
         if storage_type == "safetensors":
+            assert not header_to_sequence_file is None
+            self.header_to_sequence_file = header_to_sequence_file
             self.dataset_fn = TensorShardDataset
         elif storage_type == "hdf5":
             self.dataset_fn = H5ShardDataset
 
     def setup(self, stage: str = "fit"):
+        kwargs = {}
+        if self.storage_type == "safetensors":
+            kwargs["header_to_sequence_file"] = self.header_to_sequence_file
+
         if stage == "fit":
             self.train_dataset = self.dataset_fn(
                 "train",
                 self.shard_dir,
                 self.seq_len,
                 dtype=self.dtype,
+                **kwargs
             )
             self.val_dataset = self.dataset_fn(
                 "val",
                 self.shard_dir,
                 self.seq_len,
                 dtype=self.dtype,
+                **kwargs
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
@@ -221,6 +235,7 @@ class CATHShardedDataModule(L.LightningDataModule):
                 self.shard_dir,
                 self.seq_len,
                 dtype=self.dtype,
+                **kwargs
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -458,7 +473,7 @@ if __name__ == "__main__":
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    path_to_dropped_ids = "/homefs/home/lux70/code/plaid/plaid/cath_dropped_pdb_list.txt"
+    path_to_dropped_ids = "/homefs/home/lux70/code/plaid/cath_ids_to_drop.txt"
 
     dm = CATHStructureDataModule(
         shard_dir,

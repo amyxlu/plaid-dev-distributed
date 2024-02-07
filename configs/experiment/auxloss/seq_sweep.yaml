@@ -1,0 +1,19 @@
+# @package _global_
+datamodule:
+  batch_size: 128 
+  seq_len: 64
+
+denoiser:
+  num_blocks: 3 
+  use_self_conditioning: ???
+
+diffusion:
+  min_snr_loss_weight: True
+  min_snr_gamma: 5
+  x_downscale_factor: ???
+  sequence_decoder_weight: ???
+  structure_decoder_weight: 0.0
+  latent_reconstruction_method: ???
+
+  lr: 5e-4
+  lr_sched_type: "constant"

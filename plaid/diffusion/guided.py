@@ -208,14 +208,26 @@ class GaussianDiffusion(L.LightningModule):
         """
         assert self.need_to_setup_sequence_decoder
         if self.sequence_decoder is None:
-            self.sequence_decoder = FullyConnectedNetwork.from_pretrained(device=self.device, eval_mode=True)
+            self.sequence_decoder = FullyConnectedNetwork.from_pretrained(eval_mode=False)
+
+        self.sequence_decoder.eval()
+        self.sequence_decoder.to(self.device)
+        for param in self.sequence_decoder.parameters():
+            param.requires_grad = False 
+
         self.sequence_loss_fn = SequenceAuxiliaryLoss(self.sequence_decoder, weight=self.sequence_decoder_weight)
         self.need_to_setup_sequence_decoder = False
     
     def setup_structure_decoder(self):
         assert self.need_to_setup_structure_decoder
         if self.structure_decoder is None:
-            self.structure_decoder = FoldingTrunk.from_pretrained(device=self.device, eval_mode=True) 
+            self.structure_decoder = FoldingTrunk.from_pretrained(eval_mode=False) 
+        
+        self.structure_decoder.eval()
+        self.structure_decoder.to(self.device)
+        for param in self.structure_decoder.parameters():
+            param.requires_grad = False
+        
         self.structure_loss_fn = BackboneAuxiliaryLoss(esmfold_trunk=self.structure_decoder, weight=self.structure_decoder_weight)
         self.need_to_setup_structure_decoder = False
 
@@ -596,24 +608,37 @@ class GaussianDiffusion(L.LightningModule):
         """
         loss logic is in the forward function, make wrapper for pytorch lightning
         sequence must be the same length as the embs (ie. saved during emb caching)
+        -------
+        small hack: if using a structure wrapper, the last batch element is a structure feature dict
+        otherwise it's just pdb_ids which we don't need.
+        2024/02/06 this is currently only for H5ShardDataset and CATHStructureDataset
         """
-        embs, sequences, gt_structures = batch
-        return self(embs, sequences, gt_structures)
-
+        if isinstance(batch[-1], dict):
+            # dictionary of structure features
+            assert "frames" in batch[-1].keys() 
+            embs, sequences, gt_structures = batch
+            return self(embs, sequences, gt_structures)
+        elif isinstance(batch[-1][0], str):
+            embs, sequences, _ = batch
+            return self(embs, sequences)
+        else:
+            raise Exception(f"Batch tuple not understood. Data type of last element of batch tuple is {type(batch[-1])}.")
+        
+        
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(batch, model_kwargs={}, noise=None, clip_x_start=True)
-        self.log_dict({f"train/{k}": v for k, v in log_dict.items()})
+        self.log_dict({f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=False)
         return loss
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
         loss, log_dict = self.compute_loss(batch, model_kwargs={}, noise=None, clip_x_start=True)
-        self.log_dict({f"val/{k}": v for k, v in log_dict.items()})
+        self.log_dict({f"val/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=False)
         return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.parameters(), lr=self.lr, betas=self.adam_betas
+            self.model.parameters(), lr=self.lr, betas=self.adam_betas
         )
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
@@ -628,17 +653,21 @@ class GaussianDiffusion(L.LightningModule):
 
 if __name__ == "__main__":
     from plaid.denoisers import UTriSelfAttnDenoiser
-    from plaid.datasets import CATHStructureDataModule
+    from plaid.datasets import CATHStructureDataModule, CATHShardedDataModule
     # from plaid.denoisers import PreinitializedTriSelfAttnDenoiser
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    dm = CATHStructureDataModule(
-        shard_dir,
-        pdb_dir,
-        seq_len=64,
-        batch_size=2,
-        num_workers=0
+    # dm = CATHStructureDataModule(
+    #     shard_dir,
+    #     pdb_dir,
+    #     seq_len=64,
+    #     batch_size=2,
+    #     num_workers=0
+    # )
+    dm = CATHShardedDataModule(
+        storage_type = "hdf5",
+        shard_dir = shard_dir
     )
     dm.setup()
     train_dataloader = dm.train_dataloader()
@@ -656,7 +685,7 @@ if __name__ == "__main__":
     diffusion = GaussianDiffusion(
         model,
         sequence_decoder_weight=1.0,
-        structure_decoder_weight=1.0
+        # structure_decoder_weight=1.0
     )
     diffusion.to(device=device)
     diffusion.training_step(batch)

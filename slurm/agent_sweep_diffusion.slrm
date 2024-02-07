@@ -16,9 +16,12 @@ echo "SLURMD_NODENAME = ${SLURMD_NODENAME}"
 echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
 export HYDRA_FULL_ERROR=1
-export TOKENIZERS_PARALLELISM=False
+export TOKENIZERS_PARALLELISM=0
 
 cd /homefs/home/lux70/code/plaid/
 
 agentid=$1
 wandb agent lu-amy-al1/plaid/$agentid
+
+sleep 5
+srun nvidia-smi
