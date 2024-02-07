@@ -217,7 +217,7 @@ class SampleCallback(Callback):
             x = x[torch.randperm(x.shape[0])][: self.n_to_construct]
 
         maybe_print("constructing sequence...")
-        seq_str, log_dict = self.construct_sequence(x, device, log_to_wandb)
+        seq_str, log_dict = self.construct_sequence(x, device)
         if log_to_wandb:
             logger.log(log_dict)
 

@@ -184,8 +184,8 @@ class GaussianDiffusion(L.LightningModule):
         self.need_to_setup_sequence_decoder = sequence_decoder_weight > 0.0
         self.need_to_setup_structure_decoder = structure_decoder_weight > 0.0
 
-        self.sequence_decoder = sequence_constructor
-        self.structure_decoder = structure_constructor
+        self.sequence_constructor = sequence_constructor
+        self.structure_constructor = structure_constructor
         self.sequence_decoder_weight = sequence_decoder_weight
         self.structure_decoder_weight = structure_decoder_weight
         self.sequence_loss_fn = None

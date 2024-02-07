@@ -214,26 +214,33 @@ class LatentToSequence:
         with torch.no_grad():
             output_logits = self.decoder(latent)
 
+        # adjust by temperature
+        output_logits /= self.temperature
+
         # remove UNK token
         if drop_mask_idx:
             _mask = (
                 torch.arange(output_logits.shape[-1], device=self.device)
                 != self.tokenizer.unk_idx
             )
-            sequence_logits = torch.index_select(
+            drop_mask_logits = torch.index_select(
                 input=output_logits,
                 dim=-1,
                 index=torch.arange(output_logits.shape[-1], device=self.device)[_mask],
             )
-
-        # adjust by temperature
-        sequence_logits /= self.temperature
-
-        # get the argmax index & compare it to the actual sample, to get a sense as to how temperature affects diversity
-        argmax_idx = sequence_logits.argmax(-1)
-        sequence_idx = argmax_idx
-        dist = torch.distributions.OneHotCategorical(logits=sequence_logits)
+            argmax_idx = drop_mask_logits.argmax(-1)
+            dist = torch.distributions.OneHotCategorical(logits=drop_mask_logits)
+            sequence_probs = F.softmax(drop_mask_logits, dim=-1)
+        else:
+            # get the argmax index & compare it to the actual sample, to get a sense as to how temperature affects diversity
+            argmax_idx = output_logits.argmax(-1)
+            dist = torch.distributions.OneHotCategorical(logits=output_logits)
+            sequence_probs = F.softmax(output_logits, dim=-1)
+        
         sequence_idx = dist.sample().argmax(-1)
+        sequence_probs = torch.gather(
+            sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)
+        ).squeeze(-1)
         stochasticity = (argmax_idx == sequence_idx).sum() / torch.numel(argmax_idx)
         print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
 
@@ -241,13 +248,9 @@ class LatentToSequence:
             self.tokenizer.aatype_to_str_sequence(s)
             for s in sequence_idx.long().cpu().numpy()
         ]
-        # softmax to probabilities, and only grab that for the argmax index
-        sequence_probs = F.softmax(sequence_logits, dim=-1)
-        sequence_probs = torch.gather(
-            sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)
-        ).squeeze(-1)
 
         if return_logits:
+            # return the original output logits, e.g. for loss & backprop purposes
             return output_logits, sequence_idx, sequence_str
         else:
             return sequence_probs, sequence_idx, sequence_str

@@ -2,6 +2,7 @@ import typing as T
 
 from openfold.utils.loss import backbone_loss
 import pandas as pd
+import torch
 
 from .functions import masked_token_cross_entropy_loss, masked_token_accuracy
 from ..esmfold.misc import batch_encode_sequences
@@ -26,8 +27,9 @@ class SequenceAuxiliaryLoss:
 
         # grab ground-truth tokenized sequence & loss mask
         aatype, mask, _, _, _ = batch_encode_sequences(sequences)
+        aatype, mask = aatype.to(device), mask.to(device)
 
-        # grab logits and calculate masked cross entropy
+        # grab logits and calculate masked cross entropy (must pass non-default arguments)
         logits, _, recons_strs = self.sequence_constructor.to_sequence(
             latent, mask, return_logits=True, drop_mask_idx=False
         )
