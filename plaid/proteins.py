@@ -15,10 +15,10 @@ import numpy as np
 import re
 from openfold.np import residue_constants
 
-from ._misc import npy, to_tensor
-from ..decoder import FullyConnectedNetwork
-from ..esmfold import ESMFOLD_Z_DIM, esmfold_v1
-from ..esmfold.misc import output_to_pdb, batch_encode_sequences
+from .utils._misc import npy, to_tensor
+from .decoder import FullyConnectedNetwork
+from .esmfold import ESMFOLD_Z_DIM, esmfold_v1
+from .esmfold.misc import output_to_pdb, batch_encode_sequences
 
 
 ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
@@ -185,28 +185,40 @@ def outputs_to_avg_metric(outputs):
 
 
 class LatentToSequence:
-    def __init__(self, device, temperature: float = 1.0):
+    def __init__(self, temperature: float = 1.0):
+        """ On construction, all models are on the CPU."""
         self.temperature = temperature
-        self.device = device
         self.tokenizer = DecoderTokenizer()
-        self.decoder = FullyConnectedNetwork.from_pretrained() 
+        self.decoder = FullyConnectedNetwork.from_pretrained(device="cpu") 
+        self.device = torch.device("cpu")
+        
+        self.decoder.eval()
+        for param in self.decoder.parameters():
+            param.requires_grad = False
+    
+    def to(self, device):
+        """ Move onto the device for the usecase before calling to_sequence()."""
+        self.decoder = self.decoder.to(device)
+        self.device = device
 
-    def to_sequence(self, latent: ArrayLike, mask=None):
+    def to_sequence(self, latent: ArrayLike, mask=None, return_logits=False):
         if not mask is None:
             mask = torch.ones_like(latent)
         latent = to_tensor(latent, device=self.device)
+        assert latent.device == self.decoder.device, "Make sure to call .to(device) to move decoder to the correct device."
+
         with torch.no_grad():
-            sequence_logits = self.decoder(latent)
+            output_logits = self.decoder(latent)
 
         # remove UNK token
         _mask = (
-            torch.arange(sequence_logits.shape[-1], device=self.device)
+            torch.arange(output_logits.shape[-1], device=self.device)
             != self.tokenizer.unk_idx
         )
         sequence_logits = torch.index_select(
-            input=sequence_logits,
+            input=output_logits,
             dim=-1,
-            index=torch.arange(sequence_logits.shape[-1], device=self.device)[_mask],
+            index=torch.arange(output_logits.shape[-1], device=self.device)[_mask],
         )
 
         # adjust by temperature
@@ -229,20 +241,49 @@ class LatentToSequence:
         sequence_probs = torch.gather(
             sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)
         ).squeeze(-1)
-        return sequence_probs, sequence_idx, sequence_str
+
+        if return_logits:
+            return output_logits, sequence_idx, sequence_str
+        else:
+            return sequence_probs, sequence_idx, sequence_str
 
 
 class LatentToStructure:
-    def __init__(self, device, esmfold=None):
+    def __init__(self, esmfold=None):
         self.esmfold = esmfold_v1() if esmfold is None else esmfold
+        self.esmfold.to("cpu")
         self.esmfold.set_chunk_size(64)
-        self.esmfold.eval().requires_grad_(False)
         del self.esmfold.esm  # save some GPU space
-        self.esmfold.to(device)
-        self.device = device
         assert not self.esmfold.trunk is None
 
+        self.esmfold.eval()
+        for param in self.esmfold.parameters():
+            param.requires_grad = False
+    
+    def to(self, device):
+        self.esmfold = self.esmfold.to(device)
+        self.device = device
+    
     @torch.no_grad()
+    def run_batch(self, s_, aa_, mask_, residx_, num_recycles):
+        # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
+        # utils.print_cuda_memory_usage()
+        _, L, _ = s_.shape
+        z_ = latent.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
+
+        with torch.no_grad():
+            output = self.esmfold.folding_trunk(
+                s_s_0=s_,
+                s_z_0=z_,
+                aa=aa_,
+                residx=residx_,
+                mask=mask_,
+                num_recycles=num_recycles,
+            )
+        pdb_str = output_to_pdb(output)
+        metric = outputs_to_avg_metric(output)
+        return pdb_str, metric
+
     def to_structure(
         self,
         latent: ArrayLike,
@@ -250,50 +291,39 @@ class LatentToStructure:
         num_recycles: int = 1,
         batch_size: T.Optional[int] = None,
     ) -> T.Tuple[T.List[PathLike], pd.DataFrame]:
-        # TODO: allow for variable dimensions latent
-        latent = to_tensor(latent, device=self.device)
-        batch_size = latent.shape[0] if batch_size is None else batch_size
-        N, L, _ = latent.shape
+
+        """set up devices and tensors"""
         aatype, mask, residx, _, _ = batch_encode_sequences(sequences)
         aatype, mask, residx = tuple(
             map(lambda x: x.to(self.device), (aatype, mask, residx))
         )
+        latent = to_tensor(latent, device=self.device)
+        assert latent.device == self.esmfold.device, "Make sure to call .to(device) to move trunk to the correct device."
 
-        metrics = []
-        all_pdb_strs = []
-
-        for start in trange(
-            0, len(latent), batch_size, desc="(Generating structure from latents..)"
-        ):
-            torch.cuda.empty_cache()
-            # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
-            # utils.print_cuda_memory_usage()
-            s_, aa_, mask_, residx_ = tuple(
-                map(
-                    lambda x: x[start : start + batch_size],
-                    (latent, aatype, mask, residx),
+        if batch_size is None:
+            print("Generating structure from latents")
+            return self.run_batch(latent, aatype, mask, residx, num_recycles) 
+            
+        else:
+            metrics = []
+            all_pdb_strs = []
+            for start in trange(0, len(latent), batch_size, desc="(Generating structure)"):
+                s_, aa_, mask_, residx_ = tuple(
+                    map(
+                        lambda x: x[start : start + batch_size],
+                        (latent, aatype, mask, residx),
+                    )
                 )
-            )
-            z_ = latent.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
-
-            with torch.no_grad():
-                output = self.esmfold.folding_trunk(
-                    s_s_0=s_,
-                    s_z_0=z_,
-                    aa=aa_,
-                    residx=residx_,
-                    mask=mask_,
-                    num_recycles=num_recycles,
-                )
-            metrics.append(pd.DataFrame(outputs_to_avg_metric(output)))
-            all_pdb_strs.extend(output_to_pdb(output))
-        metrics = pd.concat(metrics)
-        return all_pdb_strs, metrics
+                pdb_str, metric = self.run_batch(s_, aa_, mask_, residx_, num_recycles)
+                metrics.append(metric)
+                all_pdb_strs.extend(pdb_str)
+            metrics = pd.concat(metrics)
+            return all_pdb_strs, metrics
 
 
 if __name__ == "__main__":
     import torch
-    from plaid.utils._proteins import LatentToSequence, LatentToStructure
+    from plaid.proteins import LatentToSequence, LatentToStructure
 
     device = torch.device("cuda:3")
     sequence_constructor = LatentToSequence(device, strategy="onehot_categorical")

@@ -14,7 +14,7 @@ import safetensors.torch as st
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, calc_fid_fn, calc_kid_fn
-from plaid.utils import LatentToSequence, LatentToStructure, write_pdb_to_disk
+from plaid.proteins import LatentTotToSequence, LatentToStructure, write_pdb_to_disk
 import pandas as pd
 import wandb
 
@@ -41,6 +41,8 @@ class SampleCallback(Callback):
         num_recycles: int = 4,
         outdir: str = "sampled",
         sequence_decode_temperature: float = 1.0,
+        sequence_constructor: T.Optional[T.Any] = None,
+        structure_constructor: T.Optional[T.Any] = None,
     ):
         super().__init__()
         self.outdir = Path(outdir)
@@ -58,7 +60,8 @@ class SampleCallback(Callback):
         self.is_save_setup = False
         self.is_fid_setup = False
         self.is_perplexity_setup = False
-        self.sequence_constructor, self.structure_constructor = None, None
+        self.sequence_constructor = sequence_constructor
+        self.structure_constructor = structure_constructor
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -133,12 +136,17 @@ class SampleCallback(Callback):
         device,
         log_to_wandb=False
     ):
+        """If gradients are not needed, make sure to turn it off in the outer function call"""
         if self.sequence_constructor is None:
             self.sequence_constructor = LatentToSequence(
                 device=device, temperature=self.sequence_decode_temperature
             )
+
+        # use this for inference only
+        self.sequence_constructor.decoder.to(device).eval()
         x_0 = x_0.to(device=device)
-        probs, idxs, strs = self.sequence_constructor.to_sequence(x_0)
+        with torch.no_grad():
+            probs, idxs, strs = self.sequence_constructor.to_sequence(x_0)
         sequence_results = pd.DataFrame(
             {
                 "sequences": strs,
@@ -161,16 +169,20 @@ class SampleCallback(Callback):
             return strs, None
 
     def construct_structure(self, x_0, seq_str, device):
+        """If gradients are not needed, make sure to turn it off in the outer function call"""
         # TODO: maybe save & log artifact
-        x_0 = x_0.to(device=device)
         if self.structure_constructor is None:
             self.structure_constructor = LatentToStructure(device=device)
-        pdb_strs, metrics = self.structure_constructor.to_structure(
-            x_0,
-            sequences=seq_str,
-            num_recycles=self.num_recycles,
-            batch_size=self.batch_size,
-        )
+        self.structure_constructor.esmfold.to(device).eval()
+        x_0 = x_0.to(device=device)
+        
+        with torch.no_grad():
+            pdb_strs, metrics = self.structure_constructor.to_structure(
+                x_0,
+                sequences=seq_str,
+                num_recycles=self.num_recycles,
+                batch_size=self.batch_size,
+            )
 
         log_dict = {
             f"sampled/plddt_mean": metrics["plddt"].mean(),
@@ -184,6 +196,7 @@ class SampleCallback(Callback):
         print("val epoch start")
 
     def _run(self, pl_module, shape, log_to_wandb=True):
+        torch.cuda.empty_cache()
         log_to_wandb = self.log_to_wandb and log_to_wandb
 
         device = pl_module.device
@@ -218,18 +231,20 @@ class SampleCallback(Callback):
                 logger.log(log_dict)
 
     def on_sanity_check_start(self, trainer, pl_module):
-        # _sampling_timesteps = pl_module.sampling_timesteps
-        # # hack
-        # pl_module.sampling_timesteps = 3
-        # if rank_zero_only.rank == 0:
-        #     dummy_shape = (2, 16, self.diffusion.model.hid_dim)
-        #     self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
-        # pl_module.sampling_timesteps = _sampling_timesteps
-        pass
+        _sampling_timesteps = pl_module.sampling_timesteps
+        # hack
+        pl_module.sampling_timesteps = 3
+        if rank_zero_only.rank == 0:
+            dummy_shape = (2, 16, self.diffusion.model.hid_dim)
+            self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
+        pl_module.sampling_timesteps = _sampling_timesteps
+        print("done sampling sanity check")
+        torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):
         shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim) 
         self._run(pl_module, shape, log_to_wandb=True)
+        torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":

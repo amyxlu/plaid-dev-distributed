@@ -8,11 +8,30 @@ from lightning.pytorch.utilities import rank_zero_only
 from omegaconf import DictConfig, OmegaConf
 import torch
 
+from plaid.proteins import LatentToSequence, LatentToStructure
+
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
+
+    def to_load_sequence_constructor(cfg):
+        if (cfg.diffusion.sequence_decoder_weight > 0.) or (cfg.callbacks.sample.calc_perplexity):
+            return LatentToSequence("cpu")
+        else:
+            return None
+        
+    def to_load_structure_constructor(cfg):
+        if (cfg.diffusion.structure_decoder_weight > 0.) or (cfg.callbacks.sample.calc_structure):
+            return LatentToStructure("cpu")
+        else:
+            return None
+        
+    sequence_constructor = to_load_sequence_constructor(cfg)
+    structure_constructor = to_load_structure_constructor(cfg)
+    sequence_decoder = sequence_constructor.decoder if not sequence_constructor is None else None
+    structure_decoder = structure_constructor.esmfold.trunk if not structure_constructor is None else None
     
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
@@ -30,10 +49,12 @@ def train(cfg: DictConfig):
         model=denoiser,
         beta_scheduler=beta_scheduler,
         latent_scaler=latent_scaler,
+        sequence_decoder=sequence_decoder,
+        structure_decoder=structure_decoder
     )
 
     # job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
-    print(os.environ.get("SLUMR_JOB_ID"))
+    print("SLURM job id:", os.environ.get("SLURM_JOB_ID"))
     job_id = None
 
     if not cfg.dryrun:
@@ -51,6 +72,8 @@ def train(cfg: DictConfig):
         diffusion=diffusion,
         model=denoiser,
         log_to_wandb=not cfg.dryrun,
+        sequence_constructor=sequence_constructor,
+        structure_constructor=structure_constructor
     )
 
     # run training
