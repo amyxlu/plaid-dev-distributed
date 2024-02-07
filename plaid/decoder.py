@@ -6,7 +6,7 @@ import os
 
 from typing import Optional, Callable
 
-from .losses import masked_token_cross_entropy_loss, masked_token_accuracy
+from .losses.functions import masked_token_cross_entropy_loss, masked_token_accuracy
 from .esmfold.misc import batch_encode_sequences
 from .transforms import get_random_sequence_crop_batch
 from .constants import DECODER_CKPT_PATH

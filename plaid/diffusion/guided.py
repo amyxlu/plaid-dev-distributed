@@ -28,14 +28,8 @@ from plaid.utils import (
     sequences_to_secondary_structure_fracs,
 )
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
-from plaid.losses import (
-    masked_mse_loss,
-    masked_huber_loss,
-    SequenceAuxiliaryLoss,
-    BackboneAuxiliaryLoss,
-)
-from plaid.decoder import FullyConnectedNetwork
-from plaid.esmfold.trunk import FoldingTrunk
+from plaid.losses.functions import masked_mse_loss, masked_huber_loss
+from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
 
