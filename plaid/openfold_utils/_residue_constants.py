@@ -497,9 +497,7 @@ van_der_waals_radius = {
     "S": 1.8,
 }
 
-Bond = collections.namedtuple(
-    "Bond", ["atom1_name", "atom2_name", "length", "stddev"]
-)
+Bond = collections.namedtuple("Bond", ["atom1_name", "atom2_name", "length", "stddev"])
 BondAngle = collections.namedtuple(
     "BondAngle",
     ["atom1_name", "atom2_name", "atom3name", "angle_rad", "stddev"],
@@ -525,7 +523,9 @@ def load_stereo_chemical_props() -> Tuple[
     """
     # original OpenFold downloads this separately
     # stereo_chemical_props = resources.read_text("openfold.resources", "stereo_chemical_props.txt")
-    stereo_chemical_props_path = os.path.join(os.path.dirname(__file__), "resources/stereo_chemical_props.txt")
+    stereo_chemical_props_path = os.path.join(
+        os.path.dirname(__file__), "resources/stereo_chemical_props.txt"
+    )
     with open(stereo_chemical_props_path, "r") as f:
         lines = f.readlines()
     lines_iter = iter(lines)
@@ -540,9 +540,7 @@ def load_stereo_chemical_props() -> Tuple[
         atom1, atom2 = bond.split("-")
         if resname not in residue_bonds:
             residue_bonds[resname] = []
-        residue_bonds[resname].append(
-            Bond(atom1, atom2, float(length), float(stddev))
-        )
+        residue_bonds[resname].append(Bond(atom1, atom2, float(length), float(stddev)))
     residue_bonds["UNK"] = []
 
     # Load bond angles.
@@ -587,22 +585,16 @@ def load_stereo_chemical_props() -> Tuple[
             # c^2 = a^2 + b^2 - 2ab*cos(gamma).
             gamma = ba.angle_rad
             length = np.sqrt(
-                bond1.length ** 2
-                + bond2.length ** 2
+                bond1.length**2
+                + bond2.length**2
                 - 2 * bond1.length * bond2.length * np.cos(gamma)
             )
 
             # Propagation of uncertainty assuming uncorrelated errors.
             dl_outer = 0.5 / length
-            dl_dgamma = (
-                2 * bond1.length * bond2.length * np.sin(gamma)
-            ) * dl_outer
-            dl_db1 = (
-                2 * bond1.length - 2 * bond2.length * np.cos(gamma)
-            ) * dl_outer
-            dl_db2 = (
-                2 * bond2.length - 2 * bond1.length * np.cos(gamma)
-            ) * dl_outer
+            dl_dgamma = (2 * bond1.length * bond2.length * np.sin(gamma)) * dl_outer
+            dl_db1 = (2 * bond1.length - 2 * bond2.length * np.cos(gamma)) * dl_outer
+            dl_db2 = (2 * bond2.length - 2 * bond1.length * np.cos(gamma)) * dl_outer
             stddev = np.sqrt(
                 (dl_dgamma * ba.stddev) ** 2
                 + (dl_db1 * bond1.stddev) ** 2
@@ -615,9 +607,7 @@ def load_stereo_chemical_props() -> Tuple[
     return (residue_bonds, residue_virtual_bonds, residue_bond_angles)
 
 
-def make_atom14_dists_bounds(
-    overlap_tolerance=1.5, bond_length_tolerance_factor=15
-):
+def make_atom14_dists_bounds(overlap_tolerance=1.5, bond_length_tolerance_factor=15):
     """compute upper and lower bounds for bonds to assess violations."""
     restype_atom14_bond_lower_bound = np.zeros([21, 14, 14], np.float32)
     restype_atom14_bond_upper_bound = np.zeros([21, 14, 14], np.float32)
@@ -638,18 +628,10 @@ def make_atom14_dists_bounds(
                 atom2_radius = van_der_waals_radius[atom2_name[0]]
                 lower = atom1_radius + atom2_radius - overlap_tolerance
                 upper = 1e10
-                restype_atom14_bond_lower_bound[
-                    restype, atom1_idx, atom2_idx
-                ] = lower
-                restype_atom14_bond_lower_bound[
-                    restype, atom2_idx, atom1_idx
-                ] = lower
-                restype_atom14_bond_upper_bound[
-                    restype, atom1_idx, atom2_idx
-                ] = upper
-                restype_atom14_bond_upper_bound[
-                    restype, atom2_idx, atom1_idx
-                ] = upper
+                restype_atom14_bond_lower_bound[restype, atom1_idx, atom2_idx] = lower
+                restype_atom14_bond_lower_bound[restype, atom2_idx, atom1_idx] = lower
+                restype_atom14_bond_upper_bound[restype, atom1_idx, atom2_idx] = upper
+                restype_atom14_bond_upper_bound[restype, atom2_idx, atom1_idx] = upper
 
         # overwrite lower and upper bounds for bonds and angles
         for b in residue_bonds[resname] + residue_virtual_bonds[resname]:
@@ -657,18 +639,10 @@ def make_atom14_dists_bounds(
             atom2_idx = atom_list.index(b.atom2_name)
             lower = b.length - bond_length_tolerance_factor * b.stddev
             upper = b.length + bond_length_tolerance_factor * b.stddev
-            restype_atom14_bond_lower_bound[
-                restype, atom1_idx, atom2_idx
-            ] = lower
-            restype_atom14_bond_lower_bound[
-                restype, atom2_idx, atom1_idx
-            ] = lower
-            restype_atom14_bond_upper_bound[
-                restype, atom1_idx, atom2_idx
-            ] = upper
-            restype_atom14_bond_upper_bound[
-                restype, atom2_idx, atom1_idx
-            ] = upper
+            restype_atom14_bond_lower_bound[restype, atom1_idx, atom2_idx] = lower
+            restype_atom14_bond_lower_bound[restype, atom2_idx, atom1_idx] = lower
+            restype_atom14_bond_upper_bound[restype, atom1_idx, atom2_idx] = upper
+            restype_atom14_bond_upper_bound[restype, atom2_idx, atom1_idx] = upper
             restype_atom14_bond_stddev[restype, atom1_idx, atom2_idx] = b.stddev
             restype_atom14_bond_stddev[restype, atom2_idx, atom1_idx] = b.stddev
     return {

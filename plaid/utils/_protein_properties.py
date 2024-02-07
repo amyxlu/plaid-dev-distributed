@@ -1,5 +1,6 @@
 """ Calculate additional protein attributes from sequence for conditioning.
 """
+
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
 import numpy as np
 import typing as T

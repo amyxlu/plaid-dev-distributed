@@ -1,6 +1,7 @@
 """
 Custom callbacks sampling and evaluation.
 """
+
 import typing as T
 import os
 import json
@@ -137,13 +138,15 @@ class SampleCallback(Callback):
     ):
         if self.sequence_constructor is None:
             self.sequence_constructor = LatentToSequence()
-        
-        # forward pass  
+
+        # forward pass
         self.sequence_constructor.to(device)
         x_0 = x_0.to(device=device)
         with torch.no_grad():
-            probs, idxs, strs = self.sequence_constructor.to_sequence(x_0, return_logits=False)
-        
+            probs, idxs, strs = self.sequence_constructor.to_sequence(
+                x_0, return_logits=False
+            )
+
         # organize results for logging
         sequence_results = pd.DataFrame(
             {
@@ -158,7 +161,7 @@ class SampleCallback(Callback):
                 self._perplexity_setup(device)
             perplexity = self.perplexity_calc.batch_eval(strs)
             print(f"Perplexity: {perplexity:.3f}")
-            log_dict[f"sampled/perplexity"] = perplexity,
+            log_dict[f"sampled/perplexity"] = (perplexity,)
 
         return strs, log_dict
 
@@ -166,10 +169,10 @@ class SampleCallback(Callback):
         if self.structure_constructor is None:
             # warning: this implicitly creates an ESMFold inference model, can be very memory consuming
             self.structure_constructor = LatentToStructure()
-        
+
         self.structure_constructor.to(device)
         x_0 = x_0.to(device=device)
-        
+
         with torch.no_grad():
             pdb_strs, metrics = self.structure_constructor.to_structure(
                 x_0,
@@ -177,7 +180,7 @@ class SampleCallback(Callback):
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
             )
-        
+
         log_dict = {
             f"sampled/plddt_mean": metrics["plddt"].mean(),
             f"sampled/plddt_std": metrics["plddt"].std(),
@@ -236,7 +239,7 @@ class SampleCallback(Callback):
         torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):
-        shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim) 
+        shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim)
         self._run(pl_module, shape, log_to_wandb=True)
         torch.cuda.empty_cache()
 

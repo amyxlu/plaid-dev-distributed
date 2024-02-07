@@ -136,7 +136,9 @@ class UIPAExperimentConfig:
 
     # Diffusion
     T: int = 2000  # Total number of diffusion timesteps
-    beta_schedule: str = "chen_sigmoid_start0_end3_tau0.5"  # "cosine" / "linear" / "chen_sigmoid_start0_end3_tau0.5" / "chen_cosine_start0.2_end1_tau3" / etc.
+    beta_schedule: str = (
+        "chen_sigmoid_start0_end3_tau0.5"  # "cosine" / "linear" / "chen_sigmoid_start0_end3_tau0.5" / "chen_cosine_start0.2_end1_tau3" / etc.
+    )
     noise_var: float = 1.0  # Noise variance for diffusion
     timestep_proj: str = "gaussian_fourier"  # "gaussian_fourier" / "sinusoidal"
     x_scale_factor: float = 0.5  # Scale factor for x, following Chen et al.
@@ -152,9 +154,15 @@ class UIPAExperimentConfig:
     cemb_cat_strategy: str = "concat"  # "add" / "concat"
 
     # forward pass
-    latent_scaling_mode: str = "channel_standardize"  # "none" / "global_minmaxnorm" / "channel_minmaxnorm" / "global_standardize" / "channel_standardize"
-    clip_model_output: bool = False  # If true, clips the output of the model to [-1, 1] (should mirror the latent scaling mode)
-    norm_model_output: bool = False  # If true, applies layer norm to model output (should mirror the latent scaling mode)
+    latent_scaling_mode: str = (
+        "channel_standardize"  # "none" / "global_minmaxnorm" / "channel_minmaxnorm" / "global_standardize" / "channel_standardize"
+    )
+    clip_model_output: bool = (
+        False  # If true, clips the output of the model to [-1, 1] (should mirror the latent scaling mode)
+    )
+    norm_model_output: bool = (
+        False  # If true, applies layer norm to model output (should mirror the latent scaling mode)
+    )
     mlp_proj_model_output: bool = (
         False  # If true, applies a trainable MLP projection to the model output.
     )
@@ -175,12 +183,16 @@ class UIPAExperimentConfig:
     num_workers: int = 4
 
     # Conditioning
-    cond_key: str = "secondary_structure"  # "none" for unconditional , otherwise "secondary_structure"
+    cond_key: str = (
+        "secondary_structure"  # "none" for unconditional , otherwise "secondary_structure"
+    )
     cond_key_dropout_prob: float = 0.2
 
     # LR
     lr_base: float = 1e-4
-    lr_scheduler: str = "constant"  # "cosine" / "constant" / "linear" / "constant_with_warmup" / "cosine_with_restarts" / "inverse_sqrt"
+    lr_scheduler: str = (
+        "constant"  # "cosine" / "constant" / "linear" / "constant_with_warmup" / "cosine_with_restarts" / "inverse_sqrt"
+    )
     lr_warmups: int = 0
     lr_num_cycles: int = 1
 

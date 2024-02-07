@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import numpy as np
 
 
-
 def expand_to_shape(x, target_shape):
     # keep adding dimensions to the end until we match target dimensions
     while len(x.shape) < len(target_shape):
@@ -26,7 +25,9 @@ def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask=None, reduce=
             dims = tuple(range(1, len(pred.shape)))
             return ((((pred - target) ** 2) * mask).sum(dim=dims)) / mask.sum(dim=dims)
         else:
-            raise ValueError(f"Unknown reduce type: {reduce}. Expected: 'mean' or 'batch'.")
+            raise ValueError(
+                f"Unknown reduce type: {reduce}. Expected: 'mean' or 'batch'."
+            )
 
 
 class VectorQuantizer(nn.Module):
@@ -50,7 +51,7 @@ class VectorQuantizer(nn.Module):
 
     def forward(self, z, mask):
         """
-        Inputs the output of the encoder network z and maps it to a discrete 
+        Inputs the output of the encoder network z and maps it to a discrete
         one-hot vector that is the index of the closest embedding vector e_j
 
         z (continuous) -> z_q (discrete)
@@ -62,7 +63,7 @@ class VectorQuantizer(nn.Module):
 
             1. get encoder input (B,C,L)
             2. flatten input to (B*L,C)
-        
+
         The mask is False if all original x values for a patch were padded,
         in which case the sample would be ignored during loss and transformer computations.
         """
@@ -75,22 +76,25 @@ class VectorQuantizer(nn.Module):
         assert z_flattened.shape[0] == mask.shape[0]
 
         # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
-        d = torch.sum((z_flattened ** 2) * mask, dim=1, keepdim=True) + \
-            torch.sum(self.embedding.weight**2, dim=1) - 2 * \
-            torch.matmul(z_flattened * mask, self.embedding.weight.t())
+        d = (
+            torch.sum((z_flattened**2) * mask, dim=1, keepdim=True)
+            + torch.sum(self.embedding.weight**2, dim=1)
+            - 2 * torch.matmul(z_flattened * mask, self.embedding.weight.t())
+        )
 
         # find closest encodings
         min_encoding_indices = torch.argmin(d, dim=1).unsqueeze(1)
-        min_encodings = torch.zeros(
-            min_encoding_indices.shape[0], self.n_e).to(device)
+        min_encodings = torch.zeros(min_encoding_indices.shape[0], self.n_e).to(device)
         min_encodings.scatter_(1, min_encoding_indices, 1)
-        import pdb;pdb.set_trace()
+        import pdb
+
+        pdb.set_trace()
 
         # get quantized latent vectors
         z_q = torch.matmul(min_encodings, self.embedding.weight).view(z.shape)
 
         # compute loss for embedding
-        embedding_loss = masked_mse_loss(z_q.detach(), z, mask) 
+        embedding_loss = masked_mse_loss(z_q.detach(), z, mask)
         commitment_loss = masked_mse_loss(z_q, z.detach(), mask)
         loss = embedding_loss + self.beta * commitment_loss
         # loss = torch.mean((z_q.detach()-z)**2) + self.beta * \

@@ -25,7 +25,6 @@ def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
     return [_get_random_sequence_crop(seq, max_len) for seq in sequence_batch]
 
 
-
 class ESMFoldEmbed:
     def __init__(self, esmfold):
         self.esmfold = esmfold
@@ -40,4 +39,3 @@ class ESMFoldEmbed:
         if not device is None:
             self.esmfold = self.esmfold.to(device)
         return self.embed_fn(sequence)
-

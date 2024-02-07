@@ -13,7 +13,7 @@ import torch
 def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
-    
+
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -37,9 +37,7 @@ def train(cfg: DictConfig):
     # run training
 
     trainer = hydra.utils.instantiate(
-        cfg.trainer,
-        logger=logger,
-        callbacks=[lr_monitor, checkpoint_callback]
+        cfg.trainer, logger=logger, callbacks=[lr_monitor, checkpoint_callback]
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)

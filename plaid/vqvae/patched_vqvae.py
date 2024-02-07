@@ -130,7 +130,10 @@ class TransformerVQVAE(L.LightningModule):
         N, L, C = x.shape
         assert mask.shape == (N, L)
         self.n_chunks = math.ceil(L / self.patch_len)
-        x, mask = x[:, :self.n_chunks * self.patch_len, :], mask[:, : self.n_chunks * self.patch_len]
+        x, mask = (
+            x[:, : self.n_chunks * self.patch_len, :],
+            mask[:, : self.n_chunks * self.patch_len],
+        )
 
         x_chunks = einops.rearrange(x, "N (L l) C -> (N L) l C", l=self.patch_len)
         mask_chunks = einops.rearrange(mask, "N (L l) -> (N L) l", l=self.patch_len)

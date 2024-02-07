@@ -12,11 +12,13 @@ from plaid.esmfold import esmfold_v1
 from plaid.transforms import ESMFoldEmbed
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="train_sequence_decoder")
+@hydra.main(
+    version_base=None, config_path="configs", config_name="train_sequence_decoder"
+)
 def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
-    
+
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -27,7 +29,9 @@ def train(cfg: DictConfig):
 
     esmfold = esmfold_v1().eval().requires_grad_(False)
     embed_fn = ESMFoldEmbed(esmfold)
-    model = hydra.utils.instantiate(cfg.sequence_decoder, training_embed_from_sequence_fn=embed_fn)
+    model = hydra.utils.instantiate(
+        cfg.sequence_decoder, training_embed_from_sequence_fn=embed_fn
+    )
 
     job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
 
@@ -41,11 +45,8 @@ def train(cfg: DictConfig):
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
 
-
     trainer = hydra.utils.instantiate(
-        cfg.trainer,
-        logger=logger,
-        callbacks=[lr_monitor, checkpoint_callback]
+        cfg.trainer, logger=logger, callbacks=[lr_monitor, checkpoint_callback]
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)

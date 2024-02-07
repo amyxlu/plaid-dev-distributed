@@ -17,7 +17,7 @@ def Normalize(in_channels, num_groups=32):
 
 
 def make_attn(in_channels, attn_type="vanilla"):
-    assert attn_type in ["vanilla", "linear", "none"], f'attn_type {attn_type} unknown'
+    assert attn_type in ["vanilla", "linear", "none"], f"attn_type {attn_type} unknown"
     print(f"making attention of type '{attn_type}' with {in_channels} in_channels")
     if attn_type == "vanilla":
         return AttnBlock(in_channels)
@@ -33,15 +33,13 @@ class Downsample(nn.Module):
         self.with_conv = with_conv
         if self.with_conv:
             # no asymmetric padding in torch conv, must do it ourselves
-            self.conv = torch.nn.Conv1d(in_channels,
-                                        in_channels,
-                                        kernel_size=3,
-                                        stride=2,
-                                        padding=0)
+            self.conv = torch.nn.Conv1d(
+                in_channels, in_channels, kernel_size=3, stride=2, padding=0
+            )
 
     def forward(self, x):
         if self.with_conv:
-            pad = (0,1,0,1)
+            pad = (0, 1, 0, 1)
             x = torch.nn.functional.pad(x, pad, mode="constant", value=0)
             x = self.conv(x)
         else:
@@ -54,22 +52,25 @@ class LinearAttention(nn.Module):
         super().__init__()
         self.heads = heads
         hidden_dim = dim_head * heads
-        self.to_qkv = nn.Conv1d(dim, hidden_dim * 3, 1, bias = False)
+        self.to_qkv = nn.Conv1d(dim, hidden_dim * 3, 1, bias=False)
         self.to_out = nn.Conv1d(hidden_dim, dim, 1)
 
     def forward(self, x):
         b, c, l = x.shape
         qkv = self.to_qkv(x)
-        q, k, v = rearrange(qkv, 'b (qkv heads c) l -> qkv b heads c l', heads = self.heads, qkv=3)
-        k = k.softmax(dim=-1)  
-        context = torch.einsum('bhdn,bhen->bhde', k, v)
-        out = torch.einsum('bhde,bhdn->bhen', context, q)
-        out = rearrange(out, 'b heads c l -> b (heads c) l', heads=self.heads, l=l)
+        q, k, v = rearrange(
+            qkv, "b (qkv heads c) l -> qkv b heads c l", heads=self.heads, qkv=3
+        )
+        k = k.softmax(dim=-1)
+        context = torch.einsum("bhdn,bhen->bhde", k, v)
+        out = torch.einsum("bhde,bhdn->bhen", context, q)
+        out = rearrange(out, "b heads c l -> b (heads c) l", heads=self.heads, l=l)
         return self.to_out(out)
-    
+
 
 class LinAttnBlock(LinearAttention):
     """to match AttnBlock usage"""
+
     def __init__(self, in_channels):
         super().__init__(dim=in_channels, heads=1, dim_head=in_channels)
 
@@ -80,27 +81,18 @@ class AttnBlock(nn.Module):
         self.in_channels = in_channels
 
         self.norm = Normalize(in_channels)
-        self.q = torch.nn.Conv1d(in_channels,
-                                 in_channels,
-                                 kernel_size=1,
-                                 stride=1,
-                                 padding=0)
-        self.k = torch.nn.Conv1d(in_channels,
-                                 in_channels,
-                                 kernel_size=1,
-                                 stride=1,
-                                 padding=0)
-        self.v = torch.nn.Conv1d(in_channels,
-                                 in_channels,
-                                 kernel_size=1,
-                                 stride=1,
-                                 padding=0)
-        self.proj_out = torch.nn.Conv1d(in_channels,
-                                        in_channels,
-                                        kernel_size=1,
-                                        stride=1,
-                                        padding=0)
-
+        self.q = torch.nn.Conv1d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
+        self.k = torch.nn.Conv1d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
+        self.v = torch.nn.Conv1d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
+        self.proj_out = torch.nn.Conv1d(
+            in_channels, in_channels, kernel_size=1, stride=1, padding=0
+        )
 
 
 class ResnetBlock(nn.Module):
@@ -259,7 +251,7 @@ class Encoder(nn.Module):
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
-                h = self.down[i_level].block[i_block](hs[-1]) #, temb)
+                h = self.down[i_level].block[i_block](hs[-1])  # , temb)
                 if len(self.down[i_level].attn) > 0:
                     h = self.down[i_level].attn[i_block](h)
                 hs.append(h)
@@ -268,9 +260,9 @@ class Encoder(nn.Module):
 
         # middle
         h = hs[-1]
-        h = self.mid.block_1(h) #, temb)
+        h = self.mid.block_1(h)  # , temb)
         h = self.mid.attn_1(h)
-        h = self.mid.block_2(h) #, temb)
+        h = self.mid.block_2(h)  # , temb)
 
         # end
         h = self.norm_out(h)
@@ -386,14 +378,14 @@ class Decoder(nn.Module):
         h = self.conv_in(z)
 
         # middle
-        h = self.mid.block_1(h) #, temb)
+        h = self.mid.block_1(h)  # , temb)
         h = self.mid.attn_1(h)
-        h = self.mid.block_2(h) #, temb)
+        h = self.mid.block_2(h)  # , temb)
 
         # upsampling
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks + 1):
-                h = self.up[i_level].block[i_block](h) #, temb)
+                h = self.up[i_level].block[i_block](h)  # , temb)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h)
             if i_level != 0:

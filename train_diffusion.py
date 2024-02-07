@@ -17,22 +17,32 @@ def train(cfg: DictConfig):
     torch.set_float32_matmul_precision("medium")
 
     def to_load_sequence_constructor(cfg):
-        if (cfg.diffusion.sequence_decoder_weight > 0.) or (cfg.callbacks.sample.calc_perplexity):
+        if (cfg.diffusion.sequence_decoder_weight > 0.0) or (
+            cfg.callbacks.sample.calc_perplexity
+        ):
             return LatentToSequence("cpu")
         else:
             return None
-        
+
     def to_load_structure_constructor(cfg):
-        if (cfg.diffusion.structure_decoder_weight > 0.) or (cfg.callbacks.sample.calc_structure):
+        if (cfg.diffusion.structure_decoder_weight > 0.0) or (
+            cfg.callbacks.sample.calc_structure
+        ):
             return LatentToStructure("cpu")
         else:
             return None
-        
+
     sequence_constructor = to_load_sequence_constructor(cfg)
     structure_constructor = to_load_structure_constructor(cfg)
-    sequence_decoder = sequence_constructor.decoder if not sequence_constructor is None else None
-    structure_decoder = structure_constructor.esmfold.trunk if not structure_constructor is None else None
-    
+    sequence_decoder = (
+        sequence_constructor.decoder if not sequence_constructor is None else None
+    )
+    structure_decoder = (
+        structure_constructor.esmfold.trunk
+        if not structure_constructor is None
+        else None
+    )
+
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -50,7 +60,7 @@ def train(cfg: DictConfig):
         beta_scheduler=beta_scheduler,
         latent_scaler=latent_scaler,
         sequence_decoder=sequence_decoder,
-        structure_decoder=structure_decoder
+        structure_decoder=structure_decoder,
     )
 
     # job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
@@ -73,7 +83,7 @@ def train(cfg: DictConfig):
         model=denoiser,
         log_to_wandb=not cfg.dryrun,
         sequence_constructor=sequence_constructor,
-        structure_constructor=structure_constructor
+        structure_constructor=structure_constructor,
     )
 
     # run training

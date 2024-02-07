@@ -103,7 +103,9 @@ def identity_trans(
     device: Optional[torch.device] = None,
     requires_grad: bool = True,
 ) -> torch.Tensor:
-    trans = torch.zeros((*batch_dims, 3), dtype=dtype, device=device, requires_grad=requires_grad)
+    trans = torch.zeros(
+        (*batch_dims, 3), dtype=dtype, device=device, requires_grad=requires_grad
+    )
     return trans
 
 
@@ -114,7 +116,9 @@ def identity_quats(
     device: Optional[torch.device] = None,
     requires_grad: bool = True,
 ) -> torch.Tensor:
-    quat = torch.zeros((*batch_dims, 4), dtype=dtype, device=device, requires_grad=requires_grad)
+    quat = torch.zeros(
+        (*batch_dims, 4), dtype=dtype, device=device, requires_grad=requires_grad
+    )
 
     with torch.no_grad():
         quat[..., 0] = 1
@@ -242,7 +246,8 @@ def quat_multiply(quat1, quat2):
     mat = _get_quat("_QUAT_MULTIPLY", dtype=quat1.dtype, device=quat1.device)
     reshaped_mat = mat.view((1,) * len(quat1.shape[:-1]) + mat.shape)
     return torch.sum(
-        reshaped_mat * quat1[..., :, None, None] * quat2[..., None, :, None], dim=(-3, -2)
+        reshaped_mat * quat1[..., :, None, None] * quat2[..., None, :, None],
+        dim=(-3, -2),
     )
 
 
@@ -294,7 +299,9 @@ class Rotation:
             normalize_quats:
                 If quats is specified, whether to normalize quats
         """
-        if (rot_mats is None and quats is None) or (rot_mats is not None and quats is not None):
+        if (rot_mats is None and quats is None) or (
+            rot_mats is not None and quats is not None
+        ):
             raise ValueError("Exactly one input argument must be specified")
 
         if (rot_mats is not None and rot_mats.shape[-2:] != (3, 3)) or (
@@ -714,11 +721,15 @@ class Rotation:
         """
         if self._rot_mats is not None:
             rot_mats = self._rot_mats.view(self._rot_mats.shape[:-2] + (9,))
-            rot_mats = torch.stack(list(map(fn, torch.unbind(rot_mats, dim=-1))), dim=-1)
+            rot_mats = torch.stack(
+                list(map(fn, torch.unbind(rot_mats, dim=-1))), dim=-1
+            )
             rot_mats = rot_mats.view(rot_mats.shape[:-1] + (3, 3))
             return Rotation(rot_mats=rot_mats, quats=None)
         elif self._quats is not None:
-            quats = torch.stack(list(map(fn, torch.unbind(self._quats, dim=-1))), dim=-1)
+            quats = torch.stack(
+                list(map(fn, torch.unbind(self._quats, dim=-1))), dim=-1
+            )
             return Rotation(rot_mats=None, quats=quats, normalize_quats=False)
         else:
             raise ValueError("Both rotations are None")
@@ -733,11 +744,15 @@ class Rotation:
         if self._rot_mats is not None:
             return Rotation(rot_mats=self._rot_mats.cuda(), quats=None)
         elif self._quats is not None:
-            return Rotation(rot_mats=None, quats=self._quats.cuda(), normalize_quats=False)
+            return Rotation(
+                rot_mats=None, quats=self._quats.cuda(), normalize_quats=False
+            )
         else:
             raise ValueError("Both rotations are None")
 
-    def to(self, device: Optional[torch.device], dtype: Optional[torch.dtype]) -> Rotation:
+    def to(
+        self, device: Optional[torch.device], dtype: Optional[torch.dtype]
+    ) -> Rotation:
         """
         Analogous to the to() method of torch Tensors
 
@@ -1072,7 +1087,9 @@ class Rigid:
             The transformed Rigid object
         """
         new_rots = self._rots.map_tensor_fn(fn)
-        new_trans = torch.stack(list(map(fn, torch.unbind(self._trans, dim=-1))), dim=-1)
+        new_trans = torch.stack(
+            list(map(fn, torch.unbind(self._trans, dim=-1))), dim=-1
+        )
 
         return Rigid(new_rots, new_trans)
 

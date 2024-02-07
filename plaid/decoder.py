@@ -6,10 +6,10 @@ import os
 
 from typing import Optional, Callable
 
-from plaid.losses import masked_token_cross_entropy_loss, masked_token_accuracy
-from plaid.esmfold.misc import batch_encode_sequences
-from plaid.transforms import get_random_sequence_crop_batch
-from plaid.constants import DECODER_CKPT_PATH
+from .losses import masked_token_cross_entropy_loss, masked_token_accuracy
+from .esmfold.misc import batch_encode_sequences
+from .transforms import get_random_sequence_crop_batch
+from .constants import DECODER_CKPT_PATH
 
 
 class FullyConnectedNetwork(L.LightningModule):
@@ -86,10 +86,10 @@ class FullyConnectedNetwork(L.LightningModule):
     def forward(self, x):
         # for inference
         return self.net(x)
-    
+
     def loss(self, logits, targets, mask=None):
-        return masked_token_cross_entropy_loss(logits, targets, mask=mask) 
-    
+        return masked_token_cross_entropy_loss(logits, targets, mask=mask)
+
     def forward_pass_from_sequence(self, sequence):
         latent = self.training_embed_from_sequence_fn(sequence, self.device)
         return self(latent)
@@ -104,10 +104,14 @@ class FullyConnectedNetwork(L.LightningModule):
 
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log("train/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
-        self.log("train/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        self.log(
+            "train/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True
+        )
+        self.log(
+            "train/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True
+        )
         return loss
-    
+
     def validation_step(self, batch, batch_idx, **kwargs):
         print("starting val step")
         _, sequence = batch
@@ -120,10 +124,14 @@ class FullyConnectedNetwork(L.LightningModule):
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
         print("val loss: ", loss.item(), "val acc: ", acc.item())
-        self.log("val/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
-        self.log("val/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        self.log(
+            "val/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True
+        )
+        self.log(
+            "val/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True
+        )
         return loss
-    
+
     def test_step(self, batch, batch_idx, **kwargs):
         pass
         # _, sequence = batch
@@ -133,11 +141,10 @@ class FullyConnectedNetwork(L.LightningModule):
         # self.log("test/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
         # self.log("test/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
         # return loss
-    
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
-    
+
     @classmethod
     def from_pretrained(cls, device=None, ckpt_path=None, eval_mode=True):
         if ckpt_path is None:
@@ -146,27 +153,33 @@ class FullyConnectedNetwork(L.LightningModule):
         if device is not None:
             model.to(device)
         if eval_mode:
-            model.eval() 
+            model.eval()
             for param in model.parameters():
                 param.requires_grad = False
-        return model 
-
+        return model
 
 
 if __name__ == "__main__":
     from plaid.datasets import FastaDataModule
+
     dm = FastaDataModule("/shared/amyxlu/data/uniref90/partial.fasta", batch_size=32)
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
     from plaid.esmfold import esmfold_v1
+
     esmfold = esmfold_v1()
     device = torch.device("cuda:6")
     # esmfold = esmfold.to(device).eval().requires_grad_(False)
 
     from plaid.transforms import ESMFoldEmbed
+
     embed_fn = ESMFoldEmbed(esmfold)
-    module = FullyConnectedNetwork(n_classes=21, training_max_seq_len=512, training_embed_from_sequence_fn=embed_fn)
+    module = FullyConnectedNetwork(
+        n_classes=21, training_max_seq_len=512, training_embed_from_sequence_fn=embed_fn
+    )
     module.to(device)
-    import IPython; IPython.embed()
+    import IPython
+
+    IPython.embed()
     module.training_step(batch, 0)

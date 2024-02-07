@@ -307,12 +307,15 @@ class ResidueMLP(nn.Module):
 
     def forward(self, x):
         return x + self.mlp(x)
+
+
 def make_s_z_0(s_s_0):
     from . import ESMFOLD_Z_DIM
-    B, L, _ = s_s_0.shape 
+
+    B, L, _ = s_s_0.shape
     return s_s_0.new_zeros(B, L, L, ESMFOLD_Z_DIM)
 
-    
+
 def get_esmfold_model_state(model_name="esmfold_3B_v1"):
     if model_name.endswith(".pt"):  # local, treat as filepath
         model_path = Path(model_name)

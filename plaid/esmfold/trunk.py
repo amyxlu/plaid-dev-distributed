@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 import torch
 import torch.nn as nn
+
 # from openfold.model.structure_module import StructureModule
 from .structure_module import StructureModule
 from .tri_self_attn_block import TriangularSelfAttentionBlock
@@ -233,8 +234,8 @@ class FoldingTrunk(nn.Module):
                     true_aa,
                     mask.float(),
                 )
-                structure['sm_s'] = sm_s
-                structure['sm_z'] = sm_z
+                structure["sm_s"] = sm_s
+                structure["sm_z"] = sm_z
 
                 recycle_s = s_s
                 recycle_z = s_z
@@ -251,14 +252,22 @@ class FoldingTrunk(nn.Module):
         structure["s_z"] = s_z
 
         return structure
-    
+
     # def from_sm_s(self, sm_s, true_aa, s_s_0=None, s_z_0=None, residx=None, mask=None, no_recycles: T.Optional[int] = None):
     #     """
     #     For experiments where we diffuse from the structure module level
     #     """
-    def from_seq_feat(self, true_aa, s_s_0, s_z_0=None, residx=None, mask=None, no_recycles: T.Optional[int] = None):
-        """ Modified forward pass that starts from the sequence feature, e.g. during inference-time generation."""
-        device = s_s_0.device 
+    def from_seq_feat(
+        self,
+        true_aa,
+        s_s_0,
+        s_z_0=None,
+        residx=None,
+        mask=None,
+        no_recycles: T.Optional[int] = None,
+    ):
+        """Modified forward pass that starts from the sequence feature, e.g. during inference-time generation."""
+        device = s_s_0.device
         N, L, _ = s_s_0.shape
         from . import ESMFOLD_Z_DIM
 
@@ -272,7 +281,7 @@ class FoldingTrunk(nn.Module):
             assert no_recycles >= 0, "Number of recycles must not be negative."
             no_recycles += 1  # First 'recycle' is just the standard forward pass through the model.
         ################################################################################
-        
+
         s_s = s_s_0  # (B, L, 1024)
         s_z = s_z_0  # (B, L, L, 128)
         recycle_s = torch.zeros_like(s_s)
@@ -298,8 +307,8 @@ class FoldingTrunk(nn.Module):
                     true_aa,
                     mask.float(),
                 )
-                structure['sm_s'] = sm_s
-                structure['sm_z'] = sm_z
+                structure["sm_s"] = sm_s
+                structure["sm_z"] = sm_z
 
                 recycle_s = s_s
                 recycle_z = s_z
@@ -314,7 +323,7 @@ class FoldingTrunk(nn.Module):
         structure["s_s"] = s_s
         structure["s_z"] = s_z
         return structure, true_aa, residx, mask
-    
+
     @staticmethod
     def distogram(coords, min_bin, max_bin, num_bins):
         # Coords are [... L x 3 x 3], where it's [N, CA, C] x 3 coordinates.
@@ -338,13 +347,16 @@ class FoldingTrunk(nn.Module):
         )
         bins = torch.sum(dists > boundaries, dim=-1)  # [..., L, L]
         return bins
-   
+
     @classmethod
     def from_pretrained(cls, device=None, eval_mode=True):
         from .misc import get_esmfold_model_state
+
         esmfold_cfg, esmfold_weights_cpu = get_esmfold_model_state()
         model = cls(esmfold_cfg.trunk)
-        trunk_weights_cpu = {k: v for k, v in esmfold_weights_cpu.items() if k[:6] == "trunk."}
+        trunk_weights_cpu = {
+            k: v for k, v in esmfold_weights_cpu.items() if k[:6] == "trunk."
+        }
         trunk_weights_cpu = {k[6:]: v for k, v in trunk_weights_cpu.items()}
         missing_keys = model.load_state_dict(trunk_weights_cpu, strict=False)
         assert len(missing_keys.missing_keys) == 0

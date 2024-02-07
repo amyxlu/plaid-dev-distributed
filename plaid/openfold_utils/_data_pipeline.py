@@ -8,10 +8,14 @@ FeatureDict = Mapping[str, np.ndarray]
 
 
 def _aatype_to_str_sequence(aatype):
-    return "".join([residue_constants.restypes_with_x[aatype[i]] for i in range(len(aatype))])
+    return "".join(
+        [residue_constants.restypes_with_x[aatype[i]] for i in range(len(aatype))]
+    )
 
 
-def make_sequence_features(sequence: str, description: str, num_res: int) -> FeatureDict:
+def make_sequence_features(
+    sequence: str, description: str, num_res: int
+) -> FeatureDict:
     """Construct a feature dict of sequence features."""
     features = {}
     features["aatype"] = residue_constants.sequence_to_onehot(
@@ -50,7 +54,9 @@ def make_protein_features(
     pdb_feats["all_atom_mask"] = all_atom_mask.astype(np.float32)
 
     pdb_feats["resolution"] = np.array([0.0]).astype(np.float32)
-    pdb_feats["is_distillation"] = np.array(1.0 if _is_distillation else 0.0).astype(np.float32)
+    pdb_feats["is_distillation"] = np.array(1.0 if _is_distillation else 0.0).astype(
+        np.float32
+    )
 
     return pdb_feats
 
@@ -61,7 +67,9 @@ def make_pdb_features(
     is_distillation: bool = True,
     confidence_threshold: float = 50.0,
 ) -> FeatureDict:
-    pdb_feats = make_protein_features(protein_object, description, _is_distillation=True)
+    pdb_feats = make_protein_features(
+        protein_object, description, _is_distillation=True
+    )
 
     if is_distillation:
         high_confidence = protein_object.b_factors > confidence_threshold

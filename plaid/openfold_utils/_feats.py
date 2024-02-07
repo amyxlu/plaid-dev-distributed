@@ -1,5 +1,6 @@
 from . import batched_gather
 
+
 def atom14_to_atom37(atom14, batch):
     atom37_data = batched_gather(
         atom14,

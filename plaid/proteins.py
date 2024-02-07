@@ -41,7 +41,7 @@ class DecoderTokenizer:
     def __init__(self, vocab="openfold"):
         if vocab == "openfold":
             self.aachar_to_aaidx = residue_constants.restype_order_with_x
-            self.aaidx_to_aachar = {v: k for k, v in self.aachar_to_aaidx.items()} 
+            self.aaidx_to_aachar = {v: k for k, v in self.aachar_to_aaidx.items()}
         elif vocab == "proteinmpnn":
             self.aachar_to_aaidx = PROTEINMPNN_AACHAR_TO_AAIDX
             self.aaidx_to_aachar = PROTEINMPNN_AAIDX_TO_AACHAR
@@ -186,26 +186,30 @@ def outputs_to_avg_metric(outputs):
 
 class LatentToSequence:
     def __init__(self, temperature: float = 1.0):
-        """ On construction, all models are on the CPU."""
+        """On construction, all models are on the CPU."""
         self.temperature = temperature
         self.tokenizer = DecoderTokenizer()
-        self.decoder = FullyConnectedNetwork.from_pretrained(device="cpu") 
+        self.decoder = FullyConnectedNetwork.from_pretrained(device="cpu")
         self.device = torch.device("cpu")
-        
+
         self.decoder.eval()
         for param in self.decoder.parameters():
             param.requires_grad = False
-    
+
     def to(self, device):
-        """ Move onto the device for the usecase before calling to_sequence()."""
+        """Move onto the device for the usecase before calling to_sequence()."""
         self.decoder = self.decoder.to(device)
         self.device = device
 
-    def to_sequence(self, latent: ArrayLike, mask=None, return_logits=False, drop_mask_idx=True):
+    def to_sequence(
+        self, latent: ArrayLike, mask=None, return_logits=False, drop_mask_idx=True
+    ):
         if not mask is None:
             mask = torch.ones_like(latent)
         latent = to_tensor(latent, device=self.device)
-        assert latent.device == self.decoder.device, "Make sure to call .to(device) to move decoder to the correct device."
+        assert (
+            latent.device == self.decoder.device
+        ), "Make sure to call .to(device) to move decoder to the correct device."
 
         with torch.no_grad():
             output_logits = self.decoder(latent)
@@ -260,13 +264,15 @@ class LatentToStructure:
         self.esmfold.eval()
         for param in self.esmfold.parameters():
             param.requires_grad = False
-    
+
     def to(self, device):
         self.esmfold = self.esmfold.to(device)
         self.device = device
-    
+
     @torch.no_grad()
-    def run_batch(self, s_, aa_, mask_, residx_, num_recycles, return_raw_features=False):
+    def run_batch(
+        self, s_, aa_, mask_, residx_, num_recycles, return_raw_features=False
+    ):
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
         _, L, _ = s_.shape
@@ -294,36 +300,43 @@ class LatentToStructure:
         sequences: T.List[str],
         num_recycles: int = 1,
         batch_size: T.Optional[int] = None,
-        return_raw_features: bool = False
+        return_raw_features: bool = False,
     ) -> T.Tuple[T.List[PathLike], pd.DataFrame]:
-
         """set up devices and tensors"""
         aatype, mask, residx, _, _ = batch_encode_sequences(sequences)
         aatype, mask, residx = tuple(
             map(lambda x: x.to(self.device), (aatype, mask, residx))
         )
         latent = to_tensor(latent, device=self.device)
-        assert latent.device == self.esmfold.device, "Make sure to call .to(device) to move trunk to the correct device."
+        assert (
+            latent.device == self.esmfold.device
+        ), "Make sure to call .to(device) to move trunk to the correct device."
 
         if batch_size is None:
             print("Generating structure from latents")
-            return self.run_batch(latent, aatype, mask, residx, num_recycles, return_raw_features) 
-            
+            return self.run_batch(
+                latent, aatype, mask, residx, num_recycles, return_raw_features
+            )
+
         else:
             results = []
             all_pdb_strs = []
-            for start in trange(0, len(latent), batch_size, desc="(Generating structure)"):
+            for start in trange(
+                0, len(latent), batch_size, desc="(Generating structure)"
+            ):
                 s_, aa_, mask_, residx_ = tuple(
                     map(
                         lambda x: x[start : start + batch_size],
                         (latent, aatype, mask, residx),
                     )
                 )
-                pdb_str, result = self.run_batch(s_, aa_, mask_, residx_, num_recycles, return_raw_features)
+                pdb_str, result = self.run_batch(
+                    s_, aa_, mask_, residx_, num_recycles, return_raw_features
+                )
                 results.append(result)
                 all_pdb_strs.extend(pdb_str)
-            
-            # combine results at the end of the batches 
+
+            # combine results at the end of the batches
             if return_raw_features:
                 results = {k: v for D in results for k, v in D.items()}
             else:

@@ -46,6 +46,7 @@ from .transforms import mask_from_seq_lens
 
 class TensorShardDataset(torch.utils.data.Dataset):
     """Loads entire dataset as one Safetensor dataset. Returns the embedding, mask, and pdb id."""
+
     def __init__(
         self,
         split: T.Optional[str] = None,
@@ -53,7 +54,8 @@ class TensorShardDataset(torch.utils.data.Dataset):
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
         seq_len: int = 64,
         dtype: str = "bf16",
-        *args, **kwargs
+        *args,
+        **kwargs,
     ):
         super().__init__()
         self.dtype = dtype
@@ -95,13 +97,14 @@ class TensorShardDataset(torch.utils.data.Dataset):
 class H5ShardDataset(torch.utils.data.Dataset):
     """Loads H5 dataset, which is able to actually store strings, but is
     not able to support bf16 storage."""
+
     def __init__(
         self,
         split: T.Optional[str] = None,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         max_seq_len: int = 64,
         dtype: str = "fp32",
-        ids_to_drop: T.Optional[T.List[str]] = None
+        ids_to_drop: T.Optional[T.List[str]] = None,
     ):
         super().__init__()
         self.ids_to_drop = ids_to_drop
@@ -130,10 +133,10 @@ class H5ShardDataset(torch.utils.data.Dataset):
         with h5py.File(datadir / "shard0000.h5", "r") as f:
             emb = torch.from_numpy(np.array(f["embeddings"]))
             sequence = list(f["sequences"])
-            pdb_id = list(f['pdb_id'])
+            pdb_id = list(f["pdb_id"])
             for i in range(len(pdb_id)):
                 pid = pdb_id[i].decode()
-                if not self.drop_protein(pid): 
+                if not self.drop_protein(pid):
                     outdict[pid] = (emb[i, ...], sequence[i].decode())
         return outdict
 
@@ -144,15 +147,18 @@ class H5ShardDataset(torch.utils.data.Dataset):
         # return (self.embs[idx, ...], self.sequences[idx], self.pdb_id[idx])
         pid = self.pdb_ids[idx]
         return pid, self.data[pid]
-    
-    def __getitem__(self, idx: int) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
-        # wrapper for non-structure dataloaders, rearrange output tuple 
+
+    def __getitem__(
+        self, idx: int
+    ) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
+        # wrapper for non-structure dataloaders, rearrange output tuple
         pdb_id, (emb, seq) = self.get(idx)
-        return emb, seq, pdb_id 
+        return emb, seq, pdb_id
 
 
 class CATHStructureDataset(H5ShardDataset):
-    """ Wrapper around H5 shard dataset. Returns actual structure features as well."""
+    """Wrapper around H5 shard dataset. Returns actual structure features as well."""
+
     def __init__(
         self,
         split: T.Optional[str] = None,
@@ -170,7 +176,8 @@ class CATHStructureDataset(H5ShardDataset):
         super().__init__(split, shard_dir, max_seq_len, dtype, ids_to_drop)
 
         from plaid.utils import StructureFeaturizer
-        self.structure_featurizer = StructureFeaturizer() 
+
+        self.structure_featurizer = StructureFeaturizer()
         self.pdb_path_dir = Path(pdb_path_dir)
         self.max_seq_len = max_seq_len
 
@@ -180,7 +187,8 @@ class CATHStructureDataset(H5ShardDataset):
         with open(pdb_path, "r") as f:
             pdb_str = f.read()
         structure_features = self.structure_featurizer(pdb_str, self.max_seq_len)
-        return emb, seq, structure_features 
+        return emb, seq, structure_features
+
 
 class CATHShardedDataModule(L.LightningDataModule):
     def __init__(
@@ -216,26 +224,14 @@ class CATHShardedDataModule(L.LightningDataModule):
 
         if stage == "fit":
             self.train_dataset = self.dataset_fn(
-                "train",
-                self.shard_dir,
-                self.seq_len,
-                dtype=self.dtype,
-                **kwargs
+                "train", self.shard_dir, self.seq_len, dtype=self.dtype, **kwargs
             )
             self.val_dataset = self.dataset_fn(
-                "val",
-                self.shard_dir,
-                self.seq_len,
-                dtype=self.dtype,
-                **kwargs
+                "val", self.shard_dir, self.seq_len, dtype=self.dtype, **kwargs
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
-                "val",
-                self.shard_dir,
-                self.seq_len,
-                dtype=self.dtype,
-                **kwargs
+                "val", self.shard_dir, self.seq_len, dtype=self.dtype, **kwargs
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -271,13 +267,14 @@ class CATHShardedDataModule(L.LightningDataModule):
 class CATHStructureDataModule(L.LightningDataModule):
     """Lightning datamodule that loads cached CATH tensors and structure features.
     Returns a tuple of (embedding, sequence_strings, dictionary_of_structure_features)
-    
+
     Note: the structure features includes a list of keys that includes 'sequence'; this is the sequence
     parsed from the PDB file, and includes the full, untrimmed sequence.
     The sequence strings are saved from the original sequences that produced the
     embeddings, and always trimmed to self.seq_len. The string identity should be usually the
     same, unless in cases where the FASTA and PDB files in the CATH database differs in sidechain identity.
     """
+
     def __init__(
         self,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
@@ -285,7 +282,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
-        path_to_dropped_ids: T.Optional[str] = None
+        path_to_dropped_ids: T.Optional[str] = None,
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -293,7 +290,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.dataset_fn = CATHStructureDataset 
+        self.dataset_fn = CATHStructureDataset
         self.dtype = "fp32"
         self.path_to_dropped_ids = path_to_dropped_ids
 
@@ -305,7 +302,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
-                self.path_to_dropped_ids
+                self.path_to_dropped_ids,
             )
             self.val_dataset = self.dataset_fn(
                 "val",
@@ -313,7 +310,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
-                self.path_to_dropped_ids
+                self.path_to_dropped_ids,
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
@@ -322,7 +319,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.pdb_path_dir,
                 self.seq_len,
                 self.dtype,
-                self.path_to_dropped_ids
+                self.path_to_dropped_ids,
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -481,7 +478,8 @@ if __name__ == "__main__":
         seq_len=256,
         batch_size=32,
         num_workers=0,
-        path_to_dropped_ids=path_to_dropped_ids)
+        path_to_dropped_ids=path_to_dropped_ids,
+    )
     dm.setup()
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))

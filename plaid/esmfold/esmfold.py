@@ -423,10 +423,10 @@ class ESMFold(nn.Module):
     def infer_pdb(self, sequence: str, *args, **kwargs) -> str:
         """Returns the pdb (file) string from the model given an input sequence."""
         return self.infer_pdbs([sequence], *args, **kwargs)[0]
-    
+
     def from_sm_s(self, sm_s, *args, **kwargs):
         structure, aa, residx, mask = self.trunk.from_sm_s(sm_s, *args, **kwargs)
-        return self.post_processing(structure, aa, residx, mask) 
+        return self.post_processing(structure, aa, residx, mask)
 
     def set_chunk_size(self, chunk_size: T.Optional[int]):
         # This parameter means the axial attention will be computed

@@ -13,15 +13,14 @@ from plaid.openfold_utils import (
     atom37_to_frames,
     get_backbone_frames,
     OFProtein,
-    protein_from_pdb_string
+    protein_from_pdb_string,
 )
 
 PathLike = T.Union[Path, str]
 
 
 def trim_or_pad(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0):
-    """Trim or pad a tensor with shape (L, ...) to a given length.
-    """
+    """Trim or pad a tensor with shape (L, ...) to a given length."""
     L = tensor.shape[0]
     if L >= pad_to:
         # trim, assuming first dimension is the dim to trim
@@ -65,7 +64,9 @@ class StructureFeaturizer:
 
         return protein_features
 
-    def _process_structure_features(self, features: T.Dict[str, np.ndarray], seq_len: int):
+    def _process_structure_features(
+        self, features: T.Dict[str, np.ndarray], seq_len: int
+    ):
         """Process feature dtypes and pad to max length."""
         features_requiring_padding = [
             "aatype",

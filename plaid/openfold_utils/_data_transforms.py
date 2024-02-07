@@ -87,8 +87,12 @@ def atom37_to_frames(protein, eps=1e-8):
 
     gt_frames = gt_frames.compose(Rigid(rots, None))
 
-    restype_rigidgroup_is_ambiguous = all_atom_mask.new_zeros(*((1,) * batch_dims), 21, 8)
-    restype_rigidgroup_rots = torch.eye(3, dtype=all_atom_mask.dtype, device=aatype.device)
+    restype_rigidgroup_is_ambiguous = all_atom_mask.new_zeros(
+        *((1,) * batch_dims), 21, 8
+    )
+    restype_rigidgroup_rots = torch.eye(
+        3, dtype=all_atom_mask.dtype, device=aatype.device
+    )
     restype_rigidgroup_rots = torch.tile(
         restype_rigidgroup_rots,
         (*((1,) * batch_dims), 21, 8, 1, 1),
@@ -157,9 +161,7 @@ def make_atom14_masks(protein):
             ]
         )
 
-        restype_atom14_mask.append(
-            [(1.0 if name else 0.0) for name in atom_names]
-        )
+        restype_atom14_mask.append([(1.0 if name else 0.0) for name in atom_names])
 
     # Add dummy mapping for restype 'UNK'
     restype_atom14_to_atom37.append([0] * 14)
@@ -181,7 +183,7 @@ def make_atom14_masks(protein):
         dtype=torch.float32,
         device=protein["aatype"].device,
     )
-    protein_aatype = protein['aatype'].to(torch.long)
+    protein_aatype = protein["aatype"].to(torch.long)
 
     # create the mapping for (residx, atom14) --> atom37, i.e. an array
     # with shape (num_res, 14) containing the atom37 indices for this protein
@@ -254,9 +256,7 @@ def make_atom14_positions(protein):
         for res in restype_3
     }
     for resname, swap in rc.residue_atom_renaming_swaps.items():
-        correspondences = torch.arange(
-            14, device=protein["all_atom_mask"].device
-        )
+        correspondences = torch.arange(14, device=protein["all_atom_mask"].device)
         for source_atom_swap, target_atom_swap in swap.items():
             source_index = rc.restype_name_to_atom14_names[resname].index(
                 source_atom_swap
@@ -270,10 +270,8 @@ def make_atom14_positions(protein):
             for index, correspondence in enumerate(correspondences):
                 renaming_matrix[index, correspondence] = 1.0
         all_matrices[resname] = renaming_matrix
-    
-    renaming_matrices = torch.stack(
-        [all_matrices[restype] for restype in restype_3]
-    )
+
+    renaming_matrices = torch.stack([all_matrices[restype] for restype in restype_3])
 
     # Pick the transformation matrices for the given residue sequence
     # shape (num_res, 14, 14).
@@ -298,18 +296,12 @@ def make_atom14_positions(protein):
     for resname, swap in rc.residue_atom_renaming_swaps.items():
         for atom_name1, atom_name2 in swap.items():
             restype = rc.restype_order[rc.restype_3to1[resname]]
-            atom_idx1 = rc.restype_name_to_atom14_names[resname].index(
-                atom_name1
-            )
-            atom_idx2 = rc.restype_name_to_atom14_names[resname].index(
-                atom_name2
-            )
+            atom_idx1 = rc.restype_name_to_atom14_names[resname].index(atom_name1)
+            atom_idx2 = rc.restype_name_to_atom14_names[resname].index(atom_name2)
             restype_atom14_is_ambiguous[restype, atom_idx1] = 1
             restype_atom14_is_ambiguous[restype, atom_idx2] = 1
 
     # From this create an ambiguous_mask for the given sequence.
-    protein["atom14_atom_is_ambiguous"] = restype_atom14_is_ambiguous[
-        protein["aatype"]
-    ]
+    protein["atom14_atom_is_ambiguous"] = restype_atom14_is_ambiguous[protein["aatype"]]
 
     return protein
