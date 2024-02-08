@@ -242,7 +242,7 @@ class LatentToSequence:
             sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)
         ).squeeze(-1)
         stochasticity = (argmax_idx == sequence_idx).sum() / torch.numel(argmax_idx)
-        print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
+        # print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
 
         sequence_str = [
             self.tokenizer.aatype_to_str_sequence(s)
