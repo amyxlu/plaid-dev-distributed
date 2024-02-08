@@ -17,6 +17,8 @@ from plaid.vqvae.encoder import Encoder
 from plaid.vqvae.decoder import Decoder
 from plaid.vqvae.quantizer import VectorQuantizer
 from plaid.utils import get_lr_scheduler
+from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
+from plaid.proteins import LatentToSequence, LatentToStructure
 
 
 def maybe_unsqueeze(x):
@@ -42,6 +44,8 @@ class TransformerVQVAE(L.LightningModule):
     def __init__(
         self,
         in_dim=1024,
+
+        # vqvae specifications
         vqvae_h_dim=1024,
         vqvae_res_h_dim=1024,
         vqvae_n_res_layers=12,
@@ -50,12 +54,16 @@ class TransformerVQVAE(L.LightningModule):
         vqvae_stride=2,
         vqvae_embedding_dim=64,
         vqvae_beta=0.25,
+
+        # autoregressive-over-patches specifications
         patch_len: int = 16,
         transformer_hidden_act="gelu",
         transformer_intermediate_size=2048,
         transformer_num_attention_heads=8,
         transformer_num_hidden_layers=6,
         transformer_position_embedding_type="absolute",
+
+        # optimization
         lr=1e-4,
         lr_beta1=0.9,
         lr_beta2=0.999,
@@ -63,6 +71,12 @@ class TransformerVQVAE(L.LightningModule):
         lr_num_warmup_steps=0,
         lr_num_training_steps=10_000_000,
         lr_num_cycles=1,
+
+        # auxiliary losses
+        sequence_constructor=None,
+        structure_constructor=None,
+        sequence_decoder_weight=0.,
+        structure_decoder_weight=0.
     ):
         super().__init__()
         self.patch_len = patch_len
@@ -118,6 +132,18 @@ class TransformerVQVAE(L.LightningModule):
         xavier_init(self.vqvae_encoder)
         xavier_init(self.pre_quantization_conv)
         xavier_init(self.vqvae_decoder)
+
+        # auxiliary losses
+        self.need_to_setup_sequence_decoder = sequence_decoder_weight > 0.0
+        self.need_to_setup_structure_decoder = structure_decoder_weight > 0.0
+
+        self.sequence_constructor = sequence_constructor
+        self.structure_constructor = structure_constructor
+        self.sequence_decoder_weight = sequence_decoder_weight
+        self.structure_decoder_weight = structure_decoder_weight
+        self.sequence_loss_fn = None
+        self.structure_loss_fn = None
+        
         self.save_hyperparameters()
 
     def transformer_forward(self, z_q, mask):
@@ -172,6 +198,12 @@ class TransformerVQVAE(L.LightningModule):
         x_hat = einops.rearrange(
             chunked_x_hat, "(N n) C L -> N (n L) C", n=self.n_chunks
         )
+
+        # possibly unnormalize, process, etc...
+        # turn x_hat back to sequence
+        # turn x_hat to structure
+        # calculate loss
+        
         return embedding_loss, x_hat, perplexity, min_encodings, min_encoding_indices
 
     def configure_optimizers(self):
@@ -191,6 +223,44 @@ class TransformerVQVAE(L.LightningModule):
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
+    
+    def setup_sequence_decoder(self):
+        """If a reference pointer to the auxiliary sequence decoder wasn't already passed in
+        at the construction of the class, load the sequence decoder onto the GPU now.
+        """
+        assert self.need_to_setup_sequence_decoder
+        if self.sequence_constructor is None:
+            self.sequence_constructor = LatentToSequence()
+
+        self.sequence_loss_fn = SequenceAuxiliaryLoss(
+            self.sequence_constructor, weight=self.sequence_decoder_weight
+        )
+        self.need_to_setup_sequence_decoder = False
+
+    def setup_structure_decoder(self):
+        assert self.need_to_setup_structure_decoder
+        if self.structure_constructor is None:
+            # Note: this will make ESMFold in the function and might be expensive
+            self.structure_constructor = LatentToStructure()
+
+        self.structure_loss_fn = BackboneAuxiliaryLoss(
+            self.structure_constructor, weight=self.structure_decoder_weight
+        )
+        self.need_to_setup_structure_decoder = False
+    
+    def sequence_loss(self, latent, sequence, cur_weight=None):
+        if self.need_to_setup_sequence_decoder:
+            self.setup_sequence_decoder()
+        # sequence should be the one generated when saving the latents,
+        # i.e. lengths are already trimmed to self.max_seq_len
+        # if cur_weight is None, no annealing is done except for the weighting
+        # specified when specifying the class
+        return self.sequence_loss_fn(latent, sequence, cur_weight)
+    
+    def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
+        if self.need_to_setup_structure_decoder:
+            self.setup_structure_decoder()
+        return self.structure_loss_fn(latent, gt_structures, sequences, cur_weight)
 
     def loss(self, x, mask, verbose=False):
         embedding_loss, x_hat, perplexity, _, _ = self.forward(x, mask, verbose)
