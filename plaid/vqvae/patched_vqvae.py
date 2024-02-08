@@ -138,44 +138,7 @@ class TransformerVQVAE(L.LightningModule):
         x_chunks = einops.rearrange(x, "N (L l) C -> (N L) l C", l=self.patch_len)
         mask_chunks = einops.rearrange(mask, "N (L l) -> (N L) l", l=self.patch_len)
         mask_chunks = mask_chunks.bool().any(dim=-1)
-
-        # x_chunks = x.chunk(self.n_chunks, dim=1)
-        # mask_chunks = mask.chunk(self.n_chunks, dim=1)
-        # mask_chunks = [m.bool().any(dim=1) for m in mask_chunks]
-
-        # if L % self.patch_len != 0:
-        #     x_chunks = x_chunks[:-1]
-        #     mask_chunks = mask_chunks[:-1]
-
-        # x_chunks = torch.cat(x_chunks, dim=0)  # (n_chunks * N, patch_len, C)
-        # mask_chunks = torch.cat(mask_chunks, dim=0).to(
-        #     dtype=x_chunks.dtype
-        # )  # (n_chunks * N)
-        # import pdb;pdb.set_trace()
         return x_chunks, mask_chunks
-
-    # def unstack_z_q(self, stacked_z_q, stacked_mask):
-    #     # stacked_z_q = (N * n_chunks, C', conv_patch)
-    #     # mask = (N * n_chunks)
-    #     N = stacked_z_q.shape[0] // self.n_chunks
-    #     z_q = einops.rearrange(stacked_z_q, "(N n) c l -> N (n l) c", n=self.n_chunks)
-    #     mask = einops.rearrange(stacked_mask, "(N n) l -> N (n l)", n=self.n_chunks)
-    #     import pdb;pdb.set_trace()
-    #     # chunked_z_q = stacked_z_q.chunk(
-    #     #     N, dim=0
-    #     # )  # N element list of (n_chunks, C', conv_patch)
-    #     # chunk_mask = mask.chunk(N, dim=0)  # N element list of (n_chunks)
-
-    #     # def pivot_chunk(chunk):
-    #     #     chunk = chunk.transpose(1, 2)  # (n_chunks, conv_patch, C')
-    #     #     return chunk.reshape(-1, chunk.shape[-1])  # (n_chunks * conv_patch, C')
-
-    #     # chunked_z_q = [
-    #     #     pivot_chunk(chunk) for chunk in chunked_z_q
-    #     # ]  # N element list of (n_chunks * conv_patch, C')
-    #     # z_q = torch.stack(chunked_z_q, dim=0)  # (N, n_chunks * conv_patch, C')
-    #     # chunk_mask = torch.stack(chunk_mask, dim=0)  # (N, n_chunks)
-    #     return z_q, mask
 
     def forward(self, x, mask, verbose=False):
         N, L, C = x.shape
