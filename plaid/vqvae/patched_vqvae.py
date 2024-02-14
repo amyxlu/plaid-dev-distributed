@@ -16,9 +16,10 @@ import lightning as L
 from plaid.vqvae.encoder import Encoder
 from plaid.vqvae.decoder import Decoder
 from plaid.vqvae.quantizer import VectorQuantizer
-from plaid.utils import get_lr_scheduler
+from plaid.utils import get_lr_scheduler, LatentScaler
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.proteins import LatentToSequence, LatentToStructure
+from plaid.esmfold.misc import batch_encode_sequences
 
 
 def maybe_unsqueeze(x):
@@ -44,6 +45,7 @@ class TransformerVQVAE(L.LightningModule):
     def __init__(
         self,
         in_dim=1024,
+        latent_scaler=None,
 
         # vqvae specifications
         vqvae_h_dim=1024,
@@ -76,9 +78,14 @@ class TransformerVQVAE(L.LightningModule):
         sequence_constructor=None,
         structure_constructor=None,
         sequence_decoder_weight=0.,
-        structure_decoder_weight=0.
+        structure_decoder_weight=0.,
+        latent_reconstruction_method="x_recons",
     ):
         super().__init__()
+        
+        self.normalize_latent_input = latent_scaler is not None
+        self.latent_scaler = latent_scaler
+
         self.patch_len = patch_len
         self.bert_config = BertConfig(
             hidden_act=transformer_hidden_act,
@@ -144,6 +151,14 @@ class TransformerVQVAE(L.LightningModule):
         self.sequence_loss_fn = None
         self.structure_loss_fn = None
         
+        assert latent_reconstruction_method in {
+            "x_recons",
+            "normalized_x_recons"
+        }
+        if latent_reconstruction_method == "normalized_x_recons":
+            assert self.normalize_latent_input, "Can only chose the normalized_x_recons if input was also normalized."
+        self.latent_recons_method = latent_reconstruction_method
+        
         self.save_hyperparameters()
 
     def transformer_forward(self, z_q, mask):
@@ -165,8 +180,32 @@ class TransformerVQVAE(L.LightningModule):
         mask_chunks = einops.rearrange(mask, "N (L l) -> (N L) l", l=self.patch_len)
         mask_chunks = mask_chunks.bool().any(dim=-1)
         return x_chunks, mask_chunks
+   
+    def unpack_batch(self, batch):
+        # 2024/02/08: For CATHShardedDataModule HDF5 loaders 
+        if isinstance(batch[-1], dict):
+            # dictionary of structure features
+            assert "frames" in batch[-1].keys()
+            embs, sequences, gt_structures = batch
+            assert max([len(s) for s in sequences]) <= embs.shape[1]
+            return embs, sequences, gt_structures
+        elif isinstance(batch[-1][0], str):
+            embs, sequences, _ = batch
+            return embs, sequences, None
+        else:
+            raise Exception(
+                f"Batch tuple not understood. Data type of last element of batch tuple is {type(batch[-1])}."
+            )
 
-    def forward(self, x, mask, verbose=False):
+    def forward(self, batch):
+        # sequences *must* be already trimmed
+        x, sequences, gt_structures = self.unpack_batch(batch)
+        true_aatype, mask, _, _, _ = batch_encode_sequences(sequences)
+        device = x.device
+        true_aatype, mask = true_aatype.to(device), mask.to(device)
+
+        if self.normalize_latent_input:
+            x = self.latent_scaler.scale(x)
         N, L, C = x.shape
         if mask is None:
             mask = x.new_ones((N, L))
@@ -199,12 +238,39 @@ class TransformerVQVAE(L.LightningModule):
             chunked_x_hat, "(N n) C L -> N (n L) C", n=self.n_chunks
         )
 
-        # possibly unnormalize, process, etc...
-        # turn x_hat back to sequence
-        # turn x_hat to structure
-        # calculate loss
-        
-        return embedding_loss, x_hat, perplexity, min_encodings, min_encoding_indices
+        if self.latent_recons_method == "normalized_x_recons":
+            x_hat = self.latent_scaler.unscale(x_hat) 
+
+        # TODO: anneal losses
+        if self.sequence_decoder_weight > 0.0:
+            seq_loss, seq_loss_dict = self.sequence_loss(
+                x_hat, sequences, cur_weight=None
+            )
+        else:
+            seq_loss = 0.0
+
+        if self.structure_decoder_weight > 0.0:
+            assert (
+                not gt_structures is None
+            ), "If using structure as an auxiliary loss, ground truth structures must be provided"
+            struct_loss, struct_loss_dict = self.structure_loss(
+                x_hat, gt_structures, sequences, cur_weight=None
+            )
+        else:
+            struct_loss = 0.0
+
+        recons_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
+        vqvae_loss = recons_loss + embedding_loss
+        loss = vqvae_loss + seq_loss + struct_loss
+
+        log_dict = seq_loss_dict | struct_loss_dict
+        log_dict["loss"] = loss.item()
+        log_dict["vqvae_loss"] = vqvae_loss.item()
+        log_dict["embedding_loss"] = embedding_loss.item()
+        log_dict["vq_perplexity"] = perplexity.item()
+        # todo: also log min_encoding_indices
+
+        return loss, log_dict, min_encodings, min_encoding_indices
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -262,28 +328,14 @@ class TransformerVQVAE(L.LightningModule):
             self.setup_structure_decoder()
         return self.structure_loss_fn(latent, gt_structures, sequences, cur_weight)
 
-    def loss(self, x, mask, verbose=False):
-        embedding_loss, x_hat, perplexity, _, _ = self.forward(x, mask, verbose)
-        recon_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
-        loss = recon_loss + embedding_loss
-        return loss, recon_loss, embedding_loss, perplexity
-
     def training_step(self, batch, batch_idx):
-        x, mask, sequence = batch
-        loss, recon_loss, embedding_loss, perplexity = self.loss(x, mask)
-        self.log("train_loss", loss)
-        self.log("train_recon_loss", recon_loss)
-        self.log("train_embedding_loss", embedding_loss)
-        self.log("train_perplexity", perplexity)
+        loss, log_dict, min_encodings, min_encoding_indices = self(batch)
+        self.log_dict(log_dict)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        x, mask, _ = batch
-        loss, recon_loss, embedding_loss, perplexity = self.loss(x, mask)
-        self.log("val_loss", loss)
-        self.log("val_recon_loss", recon_loss)
-        self.log("val_embedding_loss", embedding_loss)
-        self.log("val_perplexity", perplexity)
+        loss, log_dict, min_encodings, min_encoding_indices = self(batch)
+        self.log_dict(log_dict)
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -294,25 +346,24 @@ if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
 
     model = TransformerVQVAE()
-    device = torch.device("cuda:4")
+    device = torch.device("cuda")
 
-    datadir = "/shared/amyxlu/data/cath/shards/"
-    pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
+    datadir = "/homefs/home/lux70/storage/data/cath/shards"
     dm = CATHShardedDataModule(
+        storage_type="hdf5",
         shard_dir=datadir,
-        header_to_sequence_file=pklfile,
+        batch_size=32,
+        seq_len=64,
+        dtype="fp32"
     )
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
-    x, mask, sequence = batch
 
     model.to(device)
-    x, mask = x.to(device=device, dtype=torch.float32), mask.to(
-        device, dtype=torch.float32
-    )
+    x, sequence, _ = batch
 
     # test vqvae
     # output = model(x, verbose=True)
     # print(model.loss(x, mask))
-    model.training_step((x, mask, None), 0)
+    model.training_step((x.to(device), sequence, "sdf"), 0)

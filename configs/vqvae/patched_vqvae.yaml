@@ -22,7 +22,11 @@ transformer_position_embedding_type: "absolute"
 lr: 5e-4
 lr_beta1: 0.9
 lr_beta2: 0.999
-lr_sched_type: "cosine"
-lr_num_warmup_steps: 1000
-lr_num_training_steps: 100_000
-lr_num_cycles: 4
+lr_sched_type: "constant"
+lr_num_warmup_steps: 0
+lr_num_training_steps: 100_000_000
+lr_num_cycles: 1 
+
+sequence_decoder_weight: 1.
+structure_decoder_weight: 0.
+latent_reconstruction_method: "x_recons"

@@ -2,7 +2,7 @@ _target_: plaid.datasets.CATHShardedDataModule
 
 storage_type: hdf5
 shard_dir: ${paths.data_dir}/cath/shards
-seq_len: 256
+seq_len: 64 
 batch_size: 64 
 num_workers: 0 
 dtype: fp32

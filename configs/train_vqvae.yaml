@@ -2,9 +2,10 @@ timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
 
 defaults:
   - _self_
-  - paths: dgx5
-  - datamodule: cath_safetensors
+  - paths: pcluster 
+  - datamodule: cath_h5
   - vqvae: patched_vqvae 
+  - latent_scaler: cath
   - trainer: default
   - callbacks/checkpoint: vqvae 
   - callbacks/lr_monitor: default
