@@ -18,25 +18,23 @@ from plaid.esmfold import esmfold_v1
 from plaid.transforms import get_random_sequence_crop_batch
 import time
 
+import argparse
 
-@dataclasses.dataclass
-class ShardConfig:
-    # fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-    # train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
-    # val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
-    fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-    train_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/train"
-    val_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/val"
-    batch_size: int = 256 
-    max_seq_len: int = 256 
-    min_seq_len: int = 16
-    num_workers: int = 4
-    num_batches_per_shard: int = 20
-    compression: str = "hdf5"  # "safetensors", "hdf5"
-    shard: bool = False
-    train_frac: float = 0.8
-    dtype: str = "fp32"  # "bf16", "fp32", "fp64"
+def parse_args():
+    parser = argparse.ArgumentParser(description="Precompute embeddings")
+    parser.add_argument('--fasta_file', type=str, default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa", help='Path to the fasta file')
+    parser.add_argument('--train_output_dir', type=str, default="/homefs/home/lux70/storage/data/cath/shards/train", help='Directory for training output shards')
+    parser.add_argument('--val_output_dir', type=str, default="/homefs/home/lux70/storage/data/cath/shards/val", help='Directory for validation output shards')
+    parser.add_argument('--batch_size', type=int, default=256, help='Batch size')
+    parser.add_argument('--max_seq_len', type=int, default=256, help='Maximum sequence length')
+    parser.add_argument('--num_workers', type=int, default=1, help='Number of workers')
+    parser.add_argument('--compression', type=str, default="hdf5", choices=["safetensors", "hdf5"], help='Compression type')
+    parser.add_argument('--train_frac', type=float, default=0.8, help='Training fraction')
+    parser.add_argument('--dtype', type=str, default="fp32", choices=["bf16", "fp32", "fp64"], help='Data type')
 
+    return parser.parse_args()
+
+args = parse_args()
 
 def _get_dtype(dtype):
     if dtype == "bf16":
@@ -62,10 +60,11 @@ def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
     return train_dataloader, val_dataloader
 
 
-def embed_batch(esmfold, sequences, max_len=512, min_len=30):
+def embed_batch(esmfold, sequences, max_len=512):
     with torch.no_grad():
+        # don't disgard short sequences since we're also saving headers
         sequences = get_random_sequence_crop_batch(
-            sequences, max_len=max_len, min_len=min_len
+            sequences, max_len=max_len, min_len=0
         )
         seq_lens = [len(seq) for seq in sequences]
         embed_results = esmfold.infer_embedding(sequences)
@@ -74,25 +73,22 @@ def embed_batch(esmfold, sequences, max_len=512, min_len=30):
     return feats, seq_lens, sequences
 
 
-def write_headers(headers, outdir, shard_number):
-    with open(outdir / f"shard{shard_number:04}.txt", "w") as f:
-        for header in headers:
-            f.write(header + "\n")
-
-
-def make_shard(esmfold, dataloader, n_batches_per_shard, max_seq_len, min_seq_len):
-    # TODO: also save aatype / sequence
+def make_shard(esmfold, dataloader, max_seq_len):
     cur_shard_tensors = []
     cur_shard_lens = []
     cur_headers = []
     cur_sequences = []
 
-    for _ in trange(n_batches_per_shard, leave=False):
-        batch = next(iter(dataloader))
+    for batch in tqdm(dataloader, desc="Loop through batches"):
         headers, sequences = batch
-        headers = [s.split("|")[2].split("/")[0] for s in headers]
-        feats, seq_lens, sequences = embed_batch(esmfold, sequences, max_seq_len, min_seq_len)
+
+        # for CATH:
+        # headers = [s.split("|")[2].split("/")[0] for s in headers]
+        feats, seq_lens, sequences = embed_batch(esmfold, sequences, max_seq_len)
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
+
+        if not len(headers) == len(sequences) == len(feats) == len(seq_lens):
+            import pdb;pdb.set_trace()
 
         cur_headers.extend(headers)
         cur_sequences.extend(sequences)
@@ -136,37 +132,26 @@ def save_h5_embeddings(embs, sequences, pdb_id, shard_number, outdir, dtype: str
         f.create_dataset("sequences", data=sequences)
         f.create_dataset("pdb_id", data=pdb_id)
         print(f"saved {embs.shape[0]} sequences to shard {shard_number} as h5 file")
+        print("num unique proteins,", len(np.unique(pdb_id)))
+        print("num unique sequences,", len(np.unique(sequences)))
     del embs
 
 
-def run(dataloader, esmfold, output_dir, cfg: ShardConfig):
-    if cfg.shard:
-        num_shards = len(dataloader) // cfg.num_batches_per_shard + 1
-        num_batches_per_shard = cfg.num_batches_per_shard
-    else:
-        num_shards = 1 
-        num_batches_per_shard = len(dataloader)
-
+def run(dataloader, esmfold, output_dir, cfg):
     outdir = Path(output_dir) / f"seqlen_{cfg.max_seq_len}"
-    argsdict = dataclasses.asdict(cfg)
     if not outdir.exists():
         outdir.mkdir(parents=True)
         
-    with open(outdir / "config.json", "w") as f:
-        json.dump(argsdict, f, indent=2)
-
-    for shard_number in tqdm(range(num_shards), desc="Shards"):
-        emb_shard, seq_lens, headers, sequences, = make_shard(esmfold, dataloader, num_batches_per_shard, cfg.max_seq_len, cfg.min_seq_len)
-        write_headers(headers, outdir, shard_number)
-        if cfg.compression == "safetensors":
-            save_safetensor_embeddings(emb_shard, seq_lens, shard_number, outdir, cfg.dtype)
-        elif cfg.compression == "hdf5":
-            save_h5_embeddings(emb_shard, sequences, headers, shard_number, outdir, cfg.dtype)
-        else:
-            raise ValueError(f"invalid compression type {cfg.compression}")
+    emb_shard, seq_lens, headers, sequences, = make_shard(esmfold, dataloader, cfg.max_seq_len)
+    if cfg.compression == "safetensors":
+        save_safetensor_embeddings(emb_shard, seq_lens, 0, outdir, cfg.dtype)
+    elif cfg.compression == "hdf5":
+        save_h5_embeddings(emb_shard, sequences, headers, 0, outdir, cfg.dtype)
+    else:
+        raise ValueError(f"invalid compression type {cfg.compression}")
 
 
-def main(cfg: ShardConfig):
+def main(cfg):
     start = time.time()
     print("making esmfold...")
     esmfold = esmfold_v1()
@@ -181,14 +166,14 @@ def main(cfg: ShardConfig):
     print("making dataloader")
     train_dataloader, val_dataloader = make_fasta_dataloaders(cfg.fasta_file, cfg.batch_size, cfg.num_workers)
 
-    print("creating train dataset")
-    run(train_dataloader, esmfold, cfg.train_output_dir, cfg)
-
     print("creating val dataset")
     run(val_dataloader, esmfold, cfg.val_output_dir, cfg)
 
+    print("creating train dataset")
+    run(train_dataloader, esmfold, cfg.train_output_dir, cfg)
+
+
 
 if __name__ == "__main__":
-    import tyro
-    cfg = tyro.cli(ShardConfig) 
+    cfg = parse_args()
     main(cfg)
