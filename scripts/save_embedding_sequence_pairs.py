@@ -1,3 +1,17 @@
+"""
+Hacky but working script that saves embeddings to disk along with its
+sequence and header as a H5 file. Handles different:
+
+* LM types (e.g. ESMFold vs. smaller ESM models)
+* datasets (just swap out the FASTA file)
+* header parsing schemes (For CATH, will parse according to the pattern, otherwise saves the header as is)
+* sequence lengths
+* dtypes (currently only fp32, fp16 in the .h5 file version. saving bf16 to disk is only supported by safetensors) 
+
+note: loads model twice, once for training and once for loading. Is slow and can be trivially speeded up but
+retained inefficiency to minimize introducing new bugs.
+"""
+
 import torch
 import safetensors
 from tqdm import tqdm, trange
@@ -13,12 +27,28 @@ from pathlib import Path
 import dataclasses
 
 from safetensors.torch import save_file, load_file
-from plaid import utils
+from plaid.utils import get_model_device
 from plaid.esmfold import esmfold_v1
 from plaid.transforms import get_random_sequence_crop_batch
 import time
 
 import argparse
+
+
+ACCEPTED_LM_EMBEDDER_TYPES = [
+    "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
+    "esm2_t48_15B_UR50D",  # 5120 
+    "esm2_t36_3B_UR50D",  # 2560
+    "esm2_t33_650M_UR50D",  # 1280
+    "esm2_t30_150M_UR50D",  # 64e $EMBED
+    "esm2_t12_35M_UR50D",  # dim=480
+    "esm2_t6_8M_UR50D"  # dim=320
+]
+
+
+def check_model_type(lm_embedder_type):
+    assert lm_embedder_type in ACCEPTED_LM_EMBEDDER_TYPES
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Precompute embeddings")
@@ -31,10 +61,9 @@ def parse_args():
     parser.add_argument('--compression', type=str, default="hdf5", choices=["safetensors", "hdf5"], help='Compression type')
     parser.add_argument('--train_frac', type=float, default=0.8, help='Training fraction')
     parser.add_argument('--dtype', type=str, default="fp32", choices=["bf16", "fp32", "fp64"], help='Data type')
-
+    parser.add_argument("--lm_embedder_type", type=str, default="esmfold")
     return parser.parse_args()
 
-args = parse_args()
 
 def _get_dtype(dtype):
     if dtype == "bf16":
@@ -45,6 +74,30 @@ def _get_dtype(dtype):
         return torch.float64
     else:
         raise ValueError(f"invalid dtype {dtype}")
+
+
+def make_embedder(lm_embedder_type):
+    start = time.time()
+    print(f"making {lm_embedder_type}...")
+
+    if lm_embedder_type == "esmfold":
+        # from plaid.denoisers.esmfold import ESMFold
+        from plaid.esmfold import esmfold_v1
+        embedder = esmfold_v1()
+        alphabet = None
+    else:
+        print('loading LM from torch hub')
+        embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
+    
+    embedder = embedder.eval().to("cuda")
+
+    for param in embedder.parameters():
+        param.requires_grad = False
+
+    end = time.time()
+    print(f"done loading model in {end - start:.2f} seconds.")
+
+    return embedder, alphabet
 
 
 def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
@@ -60,7 +113,7 @@ def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
     return train_dataloader, val_dataloader
 
 
-def embed_batch(esmfold, sequences, max_len=512):
+def embed_batch_esmfold(esmfold, sequences, max_len=512):
     with torch.no_grad():
         # don't disgard short sequences since we're also saving headers
         sequences = get_random_sequence_crop_batch(
@@ -73,7 +126,30 @@ def embed_batch(esmfold, sequences, max_len=512):
     return feats, seq_lens, sequences
 
 
-def make_shard(esmfold, dataloader, max_seq_len):
+def embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_len=512):
+    sequences = get_random_sequence_crop_batch(
+        sequences, max_len=max_len, min_len=0
+    )
+    seq_lens = [len(seq) for seq in sequences]
+    seq_lens = torch.tensor(seq_lens, device="cpu", dtype=torch.int16)
+
+    batch = [("", seq) for seq in sequences]
+    _, _, tokens = batch_converter(batch)
+    device = get_model_device(embedder)
+    tokens = tokens.to(device)
+
+    with torch.no_grad():
+        results = embedder(tokens, repr_layers=[repr_layer], return_contacts=False)
+        feats = results["representations"][repr_layer]
+    
+    return feats, seq_lens, sequences
+    
+
+def make_shard(embedder, dataloader, max_seq_len, batch_converter=None, repr_layer=None, is_esmfold=True, split_header=True):
+    if not is_esmfold:
+        assert not batch_converter is None
+        assert not repr_layer is None
+    
     cur_shard_tensors = []
     cur_shard_lens = []
     cur_headers = []
@@ -82,9 +158,15 @@ def make_shard(esmfold, dataloader, max_seq_len):
     for batch in tqdm(dataloader, desc="Loop through batches"):
         headers, sequences = batch
 
-        # for CATH:
-        # headers = [s.split("|")[2].split("/")[0] for s in headers]
-        feats, seq_lens, sequences = embed_batch(esmfold, sequences, max_seq_len)
+        if split_header:
+            # for CATH:
+            headers = [s.split("|")[2].split("/")[0] for s in headers]
+        
+        if is_esmfold:
+            feats, seq_lens, sequences = embed_batch_esmfold(embedder, sequences, max_seq_len)
+        else:
+            feats, seq_lens, sequences = embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_seq_len)
+
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
 
         if not len(headers) == len(sequences) == len(feats) == len(seq_lens):
@@ -131,18 +213,47 @@ def save_h5_embeddings(embs, sequences, pdb_id, shard_number, outdir, dtype: str
         f.create_dataset("embeddings", data=embs.numpy())
         f.create_dataset("sequences", data=sequences)
         f.create_dataset("pdb_id", data=pdb_id)
-        print(f"saved {embs.shape[0]} sequences to shard {shard_number} as h5 file")
+        print(f"saved {embs.shape[0]} sequences to shard {shard_number} at {str(outdir)} as h5 file")
         print("num unique proteins,", len(np.unique(pdb_id)))
         print("num unique sequences,", len(np.unique(sequences)))
     del embs
 
 
-def run(dataloader, esmfold, output_dir, cfg):
-    outdir = Path(output_dir) / f"seqlen_{cfg.max_seq_len}"
+def run(dataloader, output_dir, cfg):
+    print(cfg)
+    """
+    Set up: ESMFold vs. other embedder
+    """
+    lm_embedder_type = cfg.lm_embedder_type
+    is_esmfold = lm_embedder_type == "esmfold"
+    embedder, alphabet = make_embedder(lm_embedder_type)
+
+    if not is_esmfold:
+        batch_converter = alphabet.get_batch_converter()
+        le = lm_embedder_type
+        repr_layer = int(lm_embedder_type.split("_")[1][1:])
+    else:
+        batch_converter = None
+        le = ""
+        repr_layer = None
+    
+    outdir = Path(output_dir) / le / f"seqlen_{cfg.max_seq_len}"
     if not outdir.exists():
         outdir.mkdir(parents=True)
-        
-    emb_shard, seq_lens, headers, sequences, = make_shard(esmfold, dataloader, cfg.max_seq_len)
+    
+    """
+    Make shards: wrapper fn
+    """ 
+    emb_shard, seq_lens, headers, sequences = make_shard(
+        embedder,
+        dataloader,
+        cfg.max_seq_len,
+        batch_converter,
+        repr_layer,
+        is_esmfold,
+        split_header="cath-dataset" in cfg.fasta_file
+    )
+    
     if cfg.compression == "safetensors":
         save_safetensor_embeddings(emb_shard, seq_lens, 0, outdir, cfg.dtype)
     elif cfg.compression == "hdf5":
@@ -152,26 +263,14 @@ def run(dataloader, esmfold, output_dir, cfg):
 
 
 def main(cfg):
-    start = time.time()
-    print("making esmfold...")
-    esmfold = esmfold_v1()
-    end = time.time()
-    print(f"done making esmfold in {end - start:.2f} seconds.")
-
-    device = torch.device("cuda:0")
-    esmfold.to(device)
-    esmfold.eval()
-    esmfold.requires_grad_(False)
-
-    print("making dataloader")
+    print(f"making dataloader from {cfg.fasta_file}")
     train_dataloader, val_dataloader = make_fasta_dataloaders(cfg.fasta_file, cfg.batch_size, cfg.num_workers)
 
     print("creating val dataset")
-    run(val_dataloader, esmfold, cfg.val_output_dir, cfg)
+    run(val_dataloader, cfg.val_output_dir, cfg)
 
     print("creating train dataset")
-    run(train_dataloader, esmfold, cfg.train_output_dir, cfg)
-
+    run(train_dataloader, cfg.train_output_dir, cfg)
 
 
 if __name__ == "__main__":
