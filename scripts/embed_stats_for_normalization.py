@@ -5,12 +5,13 @@ from pathlib import Path
 import numpy as np
 import einops
 import safetensors
-import plaid as K
 from torch.utils.data import random_split
 import torch
 import math
 import argparse
 
+from plaid.utils import get_model_device
+from plaid.transforms import get_random_sequence_crop_batch
 
 ACCEPTED_LM_EMBEDDER_TYPES = [
     "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
@@ -22,12 +23,19 @@ ACCEPTED_LM_EMBEDDER_TYPES = [
     "esm2_t6_8M_UR50D"  # dim=320
 ]
 
+# pcluster
 DATASET_TO_FASTA_FILE = {
-    "uniref": "/shared/amyxlu/data/uniref90/uniref90.fasta",
-    "cath": "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa",
-    "pfam": "/shared/amyxlu/data/pfam/Pfam-A.fasta",
+    "uniref": "",
+    "cath": "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+    "pfam": "",
 }
 
+# # dgx5
+# DATASET_TO_FASTA_FILE = {
+#     "uniref": "/shared/amyxlu/data/uniref90/uniref90.fasta",
+#     "cath": "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+#     "pfam": "/shared/amyxlu/data/pfam/Pfam-A.fasta",
+# }
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -61,8 +69,9 @@ def get_dataloader(dataset, batch_size=64, n_val=5000):
 def make_embedder(lm_embedder_type):
     if lm_embedder_type == "esmfold":
         print("making esmfold model")
-        from plaid.denoisers.esmfold import ESMFold
-        embedder = ESMFold(make_trunk=False)
+        # from plaid.denoisers.esmfold import ESMFold
+        from plaid.esmfold import esmfold_v1
+        embedder = esmfold_v1()
         alphabet = None
     else:
         print('loading LM from torch hub')
@@ -108,14 +117,15 @@ def main():
     embedder, alphabet = make_embedder(args.lm_embedder_type)
 
     dataloader = get_dataloader(args.dataset, args.batch_size, args.n_val)
-    outdir = Path(os.path.dirname(__file__)) / f"../cached_tensors/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}"
+    # outdir = Path(os.path.dirname(__file__)) / f"../cached_tensors/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}"
+    outdir = Path(os.environ['HOME']) / f"plaid_cached_tensors/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}" 
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
     def embed_batch(sequences, batch_converter):
         batch = [("", seq) for seq in sequences]
         _, _, tokens = batch_converter(batch)
-        device = K.utils.get_model_device(embedder)
+        device = get_model_device(embedder)
         tokens = tokens.to(device)
         mask = (tokens != alphabet.padding_idx)
         with torch.no_grad():
@@ -134,7 +144,7 @@ def main():
 
     for batch in tqdm(dataloader):
         _, sequences = batch
-        sequences = K.utils.get_random_sequence_crop_batch(sequences, args.seq_len, args.min_len)
+        sequences = get_random_sequence_crop_batch(sequences, args.seq_len, args.min_len)
 
         if args.lm_embedder_type == "esmfold":
             x, mask = embed_batch_esmfold(sequences)
