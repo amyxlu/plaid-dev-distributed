@@ -1,0 +1,14 @@
+name: plaid
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.11
+  - pip
+  - pytorch-cuda=12.1
+  - pytorch
+  - torchvision
+  - pip:
+    - -r requirements.txt
