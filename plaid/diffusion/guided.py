@@ -275,11 +275,11 @@ class GaussianDiffusion(L.LightningModule):
         )
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
     
-    def maybe_clip(self):
+    def maybe_clip(self, x):
         if self.soft_clip_x_start_to is None:
-            return identity
+            return x
         else:
-            return partial(torch.clamp, min=-1 * self.soft_clip_x_start_to, max=self.soft_clip_x_start_to)
+            return torch.clamp(x, min=-1 * self.soft_clip_x_start_to, max=self.soft_clip_x_start_to)
 
     def model_predictions(self, x, t, mask=None, model_kwargs={}):
         model_output = self.model(x, t, mask, **model_kwargs)
@@ -426,7 +426,7 @@ class GaussianDiffusion(L.LightningModule):
             self_cond = x_start if self.self_condition else None
             model_kwargs["x_self_cond"] = self_cond
             pred_noise, x_start, *_ = self.model_predictions(
-                img, time_cond, model_kwargs=model_kwargs, clip_x_start=clip_denoised
+                img, time_cond, model_kwargs=model_kwargs
             )
 
             imgs.append(img)
@@ -579,7 +579,7 @@ class GaussianDiffusion(L.LightningModule):
 
         # auxiliary losses
         x_recons = self.model_predictions(
-            x, t, mask, model_kwargs, clip_x_start
+            x, t, mask, model_kwargs
         ).pred_x_start
         latent_forms = {
             "model_out": model_out,

@@ -17,6 +17,7 @@ from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid 
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.utils import LatentScaler
+from plaid.constants import CACHED_TENSORS_DIR
 import pandas as pd
 import wandb
 
@@ -86,20 +87,15 @@ class SampleCallback(Callback):
 
     def _fid_setup(self, device):
         if self.fid_reference_dataset == "uniref":
-            cached_tensors_path = (
-                Path(os.path.dirname(__file__))
-                / "../../cached_tensors/holdout_esmfold_feats.st"
-            )
+            fpath = Path(CACHED_TENSORS_DIR) / "holdout_esmfold_feats.st"
         elif self.fid_reference_dataset == "cath":
-            cached_tensors_path = (
-                Path(os.path.dirname(__file__))
-                / "../../cached_tensors/cath_esmfold_feats.st"
-            )
+            raise NotImplementedError("Resave tensors for CATH features before calculating FID.")
+            # fpath = Path(CACHED_TENSORS_DIR) / "cath_esmfold_feats.st"
 
         def load_saved_features(location, device="cpu"):
             return st.load_file(location)["features"].to(device)
 
-        self.real_features = load_saved_features(cached_tensors_path, device=device)
+        self.real_features = load_saved_features(fpath, device=device)
         self.real_features = self.real_features[
             torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
@@ -212,7 +208,6 @@ class SampleCallback(Callback):
         x, log_dict = self.sample_latent(shape)
         if log_to_wandb:
             logger.log(log_dict)
-
         if self.calc_fid:
             maybe_print("calculating FID...")
             log_dict = self.calculate_fid(x, device)
@@ -238,13 +233,22 @@ class SampleCallback(Callback):
 
     def on_sanity_check_start(self, trainer, pl_module):
         _sampling_timesteps = pl_module.sampling_timesteps
+        _n_to_sample = self.n_to_sample
+        _n_to_construct = self.n_to_construct
+
         # hack
         pl_module.sampling_timesteps = 3
+        self.n_to_sample, self.n_to_construct = 2, 2
         if rank_zero_only.rank == 0:
             dummy_shape = (2, 16, self.diffusion.model.hid_dim)
             self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
+        
+        # restore
         pl_module.sampling_timesteps = _sampling_timesteps
+        self.n_to_sample = _n_to_sample
+        self.n_to_construct = _n_to_construct
         print("done sampling sanity check")
+
         torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):

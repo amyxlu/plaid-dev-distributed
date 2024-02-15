@@ -4,7 +4,7 @@ import typing as T
 import torch
 import os
 from ._misc import npy
-from . import CACHED_TENSORS_DIR
+from ..constants import CACHED_TENSORS_DIR
 
 
 ArrayLike = T.Union[np.ndarray, T.List[float], torch.Tensor]

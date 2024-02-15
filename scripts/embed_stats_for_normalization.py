@@ -12,6 +12,7 @@ import argparse
 
 from plaid.utils import get_model_device
 from plaid.transforms import get_random_sequence_crop_batch
+from plaid.constants import CACHED_TENSORS_DIR
 
 ACCEPTED_LM_EMBEDDER_TYPES = [
     "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
@@ -117,8 +118,7 @@ def main():
     embedder, alphabet = make_embedder(args.lm_embedder_type)
 
     dataloader = get_dataloader(args.dataset, args.batch_size, args.n_val)
-    # outdir = Path(os.path.dirname(__file__)) / f"../cached_tensors/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}"
-    outdir = Path(os.environ['HOME']) / f"plaid_cached_tensors/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}" 
+    outdir = Path(os.environ['HOME']) / f"{CACHED_TENSORS_DIR}/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}" 
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
