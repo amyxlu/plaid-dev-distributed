@@ -110,6 +110,7 @@ class SampleCallback(Callback):
     def sample_latent(self, shape):
         all_samples, n_samples = [], 0
         while n_samples < self.n_to_sample:
+            # TODO: add a pbar
             # make sure to not unscale s.t. we can calculate KID/FID in the normalized space!
             sample = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
             all_samples.append(sample.detach().cpu())
@@ -257,7 +258,7 @@ class SampleCallback(Callback):
         torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):
-        if trainer.current_epoch % self.run_every_n_epoch == 0:
+        if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
             shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim)
             self._run(pl_module, shape, log_to_wandb=True)
             torch.cuda.empty_cache()

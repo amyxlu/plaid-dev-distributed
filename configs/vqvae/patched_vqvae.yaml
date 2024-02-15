@@ -29,4 +29,5 @@ lr_num_cycles: 1
 
 sequence_decoder_weight: 1.
 structure_decoder_weight: 0.
-latent_reconstruction_method: "x_recons"
+latent_reconstruction_method: "unnormalized_x_recons"
+log_reconstructed_sequences: True

@@ -79,12 +79,20 @@ class TransformerVQVAE(L.LightningModule):
         structure_constructor=None,
         sequence_decoder_weight=0.,
         structure_decoder_weight=0.,
-        latent_reconstruction_method="x_recons",
+        latent_reconstruction_method="unnormalized_x_recons",
+        log_reconstructed_sequences=False
     ):
         super().__init__()
         
         self.normalize_latent_input = latent_scaler is not None
         self.latent_scaler = latent_scaler
+        assert latent_reconstruction_method in {
+            "x_recons",
+            "unnormalized_x_recons"
+        }
+        if latent_reconstruction_method == "unnormalized_x_recons":
+            assert not latent_scaler is None
+        self.latent_recons_method = latent_reconstruction_method
 
         self.patch_len = patch_len
         self.bert_config = BertConfig(
@@ -151,13 +159,7 @@ class TransformerVQVAE(L.LightningModule):
         self.sequence_loss_fn = None
         self.structure_loss_fn = None
         
-        assert latent_reconstruction_method in {
-            "x_recons",
-            "normalized_x_recons"
-        }
-        if latent_reconstruction_method == "normalized_x_recons":
-            assert self.normalize_latent_input, "Can only chose the normalized_x_recons if input was also normalized."
-        self.latent_recons_method = latent_reconstruction_method
+        self.log_reconstructed_sequences = log_reconstructed_sequences
         
         self.save_hyperparameters()
 
@@ -169,7 +171,7 @@ class TransformerVQVAE(L.LightningModule):
     def stack_patches(self, x):
         N, L, C = x.shape
         self.n_chunks = math.ceil(L / self.patch_len)
-        x = x[:, : self.n_chunks * self.patch_len, :],
+        x = x[:, : self.n_chunks * self.patch_len, :]
         x_chunks = einops.rearrange(x, "N (L l) C -> (N L) l C", l=self.patch_len)
         return x_chunks
    
@@ -226,8 +228,13 @@ class TransformerVQVAE(L.LightningModule):
         x_hat = einops.rearrange(
             chunked_x_hat, "(N n) C L -> N (n L) C", n=self.n_chunks
         )
+        recons_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
+        vqvae_loss = recons_loss + embedding_loss
 
-        if self.latent_recons_method == "normalized_x_recons":
+        """
+        Auxiliary losses: constrain sequence and structure
+        """
+        if self.latent_recons_method == "unnormalized_x_recons":
             x_hat = self.latent_scaler.unscale(x_hat) 
 
         # TODO: anneal losses
@@ -247,12 +254,14 @@ class TransformerVQVAE(L.LightningModule):
             )
         else:
             struct_loss = 0.0
+            struct_loss_dict = None
 
-        recons_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
-        vqvae_loss = recons_loss + embedding_loss
         loss = vqvae_loss + seq_loss + struct_loss
 
-        log_dict = seq_loss_dict | struct_loss_dict
+        log_dict = {}
+        log_dict = seq_loss_dict | log_dict if not seq_loss_dict is None else log_dict
+        log_dict = struct_loss_dict | log_dict if not struct_loss_dict is None else log_dict
+        
         log_dict["loss"] = loss.item()
         log_dict["vqvae_loss"] = vqvae_loss.item()
         log_dict["embedding_loss"] = embedding_loss.item()
@@ -309,8 +318,8 @@ class TransformerVQVAE(L.LightningModule):
         # sequence should be the one generated when saving the latents,
         # i.e. lengths are already trimmed to self.max_seq_len
         # if cur_weight is None, no annealing is done except for the weighting
-        # specified when specifying the class
-        return self.sequence_loss_fn(latent, sequence, cur_weight)
+        # specified when specifying the class. The mask is implicit.
+        return self.sequence_loss_fn(latent, sequence, cur_weight, log_recons_strs=self.log_reconstructed_sequences)
     
     def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
         if self.need_to_setup_structure_decoder:

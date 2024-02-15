@@ -375,6 +375,7 @@ class GaussianDiffusion(L.LightningModule):
             reversed(range(0, self.sampling_timesteps)),
             desc="sampling loop time step",
             total=self.sampling_timesteps,
+            leave=False
         ):
             self_cond = x_start if self.self_condition else None
             model_kwargs["x_self_cond"] = self_cond

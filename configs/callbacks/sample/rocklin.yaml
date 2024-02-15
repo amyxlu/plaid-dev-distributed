@@ -11,4 +11,4 @@ calc_perplexity: True
 calc_fid: True
 
 log_to_wandb: True
-run_every_n_epoch: 100 
+run_every_n_epoch: 50 
