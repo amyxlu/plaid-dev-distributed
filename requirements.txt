@@ -18,3 +18,4 @@ safetensors
 git+https://github.com/amyxlu/evo.git
 scipy
 scikit-learn
+py3Dmol

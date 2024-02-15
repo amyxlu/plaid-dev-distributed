@@ -200,6 +200,7 @@ class LatentToSequence:
         """Move onto the device for the usecase before calling to_sequence()."""
         self.decoder = self.decoder.to(device)
         self.device = device
+        return self
 
     def to_sequence(
         self, latent: ArrayLike, mask=None, return_logits=False, drop_mask_idx=True
@@ -271,6 +272,7 @@ class LatentToStructure:
     def to(self, device):
         self.esmfold = self.esmfold.to(device)
         self.device = device
+        return self
 
     @torch.no_grad()
     def run_batch(
@@ -279,7 +281,7 @@ class LatentToStructure:
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
         _, L, _ = s_.shape
-        z_ = latent.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
+        z_ = s_.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
 
         with torch.no_grad():
             output = self.esmfold.folding_trunk(

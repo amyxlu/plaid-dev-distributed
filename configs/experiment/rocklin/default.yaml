@@ -3,6 +3,10 @@
 defaults:
   - override /datamodule: rocklin_h5.yaml
 
+callbacks/sample:
+  construct_sequence: False
+  run_every_n_epoch: 5
+
 logger:
   project: plaid_rocklin
 
@@ -12,11 +16,7 @@ datamodule:
 denoiser:
   num_blocks: 5
 
-callbacks/sample:
-  n_to_sample: 64
-  n_to_construct: -1
-  batch_size: -1
-  calc_perplexity: False
-  calc_structure: False
-  calc_fid: True
-  run_every_n_epoch: 10
+trainer:
+  accumulate_grad_batches: 4
+  max_epochs: 8000
+  log_every_n_steps: 50

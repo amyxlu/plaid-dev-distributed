@@ -38,6 +38,7 @@ class SampleCallback(Callback):
         batch_size: int = -1,
         log_to_wandb: bool = False,
         calc_structure: bool = True,
+        calc_sequence: bool = True,
         calc_fid: bool = True,
         fid_reference_dataset: str = "uniref",
         calc_perplexity: bool = True,
@@ -54,7 +55,10 @@ class SampleCallback(Callback):
         self.model = model
         self.log_to_wandb = log_to_wandb
         self.calc_structure = calc_structure
+        self.calc_sequence = calc_sequence
         self.calc_perplexity = calc_perplexity
+        if calc_perplexity:
+            assert calc_sequence
         self.calc_fid = calc_fid
         self.fid_reference_dataset = fid_reference_dataset
         self.n_to_sample = n_to_sample
@@ -220,10 +224,11 @@ class SampleCallback(Callback):
             )
             x = x[torch.randperm(x.shape[0])][: self.n_to_construct]
 
-        maybe_print("constructing sequence...")
-        seq_str, log_dict = self.construct_sequence(x, device)
-        if log_to_wandb:
-            logger.log(log_dict)
+        if self.calc_sequence:
+            maybe_print("constructing sequence...")
+            seq_str, log_dict = self.construct_sequence(x, device)
+            if log_to_wandb:
+                logger.log(log_dict)
 
         if self.calc_structure:
             maybe_print("constructing structure...")

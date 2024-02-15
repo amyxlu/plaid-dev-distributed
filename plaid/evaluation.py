@@ -7,7 +7,7 @@ import torch
 from torch.nn.functional import nll_loss
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from . import utils
+from .utils import to_tensor
 
 
 def polynomial_kernel(x, y):
@@ -116,7 +116,7 @@ class RITAPerplexity:
         for i in range(0, len(all_sequences), batch_size):
             sequences = all_sequences[i : i + batch_size]
             input_ids = self.tokenizer.batch_encode_plus(sequences)["input_ids"]
-            input_ids = utils.to_tensor(input_ids, device=self.device)
+            input_ids = to_tensor(input_ids, device=self.device)
             with torch.no_grad():
                 outputs = self.model(input_ids, labels=input_ids)
             loss, logits = outputs[:2]

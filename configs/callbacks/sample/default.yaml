@@ -1,10 +1,12 @@
 _target_: plaid.callbacks.SampleCallback
 outdir: ${paths.artifacts_dir}/samples/${timestamp} 
-n_to_sample: 16
+num_recycles: 4
+
+n_to_sample: 64 
 n_to_construct: -1
 batch_size: -1
+calc_perplexity: False
 calc_structure: False
-calc_perplexity: True
-num_recycles: 4
-calc_fid: False
+calc_fid: True
+calc_sequence: True
 run_every_n_epoch: 1
