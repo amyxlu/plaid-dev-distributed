@@ -227,4 +227,8 @@ def parmar_kid(feats1, feats2, num_subsets=100, max_subset_size=1000):
 def parmar_fid(feats1, feats2):
     mu1, sig1 = np.mean(feats1, axis=0), np.cov(feats1, rowvar=False)
     mu2, sig2 = np.mean(feats2, axis=0), np.cov(feats2, rowvar=False)
-    return frechet_distance(mu1, sig1, mu2, sig2)
+    try:
+        return frechet_distance(mu1, sig1, mu2, sig2)
+    except ValueError as e:
+        print(e)
+        return np.nan
