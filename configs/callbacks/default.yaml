@@ -1,5 +1,0 @@
-defaults:
-  - checkpoint: null
-  - sample: default
-  - lr_monitor: default
-  - _self_

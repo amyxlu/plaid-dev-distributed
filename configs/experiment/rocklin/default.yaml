@@ -2,21 +2,24 @@
 
 defaults:
   - override /datamodule: rocklin_h5.yaml
-
-callbacks/sample:
-  construct_sequence: False
-  run_every_n_epoch: 5
-
-logger:
-  project: plaid_rocklin
+  - override /callbacks/sample: rocklin.yaml
 
 datamodule:
   batch_size: 64
+
+callbacks/sample:
+  batch_size: 64
+
+diffusion:
+  sampling_seq_len: 45
+
+logger:
+  project: plaid_rocklin
 
 denoiser:
   num_blocks: 5
 
 trainer:
-  accumulate_grad_batches: 4
+  # accumulate_grad_batches: 4
   max_epochs: 8000
   log_every_n_steps: 50

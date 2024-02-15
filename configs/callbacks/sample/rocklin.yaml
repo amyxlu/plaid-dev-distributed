@@ -1,0 +1,14 @@
+_target_: plaid.callbacks.SampleCallback
+outdir: ${paths.artifacts_dir}/samples/${timestamp} 
+
+n_to_sample: 6400
+n_to_construct: 16
+batch_size: 64 
+
+calc_sequence: True
+calc_structure: True
+calc_perplexity: True
+calc_fid: True
+
+log_to_wandb: True
+run_every_n_epoch: 100 
