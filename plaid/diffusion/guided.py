@@ -362,6 +362,7 @@ class GaussianDiffusion(L.LightningModule):
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
+        unscale=True
     ):
         batch, device = shape[0], self.device
 
@@ -383,7 +384,8 @@ class GaussianDiffusion(L.LightningModule):
             imgs.append(img)
 
         ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
-        ret = self.latent_scaler.unscale(ret)
+        if unscale:
+            ret = self.latent_scaler.unscale(ret)
         return ret
 
     @torch.no_grad()
