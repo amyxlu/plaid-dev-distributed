@@ -64,11 +64,12 @@ class VectorQuantizer(nn.Module):
             2. flatten input to (B*H*W,C)
 
         """
-        # reshape z -> (batch, height, width, channel) and flatten
-        z = z.permute(0, 2, 3, 1).contiguous()
+        # reshape z -> (batch, height, channel) and flatten
+        z = z.permute(0, 2, 1).contiguous()
         z_flattened = z.view(-1, self.e_dim)
-        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
+        device = z.device
 
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
         d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
             torch.sum(self.embedding.weight**2, dim=1) - 2 * \
             torch.matmul(z_flattened, self.embedding.weight.t())
@@ -83,11 +84,11 @@ class VectorQuantizer(nn.Module):
         z_q = torch.matmul(min_encodings, self.embedding.weight).view(z.shape)
 
         # compute loss for embedding
-        embedding_loss = masked_mse_loss(z_q.detach(), z, mask)
-        commitment_loss = masked_mse_loss(z_q, z.detach(), mask)
-        loss = embedding_loss + self.beta * commitment_loss
-        # loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
-        #     torch.mean((z_q - z.detach()) ** 2)
+        # embedding_loss = masked_mse_loss(z_q.detach(), z, mask)
+        # commitment_loss = masked_mse_loss(z_q, z.detach(), mask)
+        # loss = embedding_loss + self.beta * commitment_loss
+        loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+            torch.mean((z_q - z.detach()) ** 2)
 
         # preserve gradients
         z_q = z + (z_q - z).detach()
@@ -97,6 +98,6 @@ class VectorQuantizer(nn.Module):
         perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
 
         # reshape back to match original input shape
-        z_q = z_q.permute(0, 3, 1, 2).contiguous()
+        z_q = z_q.permute(0, 2, 1).contiguous()
 
         return loss, z_q, perplexity, min_encodings, min_encoding_indices

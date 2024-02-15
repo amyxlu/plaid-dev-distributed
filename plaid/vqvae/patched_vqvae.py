@@ -161,25 +161,17 @@ class TransformerVQVAE(L.LightningModule):
         
         self.save_hyperparameters()
 
-    def transformer_forward(self, z_q, mask):
+    def transformer_forward(self, z_q):
         # z_q shape: (N, L', C')
-        # mask shape: (N, L')
-        output = self.transformer(hidden_state=z_q, encoder_attention_mask=mask)
+        output = self.transformer(hidden_states=z_q)
         return output["last_hidden_state"]  # (N, L', C')
 
-    def stack_patches(self, x, mask):
+    def stack_patches(self, x):
         N, L, C = x.shape
-        assert mask.shape == (N, L)
         self.n_chunks = math.ceil(L / self.patch_len)
-        x, mask = (
-            x[:, : self.n_chunks * self.patch_len, :],
-            mask[:, : self.n_chunks * self.patch_len],
-        )
-
+        x = x[:, : self.n_chunks * self.patch_len, :],
         x_chunks = einops.rearrange(x, "N (L l) C -> (N L) l C", l=self.patch_len)
-        mask_chunks = einops.rearrange(mask, "N (L l) -> (N L) l", l=self.patch_len)
-        mask_chunks = mask_chunks.bool().any(dim=-1)
-        return x_chunks, mask_chunks
+        return x_chunks
    
     def unpack_batch(self, batch):
         # 2024/02/08: For CATHShardedDataModule HDF5 loaders 
@@ -200,18 +192,16 @@ class TransformerVQVAE(L.LightningModule):
     def forward(self, batch):
         # sequences *must* be already trimmed
         x, sequences, gt_structures = self.unpack_batch(batch)
-        true_aatype, mask, _, _, _ = batch_encode_sequences(sequences)
+        true_aatype, _, _, _, _ = batch_encode_sequences(sequences)
         device = x.device
-        true_aatype, mask = true_aatype.to(device), mask.to(device)
+        true_aatype = true_aatype.to(device)
 
         if self.normalize_latent_input:
             x = self.latent_scaler.scale(x)
         N, L, C = x.shape
-        if mask is None:
-            mask = x.new_ones((N, L))
 
         # C': vqvae_embedding_dim
-        stacked_chunks, stacked_mask = self.stack_patches(x, mask)
+        stacked_chunks = self.stack_patches(x)
         stacked_chunks = einops.rearrange(stacked_chunks, "N L C -> N C L")
         stacked_z_e = self.vqvae_encoder(
             stacked_chunks
@@ -223,12 +213,11 @@ class TransformerVQVAE(L.LightningModule):
             perplexity,
             min_encodings,
             min_encoding_indices,
-        ) = self.vector_quantization(stacked_z_e, stacked_mask)
+        ) = self.vector_quantization(stacked_z_e)
 
-        # unstack z_q and the masks
+        # unstack z_q 
         z_q = einops.rearrange(stacked_z_q, "(N n) c l -> N (n l) c", n=self.n_chunks)
-        mask = einops.rearrange(stacked_mask, "(N n) l -> N (n l)", n=self.n_chunks)
-        z_q = self.transformer_forward(z_q, mask)
+        z_q = self.transformer_forward(z_q)
 
         z_q = einops.rearrange(z_q, "N (n l) c -> N n l c", n=self.n_chunks)
         z_q = einops.rearrange(z_q, "N n l c -> (N n) c l")
@@ -365,5 +354,4 @@ if __name__ == "__main__":
 
     # test vqvae
     # output = model(x, verbose=True)
-    # print(model.loss(x, mask))
     model.training_step((x.to(device), sequence, "sdf"), 0)

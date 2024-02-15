@@ -5,7 +5,7 @@ defaults:
   - paths: pcluster 
   - datamodule: cath_h5
   - vqvae: patched_vqvae 
-  - latent_scaler: cath
+  - latent_scaler: esmfold 
   - trainer: default
   - callbacks/checkpoint: vqvae 
   - callbacks/lr_monitor: default
