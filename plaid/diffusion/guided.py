@@ -383,6 +383,7 @@ class GaussianDiffusion(L.LightningModule):
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
+        unscale=True,
     ):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = (
             shape[0],
@@ -433,7 +434,8 @@ class GaussianDiffusion(L.LightningModule):
             img = x_start * alpha_next.sqrt() + c * pred_noise + sigma * noise
 
         ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
-        ret = self.latent_scaler.unscale(ret)
+        if unscale:
+            ret = self.latent_scaler.unscale(ret)
         return ret
 
     @torch.no_grad()
@@ -445,6 +447,7 @@ class GaussianDiffusion(L.LightningModule):
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
+        unscale=True,
     ):
         sample_fn = (
             self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
@@ -456,6 +459,7 @@ class GaussianDiffusion(L.LightningModule):
             cond_fn=cond_fn,
             guidance_kwargs=guidance_kwargs,
             clip_denoised=clip_denoised,
+            unscale=unscale
         )
 
     @torch.no_grad()

@@ -14,8 +14,9 @@ import safetensors.torch as st
 
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
-from plaid.evaluation import RITAPerplexity, calc_fid_fn, calc_kid_fn
+from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid 
 from plaid.proteins import LatentToSequence, LatentToStructure
+from plaid.utils import LatentScaler
 import pandas as pd
 import wandb
 
@@ -63,6 +64,7 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = False
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
+        self.latent_scaler = LatentScaler(origin_dataset="cath", mode="channel_minmaxnorm")
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -103,7 +105,8 @@ class SampleCallback(Callback):
     def sample_latent(self, shape):
         all_samples, n_samples = [], 0
         while n_samples < self.n_to_sample:
-            sample = self.diffusion.sample(shape, clip_denoised=True)
+            # make sure to not unscale s.t. we can calculate KID/FID in the normalized space!
+            sample = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
             all_samples.append(sample.detach().cpu())
             n_samples += sample.shape[0]
         x_0 = torch.cat(all_samples, dim=0)
@@ -121,12 +124,13 @@ class SampleCallback(Callback):
         # just to be consistent since 50,000 features were saved. Not necessary though
         indices = torch.randperm(self.real_features.size(0))[: fake_features.shape[0]]
         real_features = self.real_features[indices]
-        fake_features = fake_features.to(device=device)
-        real_features = real_features.to(device=device)
         assert real_features.ndim == fake_features.ndim == 2
 
-        fid = calc_fid_fn(fake_features, real_features)
-        kid = calc_kid_fn(fake_features, real_features)
+        fake_features = fake_features.cpu().numpy()
+        real_features = real_features.cpu().numpy()
+
+        fid = parmar_fid(fake_features, real_features)
+        kid = parmar_kid(fake_features, real_features)
 
         log_dict = {f"sampled/fid": fid, f"sampled/kid": kid}
         return log_dict
