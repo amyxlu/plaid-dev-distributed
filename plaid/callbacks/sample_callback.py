@@ -45,6 +45,7 @@ class SampleCallback(Callback):
         sequence_decode_temperature: float = 1.0,
         sequence_constructor: T.Optional[LatentToSequence] = None,
         structure_constructor: T.Optional[LatentToStructure] = None,
+        run_every_n_epoch: int = 1
     ):
         super().__init__()
         self.outdir = Path(outdir)
@@ -71,6 +72,7 @@ class SampleCallback(Callback):
         self.batch_size = batch_size
         self.n_to_construct = n_to_construct
         self.gen_seq_len = gen_seq_len
+        self.run_every_n_epoch = run_every_n_epoch
 
     def _save_setup(self):
         if not self.outdir.exists():
@@ -246,9 +248,12 @@ class SampleCallback(Callback):
         torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):
-        shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim)
-        self._run(pl_module, shape, log_to_wandb=True)
-        torch.cuda.empty_cache()
+        if trainer.current_epoch % self.run_every_n_epoch == 0:
+            shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim)
+            self._run(pl_module, shape, log_to_wandb=True)
+            torch.cuda.empty_cache()
+        else:
+            pass
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+# @package _global_
+
+defaults:
+  - override /datamodule: rocklin_h5.yaml
+
+logger:
+  project: plaid_rocklin
+
+datamodule:
+  batch_size: 64
+
+denoiser:
+  num_blocks: 5
+
+callbacks/sample:
+  n_to_sample: 64
+  n_to_construct: -1
+  batch_size: -1
+  calc_perplexity: False
+  calc_structure: False
+  calc_fid: True
+  run_every_n_epoch: 10

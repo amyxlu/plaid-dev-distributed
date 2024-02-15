@@ -25,7 +25,7 @@ ACCEPTED_LM_EMBEDDER_TYPES = [
 
 # pcluster
 DATASET_TO_FASTA_FILE = {
-    "uniref": "",
+    "uniref": "/homefs/home/lux70/storage/data/uniref90/partial.fasta",
     "cath": "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
     "pfam": "",
 }

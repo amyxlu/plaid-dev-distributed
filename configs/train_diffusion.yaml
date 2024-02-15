@@ -6,7 +6,7 @@ defaults:
   - datamodule: cath_h5
   - denoiser: utsa
   - beta_scheduler: adm_cosine 
-  - latent_scaler: cath
+  - latent_scaler: esmfold 
   - diffusion: diffusion
   - trainer: default
   - callbacks/checkpoint: diffusion
