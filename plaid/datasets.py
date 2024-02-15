@@ -329,7 +329,7 @@ class CATHStructureDataModule(L.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            pin_memory=True,
+            shuffle=True
         )
 
     def val_dataloader(self):
@@ -337,7 +337,7 @@ class CATHStructureDataModule(L.LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            pin_memory=True,
+            shuffle=True
         )
 
     def test_dataloader(self):
@@ -346,6 +346,7 @@ class CATHStructureDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
+            shuffle=True
         )
 
     def predict_dataloader(self):
