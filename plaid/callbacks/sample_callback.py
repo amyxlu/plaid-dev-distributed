@@ -102,6 +102,9 @@ class SampleCallback(Callback):
             torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
 
+        # calculate FID/KID in the normalized space
+        self.real_features = self.latent_scaler.scale(self.real_features)
+
     def sample_latent(self, shape):
         all_samples, n_samples = [], 0
         while n_samples < self.n_to_sample:

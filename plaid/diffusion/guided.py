@@ -78,6 +78,7 @@ class GaussianDiffusion(L.LightningModule):
         objective="pred_v",
         min_snr_loss_weight=False,
         min_snr_gamma=5,
+        soft_clip_x_start_to: T.Optional[float] = 1.3,  # determines behavior during training, and value to use during sampling
         # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
         sampling_timesteps=500,  # None,
@@ -101,7 +102,6 @@ class GaussianDiffusion(L.LightningModule):
         super().__init__()
         self.model = model
         self.beta_scheduler = beta_scheduler
-        self.latent_scaler = latent_scaler
         self.self_condition = self.model.use_self_conditioning
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective
@@ -118,6 +118,14 @@ class GaussianDiffusion(L.LightningModule):
             "unnormalized_x_recons",
             "unnormalized_upscale_x_recons",
         }
+
+        """
+        If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
+        roughly between (-1, 1). If self.soft_clip_x_start_to is not None, at each p_sample loop, the value will
+        be clipped so that we can get a cleaner range when doing the final calculation.
+        """
+        self.latent_scaler = latent_scaler
+        self.soft_clip_x_start_to = soft_clip_x_start_to
 
         # Use float64 for accuracy.
         betas = self.beta_scheduler(timesteps)
@@ -266,28 +274,31 @@ class GaussianDiffusion(L.LightningModule):
             self.posterior_log_variance_clipped, t, x_t.shape
         )
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
+    
+    def maybe_clip(self):
+        if self.soft_clip_x_start_to is None:
+            return identity
+        else:
+            return partial(torch.clamp, min=-1 * self.soft_clip_x_start_to, max=self.soft_clip_x_start_to)
 
-    def model_predictions(self, x, t, mask=None, model_kwargs={}, clip_x_start=False):
+    def model_predictions(self, x, t, mask=None, model_kwargs={}):
         model_output = self.model(x, t, mask, **model_kwargs)
         # do a soft clip since we're in latent space and min/max stats are not global
-        maybe_clip = (
-            partial(torch.clamp, min=-1.1, max=1.1) if clip_x_start else identity
-        )
 
         if self.objective == "pred_noise":
             pred_noise = model_output
             x_start = self.predict_start_from_noise(x, t, pred_noise)
-            x_start = maybe_clip(x_start)
+            x_start = self.maybe_clip(x_start)
 
         elif self.objective == "pred_x0":
             x_start = model_output
-            x_start = maybe_clip(x_start)
+            x_start = self.maybe_clip(x_start)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
 
         elif self.objective == "pred_v":
             v = model_output
             x_start = self.predict_start_from_v(x, t, v)
-            x_start = maybe_clip(x_start)
+            x_start = self.maybe_clip(x_start)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
 
         return ModelPrediction(pred_noise, x_start)
@@ -297,7 +308,8 @@ class GaussianDiffusion(L.LightningModule):
         x_start = preds.pred_x_start
 
         if clip_denoised:
-            x_start.clamp_(-1.0, 1.0)
+            assert not self.soft_clip_x_start_to is None
+            x_start = self.maybe_clip(x_start)
 
         model_mean, posterior_variance, posterior_log_variance = self.q_posterior(
             x_start=x_start, x_t=x, t=t
@@ -412,7 +424,7 @@ class GaussianDiffusion(L.LightningModule):
             self_cond = x_start if self.self_condition else None
             model_kwargs["x_self_cond"] = self_cond
             pred_noise, x_start, *_ = self.model_predictions(
-                img, time_cond, model_kwargs=model_kwargs, clip_x_start=True
+                img, time_cond, model_kwargs=model_kwargs, clip_x_start=clip_denoised
             )
 
             imgs.append(img)
