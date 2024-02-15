@@ -345,6 +345,7 @@ class LatentToStructure:
             if return_raw_features:
                 results = {k: v for D in results for k, v in D.items()}
             else:
+                results = [pd.DataFrame.from_dict(d) for d in results]
                 results = pd.concat(results)
 
             return all_pdb_strs, results
