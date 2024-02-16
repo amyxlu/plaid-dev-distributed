@@ -26,14 +26,14 @@ class TensorShardDataset(torch.utils.data.Dataset):
         split: T.Optional[str] = None,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         header_to_sequence_file: str = "/shared/amyxlu/data/cath/sequences.pkl",
-        seq_len: int = 64,
+        max_seq_len: int = 64,
         dtype: str = "bf16",
         *args,
         **kwargs,
     ):
         super().__init__()
         self.dtype = dtype
-        self.seq_len = seq_len
+        self.seq_len = max_seq_len
         self.shard_dir = Path(shard_dir)
         self.header_to_seq = pickle.load(open(header_to_sequence_file, "rb"))
         self.embs, self.masks, self.ordered_headers = self.load_partition(split)
@@ -148,6 +148,7 @@ class CATHStructureDataset(H5ShardDataset):
         split: T.Optional[str] = None,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         pdb_path_dir: str = "/shared/amyxlu/data/cath/full/dompdb",
+        embedder: str = "esmfold",
         max_seq_len: int = 64,
         dtype: str = "fp32",
         path_to_dropped_ids: T.Optional[str] = None,
@@ -159,7 +160,7 @@ class CATHStructureDataset(H5ShardDataset):
             with open(path_to_dropped_ids, "r") as f:
                 ids_to_drop = f.read().splitlines()
         
-        super().__init__(split, shard_dir, max_seq_len, dtype, ids_to_drop)
+        super().__init__(split, shard_dir, embedder, max_seq_len, dtype, ids_to_drop)
 
         from plaid.utils import StructureFeaturizer
 
@@ -189,6 +190,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         self,
         storage_type: str = "safetensors",
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
+        embedder: str = "esmfold",
         header_to_sequence_file: T.Optional[str] = None,
         seq_len: int = 64,
         batch_size: int = 32,
@@ -197,6 +199,7 @@ class CATHShardedDataModule(L.LightningDataModule):
     ):
         super().__init__()
         self.shard_dir = shard_dir
+        self.embedder = embedder
         self.dtype = dtype
         self.seq_len = seq_len
         self.batch_size = batch_size
@@ -215,17 +218,19 @@ class CATHShardedDataModule(L.LightningDataModule):
         kwargs = {}
         if self.storage_type == "safetensors":
             kwargs["header_to_sequence_file"] = self.header_to_sequence_file
+        if self.storage_type == "hdf5":
+            kwargs["embedder"] = self.embedder
 
         if stage == "fit":
             self.train_dataset = self.dataset_fn(
-                "train", self.shard_dir, self.seq_len, dtype=self.dtype, **kwargs
+                "train", self.shard_dir, max_seq_len=self.seq_len, dtype=self.dtype, **kwargs
             )
             self.val_dataset = self.dataset_fn(
-                "val", self.shard_dir, self.seq_len, dtype=self.dtype, **kwargs
+                "val", self.shard_dir, max_seq_len=self.seq_len, dtype=self.dtype, **kwargs
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
-                "val", self.shard_dir, self.seq_len, dtype=self.dtype, **kwargs
+                "val", self.shard_dir, max_seq_len=self.seq_len, dtype=self.dtype, **kwargs
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -273,6 +278,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         self,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         pdb_path_dir: str = "/shared/amyxlu/data/cath/full/dompdb",
+        embedder: str = "esmfold",
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
@@ -281,6 +287,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         super().__init__()
         self.shard_dir = shard_dir
         self.pdb_path_dir = pdb_path_dir
+        self.embedder = embedder
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -294,6 +301,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 "train",
                 self.shard_dir,
                 self.pdb_path_dir,
+                self.embedder,
                 self.seq_len,
                 self.dtype,
                 self.path_to_dropped_ids,
@@ -302,6 +310,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 "val",
                 self.shard_dir,
                 self.pdb_path_dir,
+                self.embedder,
                 self.seq_len,
                 self.dtype,
                 self.path_to_dropped_ids,
@@ -311,6 +320,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 "val",
                 self.shard_dir,
                 self.pdb_path_dir,
+                self.embedder,
                 self.seq_len,
                 self.dtype,
                 self.path_to_dropped_ids,
