@@ -207,9 +207,11 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         use_skip_connections: bool = True,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
+        pairwise_hid_dim: int = c_z
     ):
         self.num_blocks = num_blocks
         self.use_skip_connections = use_skip_connections
+        self.pairwise_hid_dim = pairwise_hid_dim
 
         super().__init__(
             hid_dim=hid_dim,
@@ -229,8 +231,8 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         self.in_blocks = nn.ModuleList(
             [
                 block(
-                    sequence_state_dim=c_s,
-                    pairwise_state_dim=c_z,
+                    sequence_state_dim=self.hid_dim,
+                    pairwise_state_dim=self.pairwise_hid_dim,
                     sequence_head_width=self.trunk_cfg.sequence_head_width,
                     pairwise_head_width=self.trunk_cfg.pairwise_head_width,
                     conditioning_strategy=self.conditioning_strategy,
@@ -242,8 +244,8 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         )
 
         self.mid_block = block(
-            sequence_state_dim=c_s,
-            pairwise_state_dim=c_z,
+            sequence_state_dim=self.hid_dim,
+            pairwise_state_dim=self.pairwise_hid_dim,
             sequence_head_width=self.trunk_cfg.sequence_head_width,
             pairwise_head_width=self.trunk_cfg.pairwise_head_width,
             conditioning_strategy=self.conditioning_strategy,
@@ -254,8 +256,8 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         self.out_blocks = nn.ModuleList(
             [
                 block(
-                    sequence_state_dim=c_s,
-                    pairwise_state_dim=c_z,
+                    sequence_state_dim=self.hid_dim,
+                    pairwise_state_dim=self.pairwise_hid_dim,
                     sequence_head_width=self.trunk_cfg.sequence_head_width,
                     pairwise_head_width=self.trunk_cfg.pairwise_head_width,
                     conditioning_strategy=self.conditioning_strategy,
