@@ -82,11 +82,11 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
         if chain_id is not None and chain.id != chain_id:
             continue
         for res in chain:
-            if res.id[2] != " ":
-                warnings.warn(
-                    f"PDB contains an insertion code at chain {chain.id} and residue "
-                    f"index {res.id[1]}."
-                )
+            # if res.id[2] != " ":
+                # warnings.warn(
+                #     f"PDB contains an insertion code at chain {chain.id} and residue "
+                #     f"index {res.id[1]}."
+                # )
                 # raise ValueError(
                 #     f"PDB contains an insertion code at chain {chain.id} and residue "
                 #     f"index {res.id[1]}. These are not supported."
