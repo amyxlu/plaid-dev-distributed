@@ -128,8 +128,9 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
                     parents_chain_index.extend([chain_id for _ in parent_names])
                 chain_id += 1
 
-    unique_chain_ids = np.unique(chain_ids)
-    chain_id_mapping = {cid: n for n, cid in enumerate(string.ascii_uppercase)}
+    chain_id_mapping = {cid: n for n, cid in enumerate(
+        string.ascii_uppercase + string.ascii_lowercase + string.digits + string.whitespace
+    )}
     chain_index = np.array([chain_id_mapping[cid] for cid in chain_ids])
 
     return Protein(
