@@ -15,34 +15,7 @@ import typing as T
 import lightning as L
 
 from .transforms import mask_from_seq_lens
-
-
-# class ShardedTensorDataset(IterableDataset):
-#     def __init__(self, shard_dir, split=None):
-#         """Iterates through all of the safetensor shards in the directory."""
-#         shard_dir = Path(shard_dir)
-#         shard_files = glob.glob(str(shard_dir / "*.pt"))
-#         num_shards = len(shard_files)
-#         assert num_shards > 0, f"no shards found in {shard_dir}"
-
-#         if split is not None:
-#             if split == "train":
-#                 shard_files = shard_files[: int(0.8 * num_shards)]  # 5 shards for CATH
-#             elif split == "val":
-#                 shard_files = shard_files[int(0.8 * num_shards) :]  # 1 shard for CATH
-#             else:
-#                 raise ValueError(f"split must be one of ['train', 'val'], got {split}")
-#         self.shard_files = shard_files
-
-#     def __iter__(self):
-#         for file in self.shard_files:
-#             tensor_dict = load_file(file)
-#             assert set(tensor_dict.keys()) == set(("embeddings", "seq_len"))
-#             embs, seqlens = tensor_dict["embeddings"], tensor_dict["seq_len"]
-#             mask = mask_from_seq_lens(embs, seqlens)
-#             shuffled_idxs = torch.randperm(embs.size(0))
-#             for i in shuffled_idxs:
-#                 yield embs[i, ...], mask[i, ...]
+from .constants import ACCEPTED_LM_EMBEDDER_TYPES
 
 
 class TensorShardDataset(torch.utils.data.Dataset):
@@ -94,7 +67,6 @@ class TensorShardDataset(torch.utils.data.Dataset):
             self.header_to_seq[header],
         )
 
-
 class H5ShardDataset(torch.utils.data.Dataset):
     """Loads H5 dataset, which is able to actually store strings, but is
     not able to support bf16 storage."""
@@ -103,6 +75,7 @@ class H5ShardDataset(torch.utils.data.Dataset):
         self,
         split: T.Optional[str] = None,
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
+        embedder: str = "esmfold",
         max_seq_len: int = 64,
         dtype: str = "fp32",
         ids_to_drop: T.Optional[T.List[str]] = None,
@@ -112,7 +85,9 @@ class H5ShardDataset(torch.utils.data.Dataset):
         self.dtype = dtype
         self.max_seq_len = max_seq_len
         self.shard_dir = Path(shard_dir)
-        self.data = self.load_partition(split)
+        self.embedder = embedder
+
+        self.data = self.load_partition(split, embedder)
         self.pdb_ids = list(self.data.keys())
 
     def drop_protein(self, pid):
@@ -121,14 +96,22 @@ class H5ShardDataset(torch.utils.data.Dataset):
             drop = True
         return drop
 
-    def load_partition(self, split: T.Optional[str] = None):
+    def load_partition(self, split: T.Optional[str] = None, embedder: T.Optional[str] = None):
+        """
+        2024/02/15: path format:
+        ${shard_dir}/${split}/${embedder}/${seqlen}/${precision}/shard0000.h5
+        """
+        datadir = self.shard_dir
+
         if not split is None:
             assert split in ("train", "val")
-            datadir = self.shard_dir / split
-        else:
-            datadir = self.shard_dir
-        datadir = datadir / f"seqlen_{self.max_seq_len}" / self.dtype
+            datadir = datadir / split
+        
+        if not embedder is None:
+            assert embedder in ACCEPTED_LM_EMBEDDER_TYPES
+            datadir = datadir / embedder
 
+        datadir = datadir / f"seqlen_{self.max_seq_len}" / self.dtype
         outdict = {}
 
         with h5py.File(datadir / "shard0000.h5", "r") as f:
