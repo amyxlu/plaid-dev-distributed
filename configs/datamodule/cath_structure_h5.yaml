@@ -2,7 +2,7 @@ _target_: plaid.datasets.CATHStructureDataModule
 
 shard_dir: ${paths.data_dir}/cath/shards
 pdb_path_dir: ${paths.data_dir}/cath/dompdb
-path_to_dropped_ids: ${paths.project_dir}/cath_ids_to_drop.txt
+path_to_dropped_ids: null
 seq_len: 256 
 batch_size: 64
 num_workers: 8

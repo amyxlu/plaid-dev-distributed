@@ -1,3 +1,4 @@
+import warnings
 import torch
 from torch.utils.data import IterableDataset, DataLoader
 import numpy as np
@@ -170,9 +171,11 @@ class CATHStructureDataset(H5ShardDataset):
     ):
         ids_to_drop = None
         if not path_to_dropped_ids is None:
+            # no longer actually needed after fixing the chain
             print("using CATH dropped IDs at", path_to_dropped_ids)
             with open(path_to_dropped_ids, "r") as f:
                 ids_to_drop = f.read().splitlines()
+        
         super().__init__(split, shard_dir, max_seq_len, dtype, ids_to_drop)
 
         from plaid.utils import StructureFeaturizer
@@ -186,8 +189,16 @@ class CATHStructureDataset(H5ShardDataset):
         pdb_path = self.pdb_path_dir / pdb_id
         with open(pdb_path, "r") as f:
             pdb_str = f.read()
+        # try:
+        #     structure_features = self.structure_featurizer(pdb_str, self.max_seq_len)
+        #     return emb, seq, structure_features 
+        # except KeyError as e:
+        #     with open("bad_ids.txt", "a") as f:
+        #         print(pdb_id, e)
+        #         f.write(f"{pdb_id}\n")
+        #     pass
         structure_features = self.structure_featurizer(pdb_str, self.max_seq_len)
-        return emb, seq, structure_features
+        return emb, seq, structure_features 
 
 
 class CATHShardedDataModule(L.LightningDataModule):
