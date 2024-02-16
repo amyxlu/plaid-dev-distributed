@@ -3,6 +3,7 @@ import typing as T
 from openfold.utils.loss import backbone_loss
 import pandas as pd
 import torch
+import wandb
 
 from .functions import masked_token_cross_entropy_loss, masked_token_accuracy
 from ..esmfold.misc import batch_encode_sequences
@@ -42,7 +43,9 @@ class SequenceAuxiliaryLoss:
         }
 
         if log_recons_strs:
-            logdict["recons_strs_tbl"] = pd.DataFrame({"recons_strs": recons_strs})
+            # wandb logging deep inside a module is suboptimal but lightning logging wandb tables integration is weird
+            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
         # TODO: anneal weight by step in outer loop?
         return weight * loss, logdict
 
