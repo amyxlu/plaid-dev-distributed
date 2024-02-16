@@ -11,16 +11,14 @@ import torch
 from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.utilities import rank_zero_only
 import safetensors.torch as st
+import pandas as pd
 
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid 
 from plaid.proteins import LatentToSequence, LatentToStructure
-from plaid.utils import LatentScaler
+from plaid.utils import LatentScaler, write_pdb_to_disk
 from plaid.constants import CACHED_TENSORS_DIR
-import pandas as pd
-import wandb
-
 
 def maybe_print(msg):
     if rank_zero_only.rank == 0:
@@ -42,6 +40,7 @@ class SampleCallback(Callback):
         calc_fid: bool = True,
         fid_reference_dataset: str = "uniref",
         calc_perplexity: bool = True,
+        save_generated_structures: bool = False,
         num_recycles: int = 4,
         outdir: str = "sampled",
         sequence_decode_temperature: float = 1.0,
@@ -54,12 +53,17 @@ class SampleCallback(Callback):
         self.diffusion = diffusion
         self.model = model
         self.log_to_wandb = log_to_wandb
+
+        self.calc_fid = calc_fid
         self.calc_structure = calc_structure
         self.calc_sequence = calc_sequence
         self.calc_perplexity = calc_perplexity
+        self.save_generated_structures = save_generated_structures
         if calc_perplexity:
             assert calc_sequence
-        self.calc_fid = calc_fid
+        if save_generated_structures:
+            assert calc_structure
+
         self.fid_reference_dataset = fid_reference_dataset
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
@@ -236,6 +240,14 @@ class SampleCallback(Callback):
             pdb_strs, metrics, log_dict = self.construct_structure(x, seq_str, device)
             if log_to_wandb:
                 logger.log(log_dict)
+
+            if self.save_generated_structures:
+                self.save_structures_to_disk(pdb_strs, pl_module.current_epoch)
+    
+    def save_structures_to_disk(self, pdb_strs, epoch_or_step: int):
+        for i, pdbstr in enumerate(pdb_strs):
+            outpath = self.outdir / f"generated_structures_{epoch_or_step}" / f"sample{i}.pdb"
+            write_pdb_to_disk(pdbstr, outpath)
 
     def on_sanity_check_start(self, trainer, pl_module):
         _sampling_timesteps = pl_module.sampling_timesteps
