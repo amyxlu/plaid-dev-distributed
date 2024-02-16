@@ -175,7 +175,7 @@ class SampleCallback(Callback):
                 self._perplexity_setup(device)
             perplexity = self.perplexity_calc.batch_eval(strs)
             print(f"Perplexity: {perplexity:.3f}")
-            log_dict[f"sampled/perplexity"] = (perplexity,)
+            log_dict[f"sampled/perplexity"] = perplexity
 
         return strs, log_dict
 
