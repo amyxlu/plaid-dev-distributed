@@ -179,8 +179,8 @@ def _clamp(tensor: ArrayLike, min_values: ArrayLike, max_values: ArrayLike):
     )
 
 
-def load_channelwise_stats(cache_dir, lm_embedder_type="esmfold"):
-    npy_paths = _get_npy_path(cache_dir, lm_embedder_type)
+def load_channelwise_stats(cache_dir, origin_dataset, lm_embedder_type="esmfold"):
+    npy_paths = _get_npy_path(cache_dir, origin_dataset, lm_embedder_type)
     return {
         "max": np.load(npy_paths["max"]),
         "min": np.load(npy_paths["min"]),
@@ -203,7 +203,7 @@ class LatentScaler:
         self.lm_embedder_type = lm_embedder_type
 
         if "channel_" in mode:
-            stat_dict = load_channelwise_stats(CACHED_TENSORS_DIR, origin_dataset)
+            stat_dict = load_channelwise_stats(CACHED_TENSORS_DIR, origin_dataset, lm_embedder_type)
         else:
             stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
 
