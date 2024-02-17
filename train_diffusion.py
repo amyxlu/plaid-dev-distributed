@@ -63,7 +63,7 @@ def train(cfg: DictConfig):
 
     if not cfg.dryrun:
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
-        logger.watch(diffusion, log="all", log_graph=False)
+        # logger.watch(diffusion, log="all", log_graph=False)
     else:
         logger = None
 
@@ -78,6 +78,7 @@ def train(cfg: DictConfig):
         log_to_wandb=not cfg.dryrun,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
+        latent_scaler=latent_scaler
     )
 
     # run training
