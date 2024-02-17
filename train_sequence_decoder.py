@@ -26,11 +26,17 @@ def train(cfg: DictConfig):
     # lightning data and model modules
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
+    try:
+        latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
+        print('scaling')
+    except:
+        latent_scaler = None
+        print("not scaling")
 
     esmfold = esmfold_v1().eval().requires_grad_(False)
     embed_fn = ESMFoldEmbed(esmfold)
     model = hydra.utils.instantiate(
-        cfg.sequence_decoder, training_embed_from_sequence_fn=embed_fn
+        cfg.sequence_decoder, training_embed_from_sequence_fn=embed_fn, latent_scaler=latent_scaler
     )
 
     job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM

@@ -2,9 +2,10 @@ timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
 
 defaults:
   - _self_
-  - paths: dgx5
+  - paths: pcluster
   - datamodule: uniref_fasta
   - sequence_decoder: default
+  - latent_scaler: esmfold
   - trainer: default
   - callbacks/checkpoint: sequence_decoder
   - callbacks/lr_monitor: default

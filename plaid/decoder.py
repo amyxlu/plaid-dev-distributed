@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch
 import lightning as L
+import typing as T
 from pathlib import Path
 import os
 
@@ -10,6 +11,7 @@ from .losses.functions import masked_token_cross_entropy_loss, masked_token_accu
 from .esmfold.misc import batch_encode_sequences
 from .transforms import get_random_sequence_crop_batch
 from .constants import DECODER_CKPT_PATH
+from .utils import LatentScaler
 
 
 class FullyConnectedNetwork(L.LightningModule):
@@ -20,6 +22,7 @@ class FullyConnectedNetwork(L.LightningModule):
         mlp_num_layers: int = 3,
         mlp_dropout_p: float = 0.1,
         add_sigmoid: bool = False,
+        latent_scaler: T.Optional[LatentScaler] = None,
         lr: float = 1e-4,
         training_max_seq_len: int = 512,
         training_embed_from_sequence_fn: Optional[Callable] = None,
@@ -29,6 +32,7 @@ class FullyConnectedNetwork(L.LightningModule):
         self.lr = lr
         self.training_max_seq_len = training_max_seq_len
         self.training_embed_from_sequence_fn = training_embed_from_sequence_fn
+        self.latent_scaler = latent_scaler
 
         if mlp_num_layers == 1:
             layers = [nn.Linear(mlp_hidden_dim, n_classes)]
@@ -92,6 +96,8 @@ class FullyConnectedNetwork(L.LightningModule):
 
     def forward_pass_from_sequence(self, sequence):
         latent = self.training_embed_from_sequence_fn(sequence, self.device)
+        if self.latent_scaler is not None:
+            latent = self.latent_scaler.scale(latent)
         return self(latent)
 
     def training_step(self, batch, batch_idx, **kwargs):
