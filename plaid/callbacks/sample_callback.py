@@ -38,7 +38,8 @@ class SampleCallback(Callback):
         calc_structure: bool = True,
         calc_sequence: bool = True,
         calc_fid: bool = True,
-        fid_reference_dataset: str = "uniref",
+        latent_scaler: LatentScaler = LatentScaler(),
+        fid_reference_dataset: str = "holdout_esmfold_feats.st",
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
         num_recycles: int = 4,
@@ -74,7 +75,7 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = False
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
-        self.latent_scaler = LatentScaler(origin_dataset="cath", mode="channel_minmaxnorm")
+        self.latent_scaler = latent_scaler
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -94,11 +95,7 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = True
 
     def _fid_setup(self, device):
-        if self.fid_reference_dataset == "uniref":
-            fpath = Path(CACHED_TENSORS_DIR) / "holdout_esmfold_feats.st"
-        elif self.fid_reference_dataset == "cath":
-            raise NotImplementedError("Resave tensors for CATH features before calculating FID.")
-            # fpath = Path(CACHED_TENSORS_DIR) / "cath_esmfold_feats.st"
+        fpath = Path(CACHED_TENSORS_DIR) / self.fid_reference_dataset
 
         def load_saved_features(location, device="cpu"):
             return st.load_file(location)["features"].to(device)
