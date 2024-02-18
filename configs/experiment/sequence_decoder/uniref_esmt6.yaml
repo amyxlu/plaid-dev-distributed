@@ -1,0 +1,18 @@
+# @package _global_
+
+defaults:
+  - override /latent_scaler: "esm_t6"
+
+lm_embedder_type: "esm2_t6_8M_UR50D"
+  
+sequence_decoder:
+  mlp_hidden_dim: 320
+
+trainer:
+  val_check_interval: 100
+  limit_val_batches: 4
+  log_every_n_steps: 10
+
+callbacks:
+  checkpoint:
+    every_n_train_steps: 1000

@@ -1,3 +1,4 @@
+import time
 from typing import List, Tuple
 
 import torch
@@ -39,3 +40,46 @@ class ESMFoldEmbed:
         if not device is None:
             self.esmfold = self.esmfold.to(device)
         return self.embed_fn(sequence)
+
+
+class ESMEmbed:
+    def __init__(self, lm_embedder_type, device=None):
+        self.lm_embedder_type = lm_embedder_type
+        self.embedder, alphabet = self.make_embedder(lm_embedder_type)
+        self.batch_converter = self.alphabet.get_batch_converter()
+        if not device is None:
+            self.embedder = self.embedder.to(device)
+            self.device = device
+        
+    def to(self, device):
+        self.embedder = self.embedder.to(device)
+        return self
+    
+    def make_embedder(lm_embedder_type):
+        start = time.time()
+        print('loading LM from torch hub')
+        embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
+        embedder = embedder.eval().to("cuda")
+        for param in embedder.parameters():
+            param.requires_grad = False
+
+        end = time.time()
+        print(f"done loading model in {end - start:.2f} seconds.")
+        return embedder, alphabet
+    
+    def embed_batch_esm(self, sequences, max_len=512):
+        sequences = get_random_sequence_crop_batch(
+            sequences, max_len=max_len, min_len=0
+        )
+        batch = [("", seq) for seq in sequences]
+        _, _, tokens = self.batch_converter(batch)
+        tokens = tokens.to(self.device)
+
+        with torch.no_grad():
+            results = self.embedder(tokens, repr_layers=[self.repr_layer], return_contacts=False)
+            feats = results["representations"][self.repr_layer]
+        
+        seq_lens = [len(seq) for seq in sequences]
+        seq_lens = torch.tensor(seq_lens, device=self.device, dtype=torch.int16)
+        return feats, tokens, seq_lens, sequences
+        

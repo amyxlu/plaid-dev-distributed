@@ -1,0 +1,20 @@
+_target_: plaid.compression.hourglass.HourglassTransformerLightningModule
+
+dim: 1024
+depth: [4, 2, 4]
+shorten_factor: 2
+attn_resampling: true
+updown_sample_type: 'naive'
+heads: 8
+dim_head: 64
+causal: false
+norm_out: false
+
+seq_loss_weight: 0.0
+struct_loss_weight: 0.0
+
+lr: 1e-4
+lr_sched_type: "constant"
+lr_num_warmup_steps: 0
+lr_num_training_steps: 10_000_000
+lr_num_cycles: 1

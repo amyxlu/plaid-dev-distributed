@@ -1,0 +1,4 @@
+_target_: lightning.pytorch.loggers.WandbLogger
+
+project: plaid-hourglass-compression
+entity: ${paths.entity}
