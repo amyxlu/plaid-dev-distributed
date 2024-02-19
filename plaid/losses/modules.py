@@ -21,13 +21,10 @@ class SequenceAuxiliaryLoss:
         self.loss_fn = loss_fn
         self.weight = weight
 
-    def __call__(self, latent, sequences, cur_weight=None, log_recons_strs=False):
+    def __call__(self, latent, aatype, mask, cur_weight=None, return_reconstructed_sequences: bool = False):
         """If cur weight is specified, it will override self.weight."""
         device = latent.device
         self.sequence_constructor.to(device)
-
-        # grab ground-truth tokenized sequence & loss mask
-        aatype, mask, _, _, _ = batch_encode_sequences(sequences)
         aatype, mask = aatype.to(device), mask.to(device)
 
         # grab logits and calculate masked cross entropy (must pass non-default arguments)
@@ -41,13 +38,19 @@ class SequenceAuxiliaryLoss:
             "seq_loss": loss.item(),
             "seq_acc": acc.item(),
         }
+        if return_reconstructed_sequences:
+            return weight * loss, logdict, recons_strs
+        else:
+            return weight * loss, logdict, 
 
-        if log_recons_strs:
-            # wandb logging deep inside a module is suboptimal but lightning logging wandb tables integration is weird
-            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
-        # TODO: anneal weight by step in outer loop?
-        return weight * loss, logdict
+        # if log_recons_strs:
+        #     # wandb logging deep inside a module is suboptimal but lightning logging wandb tables integration is weird
+        #     tbl = {"reconstructed": recons_strs}
+        #     if not original_sequences is None:
+        #         tbl['sequences'] = , "original": sequences}
+        #     tbl = pd.DataFrame()
+        #     wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+        # # TODO: anneal weight by step in outer loop?
 
 
 class BackboneAuxiliaryLoss:

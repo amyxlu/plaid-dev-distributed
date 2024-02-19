@@ -13,6 +13,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
+import wandb
 
 from einops import reduce
 
@@ -610,12 +611,15 @@ class GaussianDiffusion(L.LightningModule):
 
         # TODO: anneal losses
         if self.sequence_decoder_weight > 0.0:
-            seq_loss, seq_loss_dict = self.sequence_loss(
-                latent, sequences, cur_weight=None
+            seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
+                latent, true_aatype, mask, cur_weight=None
             )
             log_dict = (
                 log_dict | seq_loss_dict
             )  # shorthand for combining dictionaries, requires python >= 3.9
+            tbl = {"reconstructed": recons_strs, "original": sequences}
+            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
         else:
             seq_loss = 0.0
 
@@ -634,14 +638,14 @@ class GaussianDiffusion(L.LightningModule):
         log_dict["loss"] = loss
         return loss, log_dict
 
-    def sequence_loss(self, latent, sequence, cur_weight=None):
+    def sequence_loss(self, latent, aatype, mask, cur_weight=None):
         if self.need_to_setup_sequence_decoder:
             self.setup_sequence_decoder()
         # sequence should be the one generated when saving the latents,
         # i.e. lengths are already trimmed to self.max_seq_len
         # if cur_weight is None, no annealing is done except for the weighting
         # specified when specifying the class
-        return self.sequence_loss_fn(latent, sequence, cur_weight)
+        return self.sequence_loss_fn(latent, aatype, mask, return_reconstructed_sequences=True)
 
     def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
         if self.need_to_setup_structure_decoder:

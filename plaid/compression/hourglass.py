@@ -425,9 +425,11 @@ def main():
         wandb.log({f"{prefix}/recons_loss": recons_loss})
     
         scaled_output = latent_scaler.unscale(output)
-        seq_loss, seq_loss_dict = seq_loss_fn(scaled_output, sequences, log_recons_strs=True)
+        seq_loss, seq_loss_dict, recons_strs = seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
+        tbl = {"reconstructed": recons_strs, "original": sequences}
         seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
         wandb.log(seq_loss_dict)
+        wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
 
         struct_loss, struct_loss_dict = structure_loss_fn(scaled_output, gt_structures, sequences)
         struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
