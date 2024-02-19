@@ -6,10 +6,11 @@ import torch.nn.functional as F
 from einops import rearrange, reduce, repeat
 from torch.optim import AdamW
 
-from plaid.datasets import CATHShardedDataModule
+from plaid.datasets import CATHShardedDataModule, CATHStructureDataModule
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.utils import LatentScaler
-
+from plaid.proteins import LatentToSequence, LatentToStructure
+from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 
 # helpers
 
@@ -341,24 +342,42 @@ class HourglassTransformer(nn.Module):
 
 def main():
     # configs
-    shard_dir = "/homefs/home/lux70/storage/data/rocklin/shards/"
+    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pdb_dir = "/homefs/home/lux70/storage/data/cath/dompdb"
+    # shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     embedder = "esmfold"
     D = 1024 if embedder == "esmfold" else 320
-    n_epochs = 100
+    n_epochs = 100000
     device = "cuda"
     project = "plaid-hourglass-compression"
     # data
-    dm = CATHShardedDataModule(
-        storage_type="hdf5",
+    # dm = CATHShardedDataModule(
+    #     storage_type="hdf5",
+    #     shard_dir=shard_dir,
+    #     embedder=embedder,
+    #     seq_len=256,
+    #     batch_size=1024
+    # )
+    dm = CATHStructureDataModule(
         shard_dir=shard_dir,
+        pdb_path_dir=pdb_dir,
         embedder=embedder,
         seq_len=256,
-        batch_size=512
+        batch_size=16
     )
     dm.setup()
     train_dataloader = dm.train_dataloader()
     val_dataloader = dm.val_dataloader()
+
     latent_scaler = LatentScaler(lm_embedder_type=embedder)
+
+    sequence_constructor = LatentToSequence()
+    sequence_constructor.to(device)
+    seq_loss_fn = SequenceAuxiliaryLoss(sequence_constructor)
+
+    structure_constructor = LatentToStructure()
+    structure_constructor.to(device)
+    structure_loss_fn = BackboneAuxiliaryLoss(structure_constructor)
 
     # model
     transformer = get_hourglass_transformer(
@@ -382,31 +401,47 @@ def main():
     )
     optimizer = AdamW(transformer.parameters(), lr=1e-4)
 
-    for epoch in trange(n_epochs): 
-        for i, batch in enumerate(train_dataloader):
-            sequences = batch[1]
-            tokens, mask, _, _, _ = batch_encode_sequences(sequences)
+    def run_batch(train_mode=True):
+        prefix = "train" if train_mode else "val"
+        x, sequences, gt_structures = batch
+        tokens, mask, _, _, _ = batch_encode_sequences(sequences)
 
-            x = batch[0]
-            if embedder != "esmfold":
-                x = x[:, 1:-1, :]
-            else:
-                x = latent_scaler.scale(x)
-            mask = mask.bool()
-            x, mask = x.to(device), mask.to(device)
-            
-            # noise = torch.randn_like(x)
-            # x_noised = x + noise
-            # output = transformer(x_noised, mask)
-            output = transformer(x, mask)
-            loss = F.mse_loss(x, output)
-            if i % 50 == 0:
-                print(loss.item()) 
-            wandb.log({"recons_loss": loss})
+        if embedder != "esmfold":
+            x = x[:, 1:-1, :]
+        else:
+            x = latent_scaler.scale(x)
+        mask = mask.bool()
+        x, mask = x.to(device), mask.to(device)
         
+        output = transformer(x, mask)
+        recons_loss = F.mse_loss(x, output)
+        wandb.log({f"{prefix}/recons_loss": recons_loss})
+    
+        scaled_output = latent_scaler.unscale(output)
+        seq_loss, seq_loss_dict = seq_loss_fn(scaled_output, sequences, log_recons_strs=True)
+        seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
+        wandb.log(seq_loss_dict)
+
+        struct_loss, struct_loss_dict = structure_loss_fn(scaled_output, gt_structures, sequences)
+        struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
+        wandb.log(struct_loss_dict)
+
+        loss = recons_loss
+
+        if train_mode: 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+    
+    ######### run ############
+    for epoch in trange(n_epochs): 
+        for i, batch in enumerate(train_dataloader):
+            run_batch(train_mode=True)
+        
+        for i, batch in enumerate(val_dataloader):
+            run_batch(train_mode=False)
+
+
 
 if __name__ == "__main__":
     main()

@@ -396,7 +396,7 @@ class HourglassTransformerLightningModule(L.LightningModule):
         # 2024/02/08: For CATHShardedDataModule HDF5 loaders 
         if isinstance(batch[-1], dict):
             # dictionary of structure features
-            assert "frames" in batch[-1].keys()
+            assert "backbone_rigid_tensor" in batch[-1].keys()
             embs, sequences, gt_structures = batch
             assert max([len(s) for s in sequences]) <= embs.shape[1]
             return embs, sequences, gt_structures

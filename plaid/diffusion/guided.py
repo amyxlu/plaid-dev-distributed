@@ -670,7 +670,7 @@ class GaussianDiffusion(L.LightningModule):
         """
         if isinstance(batch[-1], dict):
             # dictionary of structure features
-            assert "frames" in batch[-1].keys()
+            assert "backbone_rigid_tensor" in batch[-1].keys()
             embs, sequences, gt_structures = batch
             return self(embs, sequences, gt_structures)
         elif isinstance(batch[-1][0], str):
