@@ -11,6 +11,7 @@ from plaid.esmfold.misc import batch_encode_sequences
 from plaid.utils import LatentScaler
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
+from plaid.transforms import trim_or_pad
 
 # helpers
 
@@ -405,6 +406,8 @@ def main():
         prefix = "train" if train_mode else "val"
         x, sequences, gt_structures = batch
         tokens, mask, _, _, _ = batch_encode_sequences(sequences)
+        if mask.shape[1] != x.shape[1]:
+            mask = trim_or_pad(mask, x.shape[1], length_dim=1, pad_idx=0)
 
         if embedder != "esmfold":
             x = x[:, 1:-1, :]
