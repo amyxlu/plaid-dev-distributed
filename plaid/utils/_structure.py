@@ -15,7 +15,7 @@ from ..openfold_utils import (
     OFProtein,
     protein_from_pdb_string,
 )
-from ..transforms import trim_or_pad
+from ..transforms import trim_or_pad_length_first
 
 PathLike = T.Union[Path, str]
 
@@ -74,7 +74,7 @@ class StructureFeaturizer:
 
             # Trim or pad to a fixed length for all per-specific features
             if k in features_requiring_padding:
-                features[k] = trim_or_pad(features[k], seq_len, length_dim=0, pad_idx=0)
+                features[k] = trim_or_pad_length_first(features[k], seq_len)
 
             # 'seq_length' is a tensor with shape equal to the aatype array length,
             # and filled with the value of the original sequence length.

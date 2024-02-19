@@ -43,6 +43,56 @@ def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
     return tensor
 
 
+# def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
+#     """Trim or pad a tensor with shape (..., L, ...) to a given length."""
+#     > might have a bug in it
+# 
+#     L = tensor.shape[length_dim]
+#     if L >= pad_to:
+#         tensor = tensor.index_select(length_dim, torch.arange(length_dim))
+
+#     elif L < pad_to:
+#         padding = torch.full(
+#             size=(*tensor.shape[:length_dim], pad_to - L, *tensor.shape[length_dim + 1:]),
+#             fill_value=pad_idx,
+#             dtype=tensor.dtype,
+#             device=tensor.device,
+#         )
+#         tensor = torch.concat((tensor, padding), dim=length_dim)
+#     return tensor
+
+def trim_or_pad_length_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0):
+    """Trim or pad a tensor with shape (L, ...) to a given length."""
+    L = tensor.shape[0]
+    if L >= pad_to:
+        # trim, assuming first dimension is the dim to trim
+        tensor = tensor[:pad_to]
+    elif L < pad_to:
+        padding = torch.full(
+            size=(pad_to - tensor.shape[0], *tensor.shape[1:]),
+            fill_value=pad_idx,
+            dtype=tensor.dtype,
+            device=tensor.device,
+        )
+        tensor = torch.concat((tensor, padding), dim=0)
+    return tensor
+
+
+def trim_or_pad_batch_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0):
+    """Trim or pad a tensor with shape (L, ...) to a given length."""
+    N, L = tensor.shape[0], tensor.shape[1]
+    if L >= pad_to:
+        tensor = tensor[:, :pad_to, ...]
+    elif L < pad_to:
+        padding = torch.full(
+            size=(N, pad_to - L, *tensor.shape[2:]),
+            fill_value=pad_idx,
+            dtype=tensor.dtype,
+            device=tensor.device,
+        )
+        tensor = torch.concat((tensor, padding), dim=1)
+    return tensor
+
 class ESMFoldEmbed:
     def __init__(self, esmfold):
         self.esmfold = esmfold
