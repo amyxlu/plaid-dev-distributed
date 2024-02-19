@@ -322,8 +322,8 @@ class LatentToStructure:
         if mask.shape[1] != latent.shape[1]:
             # pad with False
             mask = trim_or_pad_batch_first(mask, latent.shape[1], pad_idx=0)
-            tokens = trim_or_pad_batch_first(tokens, latent.shape[1], pad_idx=0)
-
+            aatype = trim_or_pad_batch_first(aatype, latent.shape[1], pad_idx=0)
+            residx = trim_or_pad_batch_first(residx, latent.shape[1], pad_idx=0)
 
         if batch_size is None:
             if verbose:
