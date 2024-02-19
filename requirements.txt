@@ -7,7 +7,6 @@ transformers
 lightning
 einops
 tqdm
-# openfold 
 git+https://github.com/facebookresearch/esm.git
 dm-tree
 modelcif
@@ -19,3 +18,10 @@ git+https://github.com/amyxlu/evo.git
 scipy
 scikit-learn
 py3Dmol
+pyarrow
+
+# for openfold, use this hack to get around clunky imports while
+# making sure the custom CUDA kernels used are being created: 
+# git clone github.com/amyxlu/openfold.git ~/openfold
+# cd ~/openfold
+# python setup.py develop
