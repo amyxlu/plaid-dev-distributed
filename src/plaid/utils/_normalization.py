@@ -160,6 +160,7 @@ def _check_valid_mode(mode: str):
         "global_standardize",
         "channel_minmaxnorm",
         "channel_standardize",
+        "identity"
     ]
 
 
@@ -215,7 +216,7 @@ class LatentScaler:
         )
 
     def scale(self, x: ArrayLike):
-        if (self.mode is None) or (self.mode == "none"):
+        if (self.mode is None) or (self.mode == "identity"):
             return x
         else:
             with torch.no_grad():
@@ -232,7 +233,7 @@ class LatentScaler:
             return x_scaled
 
     def unscale(self, x_scaled: ArrayLike):
-        if (self.mode is None) or (self.mode == "none"):
+        if (self.mode is None) or (self.mode == "identity"):
             return x_scaled
         else:
             with torch.no_grad():
