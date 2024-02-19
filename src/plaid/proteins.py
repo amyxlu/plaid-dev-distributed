@@ -19,6 +19,7 @@ from .utils._misc import npy, to_tensor
 from .decoder import FullyConnectedNetwork
 from .esmfold import ESMFOLD_Z_DIM, esmfold_v1
 from .esmfold.misc import output_to_pdb, batch_encode_sequences
+from .transforms import trim_or_pad_batch_first
 
 
 ArrayLike = T.Union[np.ndarray, torch.Tensor, T.List]
@@ -317,6 +318,12 @@ class LatentToStructure:
         assert (
             latent.device == self.esmfold.device
         ), "Make sure to call .to(device) to move trunk to the correct device."
+
+        if mask.shape[1] != latent.shape[1]:
+            # pad with False
+            mask = trim_or_pad_batch_first(mask, latent.shape[1], pad_idx=0)
+            tokens = trim_or_pad_batch_first(tokens, latent.shape[1], pad_idx=0)
+
 
         if batch_size is None:
             if verbose:

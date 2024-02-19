@@ -13,6 +13,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.cuda.amp import autocast
+import pandas as pd
 import wandb
 
 from einops import reduce
@@ -617,7 +618,7 @@ class GaussianDiffusion(L.LightningModule):
             log_dict = (
                 log_dict | seq_loss_dict
             )  # shorthand for combining dictionaries, requires python >= 3.9
-            tbl = {"reconstructed": recons_strs, "original": sequences}
+            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
             wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
             # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
         else:

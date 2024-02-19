@@ -1,5 +1,6 @@
 import math
 from tqdm import tqdm, trange
+import pandas as pd
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
@@ -426,7 +427,7 @@ def main():
     
         scaled_output = latent_scaler.unscale(output)
         seq_loss, seq_loss_dict, recons_strs = seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
-        tbl = {"reconstructed": recons_strs, "original": sequences}
+        tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
         seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
         wandb.log(seq_loss_dict)
         wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})

@@ -10,5 +10,6 @@ dependencies:
   - pytorch-cuda=12.1
   - pytorch
   - torchvision
+  - bioconda::tmalign
   - pip:
     - -r requirements.txt

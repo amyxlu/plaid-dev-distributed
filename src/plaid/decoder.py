@@ -165,27 +165,27 @@ class FullyConnectedNetwork(L.LightningModule):
         return model
 
 
-if __name__ == "__main__":
-    from plaid.datasets import FastaDataModule
+# if __name__ == "__main__":
+#     from plaid.datasets import FastaDataModule
 
-    dm = FastaDataModule("/shared/amyxlu/data/uniref90/partial.fasta", batch_size=32)
-    dm.setup("fit")
-    train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
-    from plaid.esmfold import esmfold_v1
+#     dm = FastaDataModule("/shared/amyxlu/data/uniref90/partial.fasta", batch_size=32)
+#     dm.setup("fit")
+#     train_dataloader = dm.train_dataloader()
+#     batch = next(iter(train_dataloader))
+#     from plaid.esmfold import esmfold_v1
 
-    esmfold = esmfold_v1()
-    device = torch.device("cuda:6")
-    # esmfold = esmfold.to(device).eval().requires_grad_(False)
+#     esmfold = esmfold_v1()
+#     device = torch.device("cuda:6")
+#     # esmfold = esmfold.to(device).eval().requires_grad_(False)
 
-    from plaid.transforms import ESMFoldEmbed
+#     from plaid.transforms import ESMFoldEmbed
 
-    embed_fn = ESMFoldEmbed(esmfold)
-    module = FullyConnectedNetwork(
-        n_classes=21, training_max_seq_len=512, training_embed_from_sequence_fn=embed_fn
-    )
-    module.to(device)
-    import IPython
+#     embed_fn = ESMFoldEmbed(esmfold)
+#     module = FullyConnectedNetwork(
+#         n_classes=21, training_max_seq_len=512, training_embed_from_sequence_fn=embed_fn
+#     )
+#     module.to(device)
+#     import IPython
 
-    IPython.embed()
-    module.training_step(batch, 0)
+#     IPython.embed()
+#     module.training_step(batch, 0)
