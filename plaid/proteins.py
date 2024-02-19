@@ -306,6 +306,7 @@ class LatentToStructure:
         num_recycles: int = 1,
         batch_size: T.Optional[int] = None,
         return_raw_features: bool = False,
+        verbose: bool = False
     ) -> T.Tuple[T.List[PathLike], pd.DataFrame]:
         """set up devices and tensors"""
         aatype, mask, residx, _, _ = batch_encode_sequences(sequences)
@@ -318,7 +319,8 @@ class LatentToStructure:
         ), "Make sure to call .to(device) to move trunk to the correct device."
 
         if batch_size is None:
-            print("Generating structure from latents")
+            if verbose:
+                print("Generating structure from latents")
             return self.run_batch(
                 latent, aatype, mask, residx, num_recycles, return_raw_features
             )

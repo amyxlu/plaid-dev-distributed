@@ -8,32 +8,17 @@ import torch
 # from openfold.data.data_transforms import atom37_to_frames, get_backbone_frames
 # from openfold.np.protein import Protein as OFProtein
 # from openfold.np.protein import protein_from_pdb_string
-from plaid.openfold_utils import (
+from ..openfold_utils import (
     make_pdb_features,
     atom37_to_frames,
     get_backbone_frames,
     OFProtein,
     protein_from_pdb_string,
 )
+from ..transforms import trim_or_pad
 
 PathLike = T.Union[Path, str]
 
-
-def trim_or_pad(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0):
-    """Trim or pad a tensor with shape (L, ...) to a given length."""
-    L = tensor.shape[0]
-    if L >= pad_to:
-        # trim, assuming first dimension is the dim to trim
-        tensor = tensor[:pad_to]
-    elif L < pad_to:
-        padding = torch.full(
-            size=(pad_to - tensor.shape[0], *tensor.shape[1:]),
-            fill_value=pad_idx,
-            dtype=tensor.dtype,
-            device=tensor.device,
-        )
-        tensor = torch.concat((tensor, padding), dim=0)
-    return tensor
 
 
 class StructureFeaturizer:
