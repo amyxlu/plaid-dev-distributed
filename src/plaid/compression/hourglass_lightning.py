@@ -12,6 +12,7 @@ import wandb
 import pandas as pd
 
 from plaid.datasets import CATHShardedDataModule
+from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.utils import LatentScaler, get_lr_scheduler
 from plaid.proteins import LatentToSequence, LatentToStructure
@@ -354,22 +355,22 @@ class HourglassTransformerLightningModule(L.LightningModule):
         lr_num_warmup_steps: int = 0,
         lr_num_training_steps: int = 10_000_000,
         lr_num_cycles: int = 1,
+        # scaler
+        latent_scaler = LatentScaler(),
+        lm_embedder_type: str = "esmfold",
         # auxiliary losses
         seq_loss_weight: float = 0.0,
         struct_loss_weight: float = 0.0,
-        latent_scaler = None,
-        sequence_constructor: T.Optional[LatentToSequence] = None,
-        structure_constructor: T.Optional[LatentToStructure] = None,
+        log_sequence_loss = True,
+        log_structure_loss = True,
     ):
         super().__init__()
-        
         self.latent_scaler = latent_scaler
-        self.sequence_constructor = sequence_constructor
-        self.structure_constructor = structure_constructor
+        self.lm_embedder_type = lm_embedder_type
+        self.log_sequence_loss = log_sequence_loss or (seq_loss_weight > 0.)
+        self.log_structure_loss = log_structure_loss or (struct_loss_weight > 0.)
         self.seq_loss_weight = seq_loss_weight
         self.struct_loss_weight = struct_loss_weight
-        if not structure_constructor is None:
-            self.structure_loss = BackboneAuxiliaryLoss(structure_constructor)
 
         self.lr = lr
         self.lr_sched_type = lr_sched_type
@@ -388,84 +389,21 @@ class HourglassTransformerLightningModule(L.LightningModule):
             causal=causal,
             norm_out=norm_out
         )
+        self.model.to(self.device)
 
-    def forward(self, x, mask = None):
+        if self.log_sequence_loss:
+            self.sequence_constructor = LatentToSequence()
+            self.sequence_constructor.to(self.device)
+            self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
+
+        if self.log_structure_loss:
+            self.structure_constructor = LatentToStructure()
+            self.structure_constructor.to(self.device)
+            self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
+    
+    def forward(self, x, mask):
         return self.model(x, mask)
-
-    def unpack_batch(self, batch):
-        # 2024/02/08: For CATHShardedDataModule HDF5 loaders 
-        if isinstance(batch[-1], dict):
-            # dictionary of structure features
-            assert "backbone_rigid_tensor" in batch[-1].keys()
-            embs, sequences, gt_structures = batch
-            assert max([len(s) for s in sequences]) <= embs.shape[1]
-            return embs, sequences, gt_structures
-        elif isinstance(batch[-1][0], str):
-            embs, sequences, _ = batch
-            return embs, sequences, None
-        else:
-            raise Exception(
-                f"Batch tuple not understood. Data type of last element of batch tuple is {type(batch[-1])}."
-            ) 
-
-    def run_batch(self, batch):
-        x, sequences, gt_structures = self.unpack_batch(batch)
-        aatype, mask, _, _, _ = batch_encode_sequences(sequences)
-        x, mask = x.to(self.device), mask.to(self.device)
-
-        x = self.latent_scaler.scale(x)
-        mask = mask.bool()
-            
-        output = self(x, mask)
-        recons_loss = F.mse_loss(x, output)
-        log_dict = {"recons_loss": recons_loss}
-        scaled_output = self.latent_scaler.unscale(output)
-
-        if self.sequence_constructor is not None:
-            seq_loss, seq_acc, recons_strs = self.sequence_loss(
-                scaled_output,
-                aatype,
-                mask,
-                log_recons_strs=True
-            )
-            log_dict['seq_loss'] = seq_loss.item(),
-            log_dict['seq_acc'] = seq_acc.item()
-            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
-            loss += self.seq_loss_weight * seq_loss
-
-        if not self.structure_constructor is not None:
-            struct_loss, struct_loss_dict = self.structure_loss(
-                scaled_output, gt_structures, sequences, cur_weight=None
-            )
-            log_dict = log_dict | struct_loss_dict
-            loss += self.struct_loss_weight * struct_loss
         
-        return loss, log_dict
-    
-    def sequence_loss(self, latent, aatype, mask, log_recons_strs):
-        logits, _, recons_strs = self.sequence_constructor.to_sequence(
-            latent, mask, return_logits=True, drop_mask_idx=False
-        )
-        loss = masked_token_cross_entropy_loss(logits, aatype, mask)
-        acc = masked_token_accuracy(logits, aatype, mask)
-        return loss, acc, recons_strs
-
-    def training_step(self, batch, batch_idx):
-        loss, log_dict = self.run_batch(batch)
-        log_dict = {f"train/{k}": v for k, v in log_dict.items()}
-        self.log_dict(log_dict)
-        return loss
-    
-    def validation_step(self, batch, batch_idx):
-        loss, log_dict = self.run_batch(batch)
-        log_dict = {f"val/{k}": v for k, v in log_dict.items()}
-        self.log_dict(log_dict)
-        return loss
-        
-    def test_step(self, batch, batch_idx):
-        raise NotImplementedError
-
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr
@@ -480,82 +418,82 @@ class HourglassTransformerLightningModule(L.LightningModule):
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
+    def run_batch(self, batch, prefix="train"):
+        x, sequences, gt_structures = batch
+        # todo: might be easier to just save seqlen when processing for making masks
+        # in this form, the sequences *must* have the correct length (trimmed, no pad)
+        tokens, mask, _, _, _ = batch_encode_sequences(sequences)
+        if mask.shape[1] != x.shape[1]:
+            # pad with False
+            mask = trim_or_pad_batch_first(mask, x.shape[1], pad_idx=0)
+            tokens = trim_or_pad_batch_first(tokens, x.shape[1], pad_idx=0)
 
-
-# def main():
-#     # configs
-#     shard_dir = "/homefs/home/lux70/storage/data/rocklin/shards/"
-#     embedder = "esmfold"
-#     D = 1024 if embedder == "esmfold" else 320
-#     n_epochs = 100
-#     device = "cuda"
-#     project = "plaid-hourglass-compression"
-#     # data
-#     dm = CATHShardedDataModule(
-#         storage_type="hdf5",
-#         shard_dir=shard_dir,
-#         embedder=embedder,
-#         seq_len=256,
-#         batch_size=512
-#     )
-#     dm.setup()
-#     train_dataloader = dm.train_dataloader()
-#     val_dataloader = dm.val_dataloader()
-#     latent_scaler = LatentScaler(lm_embedder_type=embedder)
-#     sequence_constructor = LatentToSequence()
-#     seq_loss_fn = SequenceAuxiliaryLoss(sequence_constructor)
-
-#     # model
-#     transformer = get_hourglass_transformer(
-#         dim = D,                     # feature dimension
-#         heads = 8,                      # attention heads
-#         dim_head = 64,                  # dimension per attention head
-#         shorten_factor = 2,             # shortening factor
-#         depth = (4, 2, 4),              # tuple of 3, standing for pre-transformer-layers, valley-transformer-layers (after downsample), post-transformer-layers (after upsample) - the valley transformer layers can be yet another nested tuple, in which case it will shorten again recursively
-#         attn_resampling = True,
-#         updown_sample_type = "naive",
-#         causal = True,
-#         norm_out = True
-#     )
-#     transformer = transformer.to(device)
-
-#     # train
-#     import wandb
-#     wandb.init(
-#         project=project,
-#         entity="lu-amy-al1"
-#     )
-#     optimizer = AdamW(transformer.parameters(), lr=1e-4)
-
-#     for epoch in trange(n_epochs): 
-#         for i, batch in enumerate(train_dataloader):
-#             sequences = batch[1]
-#             tokens, mask, _, _, _ = batch_encode_sequences(sequences)
-
-#             x = batch[0]
-#             if embedder != "esmfold":
-#                 x = x[:, 1:-1, :]
-#             else:
-#                 x = latent_scaler.scale(x)
-#             mask = mask.bool()
-#             x, mask = x.to(device), mask.to(device)
-            
-#             # noise = torch.randn_like(x)
-#             # x_noised = x + noise
-#             # output = transformer(x_noised, mask)
-#             output = transformer(x, mask)
-#             recons_loss = F.mse_loss(x, output)
-            
-#             scaled_output = latent_scaler.unscale(output)
-#             seq_loss, seq_loss_dict = seq_loss_fn(scaled_output, sequences, log_recons_strs=True)
-#             wandb.log({"recons_loss": recons_loss})
-#             wandb.log(seq_loss_dict)
-
-#             loss = recons_loss
+        if self.lm_embedder_type != "esmfold":
+            x, mask, tokens = x[:, 1:-1, :], mask[:, 1:-1], tokens[:, 1:-1]
+        else:
+            x = self.latent_scaler.scale(x)
+        mask = mask.bool()
+        x, mask = x.to(self.device), mask.to(self.device)
         
-#             optimizer.zero_grad()
-#             loss.backward()
-#             optimizer.step()
+        output = self(x, mask)
+        recons_loss = F.mse_loss(x, output)
+        scaled_output = self.latent_scaler.unscale(output)
+        wandb.log({f"{prefix}/recons_loss": recons_loss})
+        
+        if self.log_sequence_loss:
+            seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
+            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
+            wandb.log(seq_loss_dict)
+            wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+        
+        if self.log_structure_loss:
+            struct_loss, struct_loss_dict = self.structure_loss_fn(scaled_output, gt_structures, sequences)
+            struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
+            wandb.log(struct_loss_dict)
 
-# if __name__ == "__main__":
-#     main()
+        loss = recons_loss + self.seq_loss_weight * seq_loss + self.struct_loss_weight * struct_loss
+        return loss
+    
+    def training_step(self, batch, batch_idx):
+        return self.run_batch(batch, prefix="train")
+    
+    def validation_step(self, batch, batch_idx):
+        return self.run_batch(batch, prefix="val")
+    
+if __name__ == "__main__":
+    from plaid.datasets import CATHStructureDataModule
+    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    pdb_dir = "/homefs/home/lux70/storage/data/cath/dompdb/"
+    latent_scaler = LatentScaler()
+    embedder = "esmfold"
+    D = 1024 if embedder == "esmfold" else 320
+    dm = CATHStructureDataModule(
+        shard_dir=shard_dir,
+        pdb_path_dir=pdb_dir,
+        embedder=embedder,
+        seq_len=256,
+        batch_size=16
+    )
+    dm.setup()
+    train_dataloader = dm.train_dataloader()
+    val_dataloader = dm.val_dataloader()
+
+    module = HourglassTransformerLightningModule(
+        dim = D,                     # feature dimension
+        heads = 8,                      # attention heads
+        dim_head = 64,                  # dimension per attention head
+        shorten_factor = 2,             # shortening factor
+        depth = (4, 2, 4),              # tuple of 3, standing for pre-transformer-layers, valley-transformer-layers (after downsample), post-transformer-layers (after upsample) - the valley transformer layers can be yet another nested tuple, in which case it will shorten again recursively
+        attn_resampling = True,
+        updown_sample_type = "naive",
+        causal = True,
+        norm_out = True,
+        latent_scaler=latent_scaler,
+        log_sequence_loss=True,
+        log_structure_loss=True,
+        seq_loss_weight=1.0,
+        struct_loss_weight=1.0
+    )
+    batch = next(iter(train_dataloader))
+    module.training_step(batch, 0)

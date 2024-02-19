@@ -1,0 +1,13 @@
+# @package _global_
+
+hourglass:
+  seq_loss_weight: 0.0
+  struct_loss_weight: 0.0
+  log_sequence_loss: True 
+  log_structure_loss: True 
+
+  lr: 3e-4
+  lr_sched_type: "cosine"
+  lr_num_warmup_steps: 0
+  lr_num_training_steps: 1_000_000
+  lr_num_cycles: 1

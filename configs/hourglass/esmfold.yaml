@@ -1,4 +1,4 @@
-_target_: plaid.compression.hourglass.HourglassTransformerLightningModule
+_target_: plaid.compression.hourglass_lightning.HourglassTransformerLightningModule
 
 dim: 1024
 depth: [4, 2, 4]
@@ -12,6 +12,9 @@ norm_out: false
 
 seq_loss_weight: 0.0
 struct_loss_weight: 0.0
+log_sequence_loss: False
+log_structure_loss: False
+lm_embedder_type: "esmfold"
 
 lr: 1e-4
 lr_sched_type: "constant"

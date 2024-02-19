@@ -4,5 +4,5 @@ shard_dir: ${paths.data_dir}/cath/shards
 pdb_path_dir: ${paths.data_dir}/cath/dompdb
 path_to_dropped_ids: null
 seq_len: 256 
-batch_size: 64
-num_workers: 8
+batch_size: 16
+num_workers: 0 

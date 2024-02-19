@@ -365,7 +365,7 @@ def main():
         pdb_path_dir=pdb_dir,
         embedder=embedder,
         seq_len=256,
-        batch_size=16
+        batch_size=32
     )
     dm.setup()
     train_dataloader = dm.train_dataloader()

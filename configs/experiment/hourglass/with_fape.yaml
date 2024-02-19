@@ -1,0 +1,10 @@
+# @package _global_
+
+hourglass:
+  seq_loss_weight: 0.0
+  struct_loss_weight: 1.0
+  log_sequence_loss: True 
+  log_structure_loss: True 
+
+  lr: 1e-4
+  lr_sched_type: "constant"

@@ -18,4 +18,4 @@ echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 export HYDRA_FULL_ERROR=1
 export TOKENIZERS_PARALLELISM=false
 cd /homefs/home/lux70/code/plaid/
-srun python plaid/compression/hourglass.py
+srun python src/plaid/compression/hourglass.py

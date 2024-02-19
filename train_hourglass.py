@@ -15,16 +15,6 @@ from plaid.proteins import LatentToSequence, LatentToStructure
 def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
-
-    if cfg.make_structure_constructor:
-        structure_constructor = LatentToStructure()
-    else:
-        structure_constructor = None
-    if cfg.make_sequence_constructor:
-        sequence_constructor = LatentToSequence(temperature=0.0)
-    else:
-        sequence_constructor = None
-
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -36,8 +26,6 @@ def train(cfg: DictConfig):
     model = hydra.utils.instantiate(
         cfg.hourglass,
         latent_scaler=latent_scaler,
-        sequence_constructor=sequence_constructor,
-        structure_constructor=structure_constructor
     )
 
     job_id = None
