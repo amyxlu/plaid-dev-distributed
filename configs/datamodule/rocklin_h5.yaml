@@ -4,5 +4,5 @@ storage_type: hdf5
 shard_dir: ${paths.data_dir}/rocklin/shards
 seq_len: 256 
 batch_size: 64 
-num_workers: 0 
+num_workers: 8 
 dtype: fp32

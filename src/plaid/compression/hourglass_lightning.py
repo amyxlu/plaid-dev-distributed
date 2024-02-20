@@ -10,6 +10,7 @@ from torch.optim import AdamW
 import lightning as L
 import wandb
 import pandas as pd
+from omegaconf import ListConfig
 
 from plaid.datasets import CATHShardedDataModule
 from plaid.transforms import trim_or_pad_batch_first
@@ -41,23 +42,32 @@ def cast_tuple(val, depth = 1):
     return val if isinstance(val, tuple) else ((val,) * depth)
 
 # factory
+def _valid_depth_dtype(depth):
+    import pdb;pdb.set_trace()
+    if isinstance(depth, int):
+        return True
+    if isinstance(depth, tuple) or isinstance(depth, list) or isinstance(depth, ListConfig):
+        if len(depth) == 3:
+            return True
+    return False
 
 def get_hourglass_transformer(
     dim,
     *,
     depth,
     shorten_factor,
+    downproj_factor,
     attn_resampling,
     updown_sample_type,
     **kwargs
 ):
-    assert isinstance(depth, int) or (isinstance(depth, tuple)  and len(depth) == 3), 'depth must be either an integer or a tuple of 3, indicating (pre_transformer_depth, <nested-hour-glass-config>, post_transformer_depth)'
+    assert _valid_depth_dtype, f'depth must be either an integer or a tuple of 3, indicating (pre_transformer_depth, <nested-hour-glass-config>, post_transformer_depth), got {type(depth)}.'
     assert not (isinstance(depth, int) and shorten_factor), 'there does not need to be a shortening factor when only a single transformer block is indicated (depth of one integer value)'
 
     if isinstance(depth, int):
         return Transformer(dim = dim, depth = depth, **kwargs)
 
-    return HourglassTransformer(dim = dim, depth = depth, shorten_factor = shorten_factor, attn_resampling = attn_resampling, updown_sample_type = updown_sample_type, **kwargs)
+    return HourglassTransformer(dim = dim, depth = depth, shorten_factor = shorten_factor, downproj_factor = downproj_factor, attn_resampling = attn_resampling, updown_sample_type = updown_sample_type, **kwargs)
 
 # up and down sample classes
 
@@ -98,6 +108,24 @@ class LinearUpsample(nn.Module):
         return rearrange(x, 'b n (s d) -> b (n s) d', s = self.shorten_factor)
 
 # classes
+
+class PreNormLinearDownProjection(nn.Module):
+    def __init__(self, dim, downproj_factor):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim)
+        self.proj = nn.Linear(dim, dim // downproj_factor)
+
+    def forward(self, x):
+        return self.proj(self.norm(x))
+
+class PreNormLinearUpProjection(nn.Module):
+    def __init__(self, dim, downproj_factor):
+        super().__init__()
+        self.norm = nn.LayerNorm(dim // downproj_factor)
+        self.proj = nn.Linear(dim // downproj_factor, dim)
+
+    def forward(self, x):
+        return self.proj(self.norm(x))
 
 class PreNormResidual(nn.Module):
     def __init__(self, dim, fn):
@@ -200,7 +228,6 @@ class Transformer(nn.Module):
 
         return self.norm(x)
 
-
 class HourglassTransformer(nn.Module):
     def __init__(
         self,
@@ -208,34 +235,41 @@ class HourglassTransformer(nn.Module):
         *,
         depth,
         shorten_factor = 2,
+        downproj_factor = 2,
         attn_resampling = True,
         updown_sample_type = 'naive',
         heads = 8,
         dim_head = 64,
         causal = False,
-        norm_out = False
+        norm_out = False,
     ):
         super().__init__()
-        assert len(depth) == 3, 'depth should be a tuple of length 3'
-        assert updown_sample_type in {'naive', 'linear'}, 'downsample / upsample type must be either naive (average pool and repeat) or linear (linear projection and reshape)'
-
         pre_layers_depth, valley_depth, post_layers_depth = depth
 
-        if isinstance(shorten_factor, (tuple, list)):
+        # shorten factor
+        if isinstance(shorten_factor, (tuple, list, ListConfig)):
             shorten_factor, *rest_shorten_factor = shorten_factor
         elif isinstance(valley_depth, int):
             shorten_factor, rest_shorten_factor = shorten_factor, None
         else:
             shorten_factor, rest_shorten_factor = shorten_factor, shorten_factor
 
+        # downproj factor
+        if isinstance(downproj_factor, (tuple, list, ListConfig)):
+            downproj_factor, *rest_downproj_factor = downproj_factor
+        elif isinstance(valley_depth, int):
+            downproj_factor, rest_downproj_factor = downproj_factor, None
+        else:
+            downproj_factor, rest_downproj_factor = downproj_factor, downproj_factor
+
         transformer_kwargs = dict(
-            dim = dim,
             heads = heads,
             dim_head = dim_head
         )
 
         self.causal = causal
         self.shorten_factor = shorten_factor
+        self.downproj_factor = downproj_factor
 
         if updown_sample_type == 'naive':
             self.downsample = NaiveDownsample(shorten_factor)
@@ -246,8 +280,13 @@ class HourglassTransformer(nn.Module):
         else:
             raise ValueError(f'unknown updown_sample_type keyword value - must be either naive or linear for now')
 
+        self.down_projection = PreNormLinearDownProjection(dim, downproj_factor)
+        self.up_projection = PreNormLinearUpProjection(dim, downproj_factor)
+        
         self.valley_transformer = get_hourglass_transformer(
+            dim = dim // downproj_factor,
             shorten_factor = rest_shorten_factor,
+            downproj_factor = rest_downproj_factor,
             depth = valley_depth,
             attn_resampling = attn_resampling,
             updown_sample_type = updown_sample_type,
@@ -255,20 +294,22 @@ class HourglassTransformer(nn.Module):
             **transformer_kwargs
         )
 
-        self.attn_resampling_pre_valley = Transformer(depth = 1, **transformer_kwargs) if attn_resampling else None
-        self.attn_resampling_post_valley = Transformer(depth = 1, **transformer_kwargs) if attn_resampling else None
+        self.attn_resampling_context_downproj = PreNormLinearDownProjection(dim, downproj_factor) if attn_resampling else None
+        self.attn_resampling_context_upproj = PreNormLinearUpProjection(dim, downproj_factor) if attn_resampling else None
+        self.attn_resampling_pre_valley = Transformer(dim = dim // downproj_factor, depth = 1, **transformer_kwargs) if attn_resampling else None
+        self.attn_resampling_post_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
 
-        self.pre_transformer = Transformer(depth = pre_layers_depth, causal = causal, **transformer_kwargs)
-        self.post_transformer = Transformer(depth = post_layers_depth, causal = causal, **transformer_kwargs)
+        self.pre_transformer = Transformer(dim = dim, depth = pre_layers_depth, causal = causal, **transformer_kwargs)
+        self.post_transformer = Transformer(dim = dim, depth = post_layers_depth, causal = causal, **transformer_kwargs)
         self.norm_out = nn.LayerNorm(dim) if norm_out else nn.Identity()
 
     def forward(self, x, mask = None):
         # b : batch, n : sequence length, d : feature dimension, s : shortening factor
         s, b, n = self.shorten_factor, *x.shape[:2]
-
+        
         # top half of hourglass, pre-transformer layers
         x = self.pre_transformer(x, mask = mask)
-
+        
         # pad to multiple of shortening factor, in preparation for pooling
         x = pad_to_multiple(x, s, dim = -2)
 
@@ -288,11 +329,13 @@ class HourglassTransformer(nn.Module):
 
         # naive average pool
         downsampled = self.downsample(x)
-
         if exists(mask):
             downsampled_mask = reduce(padded_mask, 'b (n s) -> b n', 'sum', s = s) > 0
         else:
             downsampled_mask = None
+
+        # also possibly reduce along dim=-1
+        downsampled = self.down_projection(downsampled)
 
         # pre-valley "attention resampling" - they have the pooled token in each bucket attend to the tokens pre-pooled
         if exists(self.attn_resampling_pre_valley):
@@ -300,37 +343,38 @@ class HourglassTransformer(nn.Module):
                 attn_resampling_mask = rearrange(padded_mask, 'b (n s) -> (b n) s', s = s)
             else:
                 attn_resampling_mask = None
-
             downsampled = self.attn_resampling_pre_valley(
                 rearrange(downsampled, 'b n d -> (b n) () d'),
-                rearrange(x, 'b (n s) d -> (b n) s d', s = s),
+                rearrange(self.attn_resampling_context_downproj(x), 'b (n s) d -> (b n) s d', s = s),
                 mask = attn_resampling_mask
             )
 
             downsampled = rearrange(downsampled, '(b n) () d -> b n d', b = b)
-
+            
         # the "valley" - either a regular transformer or another hourglass
         x = self.valley_transformer(downsampled, mask = downsampled_mask)
         valley_out = x.clone()
 
         # naive repeat upsample
         x = self.upsample(x)
-
+        x = self.up_projection(x)
+        
         # add the residual
         x = x + x_residual
-
+        
         # post-valley "attention resampling"
         if exists(self.attn_resampling_post_valley):
             x = self.attn_resampling_post_valley(
                 rearrange(x, 'b (n s) d -> (b n) s d', s = s),
-                rearrange(valley_out, 'b n d -> (b n) () d')
+                rearrange(self.attn_resampling_context_upproj(valley_out), 'b n d -> (b n) () d')
             )
 
             x = rearrange(x, '(b n) s d -> b (n s) d', b = b)
 
+
         # bring sequence back to original length, if it were padded for pooling
         x = x[:, :n]
-
+        
         # post-valley transformers
         x = self.post_transformer(x, mask = mask)
         return self.norm_out(x)
@@ -343,6 +387,7 @@ class HourglassTransformerLightningModule(L.LightningModule):
         *,
         depth,
         shorten_factor = 2,
+        downproj_factor = 2,
         attn_resampling = True,
         updown_sample_type = 'naive',
         heads = 8,
@@ -378,10 +423,11 @@ class HourglassTransformerLightningModule(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        self.model = HourglassTransformer(
+        self.model = get_hourglass_transformer(
             dim=dim,
             depth=depth,
             shorten_factor=shorten_factor,
+            downproj_factor=downproj_factor,
             attn_resampling=attn_resampling,
             updown_sample_type=updown_sample_type,
             heads=heads,
@@ -436,23 +482,25 @@ class HourglassTransformerLightningModule(L.LightningModule):
         x, mask = x.to(self.device), mask.to(self.device)
         
         output = self(x, mask)
-        recons_loss = F.mse_loss(x, output)
+        loss = F.mse_loss(x, output)
         scaled_output = self.latent_scaler.unscale(output)
-        wandb.log({f"{prefix}/recons_loss": recons_loss})
+        self.log_dict({f"{prefix}/recons_loss": loss.item()}, on_step=(prefix != "val"), on_epoch=True)
         
         if self.log_sequence_loss:
             seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
             tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
-            wandb.log(seq_loss_dict)
+            self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True)
             wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            loss += seq_loss * self.seq_loss_weight
         
         if self.log_structure_loss:
             struct_loss, struct_loss_dict = self.structure_loss_fn(scaled_output, gt_structures, sequences)
             struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
+            self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True)
             wandb.log(struct_loss_dict)
+            loss += struct_loss * self.struct_loss_weight
 
-        loss = recons_loss + self.seq_loss_weight * seq_loss + self.struct_loss_weight * struct_loss
         return loss
     
     def training_step(self, batch, batch_idx):

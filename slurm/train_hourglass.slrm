@@ -4,7 +4,7 @@
 #SBATCH --nodes 1 
 #SBATCH --gpus-per-node 1 
 #SBATCH --partition gpu2
-#SBATCH --cpus-per-gpu 8
+#SBATCH --cpus-per-gpu 16 
 #SBATCH --mem-per-gpu 144G
 
 eval "$(conda shell.bash hook)"
@@ -18,4 +18,4 @@ echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 export HYDRA_FULL_ERROR=1
 export TOKENIZERS_PARALLELISM=false
 cd /homefs/home/lux70/code/plaid/
-srun python src/plaid/compression/hourglass.py
+srun python train_hourglass.py $@

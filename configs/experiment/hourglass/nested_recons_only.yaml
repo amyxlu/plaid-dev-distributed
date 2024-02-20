@@ -1,18 +1,23 @@
 # @package _global_
 
+defaults:
+  - override /datamodule: cath_h5
+
 datamodule:
-  batch_size: 32
+  batch_size: 128 
 
 hourglass:
   seq_loss_weight: 0.0
   struct_loss_weight: 0.0
   log_sequence_loss: True 
-  log_structure_loss: True
+  log_structure_loss: False 
+  shorten_factor: [2, 2]
+  downproj_factor: [2, 2]
+  depth: [4, [4, 2, 4], 4]
 
-  downproj_factor: 4
 
   lr: 3e-4
-  lr_sched_type: "cosine"
+  lr_sched_type: "constant"
   lr_num_warmup_steps: 0
   lr_num_training_steps: 1_000_000
   lr_num_cycles: 1

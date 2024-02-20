@@ -3,6 +3,7 @@ _target_: plaid.compression.hourglass_lightning.HourglassTransformerLightningMod
 dim: 1024
 depth: [4, 2, 4]
 shorten_factor: 2
+downproj_factor: 2
 attn_resampling: true
 updown_sample_type: 'naive'
 heads: 8

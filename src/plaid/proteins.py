@@ -284,6 +284,16 @@ class LatentToStructure:
         _, L, _ = s_.shape
         z_ = s_.new_zeros(s_.shape[0], L, L, ESMFOLD_Z_DIM).to(self.device)
 
+        def maybe_pad(tensor, length):
+            if tensor.shape[1] != length:
+                return trim_or_pad_batch_first(tensor, length, pad_idx=0)
+            else:
+                return tensor
+            
+        mask_ = maybe_pad(mask_, L)
+        aa_ = maybe_pad(aa_, L)
+        residx_ = maybe_pad(residx_, L)
+
         with torch.no_grad():
             output = self.esmfold.folding_trunk(
                 s_s_0=s_,
@@ -318,12 +328,6 @@ class LatentToStructure:
         assert (
             latent.device == self.esmfold.device
         ), "Make sure to call .to(device) to move trunk to the correct device."
-
-        if mask.shape[1] != latent.shape[1]:
-            # pad with False
-            mask = trim_or_pad_batch_first(mask, latent.shape[1], pad_idx=0)
-            aatype = trim_or_pad_batch_first(aatype, latent.shape[1], pad_idx=0)
-            residx = trim_or_pad_batch_first(residx, latent.shape[1], pad_idx=0)
 
         if batch_size is None:
             if verbose:
