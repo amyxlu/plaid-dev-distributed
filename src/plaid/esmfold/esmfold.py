@@ -123,7 +123,7 @@ class ESMFold(nn.Module):
         return self.af2_to_esm[aa]
 
     def _compute_language_model_representations(
-        self, esmaa: torch.Tensor
+        self, esmaa: torch.Tensor, return_intermediates=False
     ) -> torch.Tensor:
         """Adds bos/eos tokens for the language model, since the structure module doesn't use these."""
         batch_size = esmaa.size(0)
@@ -149,7 +149,15 @@ class ESMFold(nn.Module):
             if self.cfg.use_esm_attn_map
             else None
         )
-        return esm_s, esm_z
+
+        if not return_intermediates:
+            return esm_s, esm_z
+        else:
+            intermediates = {
+                "lm_res": res,
+                "esm_s": esm_s
+            }
+            return esm_s, esm_z, intermediates
 
     def _mask_inputs_to_esm(self, esmaa, pattern):
         new_esmaa = esmaa.clone()
@@ -162,6 +170,7 @@ class ESMFold(nn.Module):
         mask: T.Optional[torch.Tensor] = None,
         residx: T.Optional[torch.Tensor] = None,
         masking_pattern: T.Optional[torch.Tensor] = None,
+        return_intermediates: bool = False
     ):
         """First half of original `forward` function to get s_s_0 and s_z_0.
 
@@ -196,7 +205,11 @@ class ESMFold(nn.Module):
         if masking_pattern is not None:
             esmaa = self._mask_inputs_to_esm(esmaa, masking_pattern)
 
-        esm_s, esm_z = self._compute_language_model_representations(esmaa)
+        if return_intermediates:
+            esm_s, esm_z, intermediates = self._compute_language_model_representations(esmaa, return_intermediates)
+
+        else:
+            esm_s, esm_z = self._compute_language_model_representations(esmaa, return_intermediates)
 
         # Convert esm_s to the precision used by the trunk and
         # the structure module. These tensors may be a lower precision if, for example,
@@ -206,8 +219,13 @@ class ESMFold(nn.Module):
 
         # === preprocessing ===
         esm_s = (self.esm_s_combine.softmax(0).unsqueeze(0) @ esm_s).squeeze(2)
+        if return_intermediates:
+            intermediates['s_post_softmax'] = esm_s
 
         s_s_0 = self.esm_s_mlp(esm_s)
+        if return_intermediates:
+            intermediates['s_post_mlp'] = s_s_0
+
         if self.cfg.use_esm_attn_map:
             esm_z = esm_z.to(self.esm_s_combine.dtype)
             esm_z = esm_z.detach()
@@ -217,7 +235,14 @@ class ESMFold(nn.Module):
 
         s_s_0 += self.embedding(aa)
 
-        return s_s_0, s_z_0, aa, residx, mask
+        if return_intermediates:
+            intermediates['s'] = s_s_0
+            intermediates['aa_embed'] = self.embedding(aa)
+
+        if return_intermediates:
+            return s_s_0, s_z_0, aa, residx, mask, intermediates
+        else:
+            return s_s_0, s_z_0, aa, residx, mask
 
     def folding_trunk(
         self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None
@@ -366,6 +391,7 @@ class ESMFold(nn.Module):
         masking_pattern: T.Optional[torch.Tensor] = None,
         residue_index_offset: T.Optional[int] = 512,
         chain_linker: T.Optional[str] = "G" * 25,
+        return_intermediates: bool = False
     ):
         """From a list of sequence strings, obtain embeddings.
 
@@ -399,17 +425,27 @@ class ESMFold(nn.Module):
             lambda x: x.to(self.device), (aatype, mask, residx, linker_mask)
         )
 
-        with torch.no_grad():
-            s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(
-                aatype, mask, residx, masking_pattern
-            )
-
-        return {
-            "s": s_s_0,
-            "z": s_z_0,
-            "mask": mask,
-            "pos": residx,
-        }
+        if not return_intermediates:
+            with torch.no_grad():
+                s_s_0, s_z_0, _, residx, mask = self.embed_for_folding_trunk(
+                    aatype, mask, residx, masking_pattern, return_intermediates
+                )
+            return {
+                "s": s_s_0,
+                "z": s_z_0,
+                "mask": mask,
+                "pos": residx,
+            }
+        else:
+            with torch.no_grad():
+                s_s_0, s_z_0, _, residx, mask, intermediates = self.embed_for_folding_trunk(
+                    aatype, mask, residx, masking_pattern, return_intermediates
+                )
+                intermediates['z'] = s_z_0
+                intermediates["mask"] = mask
+                intermediates["pos"] = residx
+            return intermediates
+                
 
     def output_to_pdb(self, output: T.Dict) -> T.List[str]:
         """Returns the pbd (file) string from the model given the model output."""

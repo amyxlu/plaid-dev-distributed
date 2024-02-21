@@ -188,7 +188,7 @@ class CATHStructureDataset(H5ShardDataset):
 class CATHShardedDataModule(L.LightningDataModule):
     def __init__(
         self,
-        storage_type: str = "safetensors",
+        storage_type: str = "hdf5",
         shard_dir: str = "/shared/amyxlu/data/cath/shards",
         embedder: str = "esmfold",
         header_to_sequence_file: T.Optional[str] = None,

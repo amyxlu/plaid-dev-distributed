@@ -10,19 +10,10 @@ import torch
 import math
 import argparse
 
-from plaid.utils import get_model_device
+from plaid.utils import get_model_device, make_embedder
 from plaid.transforms import get_random_sequence_crop_batch
-from plaid.constants import CACHED_TENSORS_DIR
+from plaid.constants import CACHED_TENSORS_DIR, ACCEPTED_LM_EMBEDDER_TYPES
 
-ACCEPTED_LM_EMBEDDER_TYPES = [
-    "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
-    "esm2_t48_15B_UR50D",  # 5120 
-    "esm2_t36_3B_UR50D",  # 2560
-    "esm2_t33_650M_UR50D",  # 1280
-    "esm2_t30_150M_UR50D",  # 64e $EMBED
-    "esm2_t12_35M_UR50D",  # dim=480
-    "esm2_t6_8M_UR50D"  # dim=320
-]
 
 # pcluster
 DATASET_TO_FASTA_FILE = {
@@ -67,23 +58,6 @@ def get_dataloader(dataset, batch_size=64, n_val=5000):
     return dataloader
 
 
-def make_embedder(lm_embedder_type):
-    if lm_embedder_type == "esmfold":
-        print("making esmfold model")
-        # from plaid.denoisers.esmfold import ESMFold
-        from plaid.esmfold import esmfold_v1
-        embedder = esmfold_v1()
-        alphabet = None
-    else:
-        print('loading LM from torch hub')
-        embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
-    
-    embedder = embedder.eval().to("cuda")
-    for param in embedder.parameters():
-        param.requires_grad = False
-    return embedder, alphabet
-
-
 def calc_stats(x, mask):
     mask = einops.repeat(mask, "N L -> N L C", C=x.shape[-1]).long()
     x *= mask
@@ -111,7 +85,7 @@ def save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min):
 def main():
     args = parse_args()
     check_model_type(args.lm_embedder_type)
-    if not args.lm_embedder_type == "esmfold":
+    if not "esmfold" in args.lm_embedder_type:
         repr_layer = int(args.lm_embedder_type.split("_")[1][1:])
     else:
         repr_layer = None
@@ -122,7 +96,7 @@ def main():
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
-    def embed_batch(sequences, batch_converter):
+    def embed_batch_esm(sequences, batch_converter):
         batch = [("", seq) for seq in sequences]
         _, _, tokens = batch_converter(batch)
         device = get_model_device(embedder)
@@ -132,10 +106,10 @@ def main():
             results = embedder(tokens, repr_layers=[repr_layer], return_contacts=False)
         return results["representations"][repr_layer], mask
     
-    def embed_batch_esmfold(sequences):
+    def embed_batch_esmfold(sequences, embed_key_result):
         with torch.no_grad():
-            embed_results = embedder.infer_embedding(sequences)
-            feats = embed_results["s"].detach().cpu()  # (N, L, 1024)
+            embed_results = embedder.infer_embedding(sequences, return_intermediates=True)
+            feats = embed_results[embed_key_result].detach().cpu()  
             masks = embed_results["mask"].detach().cpu()  # (N, L)
         return feats, masks
     
@@ -146,11 +120,17 @@ def main():
         _, sequences = batch
         sequences = get_random_sequence_crop_batch(sequences, args.seq_len, args.min_len)
 
-        if args.lm_embedder_type == "esmfold":
-            x, mask = embed_batch_esmfold(sequences)
+        if "esmfold" in args.lm_embedder_type:
+            if args.lm_embedder_type == "esmfold":
+                embed_key_result = "s"
+            elif args.lm_embedder_type == "esmfold_pre_mlp":
+                embed_key_result = "s_post_softmax"
+            else:
+                raise ValueError
+            x, mask = embed_batch_esmfold(sequences, embed_key_result)
         else:
             batch_converter = alphabet.get_batch_converter()
-            x, mask = embed_batch(sequences, batch_converter)
+            x, mask = embed_batch_esm(sequences, batch_converter)
 
         xs.append(x.detach().cpu())
         masks.append(mask.detach().cpu())
