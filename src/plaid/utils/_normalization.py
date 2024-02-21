@@ -197,6 +197,7 @@ class LatentScaler:
         origin_dataset: str = "cath",
         lm_embedder_type: str = "esmfold",
     ):
+        self.mode = mode
         assert _check_valid_mode(mode), f"Invalid mode {mode}."
         if (mode is None) or (mode == "identity"):
             pass
