@@ -198,22 +198,25 @@ class LatentScaler:
         lm_embedder_type: str = "esmfold",
     ):
         assert _check_valid_mode(mode), f"Invalid mode {mode}."
-        assert _check_valid_origin_dataset(origin_dataset)
-        self.mode = mode
-        self.origin_dataset = origin_dataset
-        self.lm_embedder_type = lm_embedder_type
-
-        if "channel_" in mode:
-            stat_dict = load_channelwise_stats(CACHED_TENSORS_DIR, origin_dataset, lm_embedder_type)
+        if (mode is None) or (mode == "identity"):
+            pass
         else:
-            stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
+            assert _check_valid_origin_dataset(origin_dataset)
+            self.mode = mode
+            self.origin_dataset = origin_dataset
+            self.lm_embedder_type = lm_embedder_type
 
-        self.maxv, self.minv, self.meanv, self.stdv = (
-            stat_dict["max"],
-            stat_dict["min"],
-            stat_dict["mean"],
-            stat_dict["std"],
-        )
+            if "channel_" in mode:
+                stat_dict = load_channelwise_stats(CACHED_TENSORS_DIR, origin_dataset, lm_embedder_type)
+            else:
+                stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
+
+            self.maxv, self.minv, self.meanv, self.stdv = (
+                stat_dict["max"],
+                stat_dict["min"],
+                stat_dict["mean"],
+                stat_dict["std"],
+            )
 
     def scale(self, x: ArrayLike):
         if (self.mode is None) or (self.mode == "identity"):
