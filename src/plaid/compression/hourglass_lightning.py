@@ -446,6 +446,7 @@ class HourglassTransformerLightningModule(L.LightningModule):
             self.structure_constructor = LatentToStructure()
             self.structure_constructor.to(self.device)
             self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
+        self.save_hyperparameters()
     
     def forward(self, x, mask):
         return self.model(x, mask)
