@@ -1,11 +1,14 @@
 timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
 
+lm_embedder_type: esmfold
+max_seq_len: 512
+
 defaults:
   - _self_
   - paths: pcluster
   - datamodule: uniref_fasta
   - sequence_decoder: default
-  - latent_scaler: esmfold
+  - latent_scaler: identity
   - trainer: default
   - callbacks/checkpoint: sequence_decoder
   - callbacks/lr_monitor: default

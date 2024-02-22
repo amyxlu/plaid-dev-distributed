@@ -95,7 +95,7 @@ class FullyConnectedNetwork(L.LightningModule):
         return masked_token_cross_entropy_loss(logits, targets, mask=mask)
 
     def forward_pass_from_sequence(self, sequence):
-        latent = self.training_embed_from_sequence_fn(sequence, self.device)
+        latent = self.training_embed_from_sequence_fn(sequence)
         if self.latent_scaler is not None:
             latent = self.latent_scaler.scale(latent)
         return self(latent)

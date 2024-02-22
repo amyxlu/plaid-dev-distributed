@@ -1,0 +1,5 @@
+_target_: plaid.utils.LatentScaler
+
+mode: "identity"
+origin_dataset: ""
+lm_embedder_type: ""
