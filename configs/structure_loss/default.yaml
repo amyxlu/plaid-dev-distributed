@@ -1,0 +1,21 @@
+loss:
+  fape:
+    intra_chain_backbone:
+      clamp_distance: 10.0
+      loss_unit_distance: 10.0
+      weight: 0.5
+    interface_backbone:
+      clamp_distance: 30.0
+      loss_unit_distance: 20.0
+      weight: 0.5
+  masked_msa:
+    num_classes: 22
+  violation:
+    average_clashes: true
+    weight: 0.03  # Not finetuning
+  tm:
+    weight: 0.1
+    enabled: true
+  chain_center_of_mass:
+    weight: 0.05
+    enabled: true

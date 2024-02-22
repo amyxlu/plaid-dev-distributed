@@ -1,0 +1,9 @@
+# @package _global_
+
+defaults:
+  - override /latent_scaler: identity.yaml
+
+lm_embedder_type: esmfold_pre_mlp
+
+sequence_decoder:
+  mlp_hidden_dim: 2560
