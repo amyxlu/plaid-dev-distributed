@@ -78,22 +78,34 @@ class H5ShardDataset(torch.utils.data.Dataset):
         embedder: str = "esmfold",
         max_seq_len: int = 64,
         dtype: str = "fp32",
-        ids_to_drop: T.Optional[T.List[str]] = None,
+        filtered_ids_list: T.Optional[T.List[str]] = None,
+        # ids_to_drop: T.Optional[T.List[str]] = None,
     ):
         super().__init__()
-        self.ids_to_drop = ids_to_drop
+        self.filtered_ids_list = filtered_ids_list
+        # self.ids_to_drop = ids_to_drop
         self.dtype = dtype
         self.max_seq_len = max_seq_len
         self.shard_dir = Path(shard_dir)
         self.embedder = embedder
 
         self.data = self.load_partition(split, embedder)
-        self.pdb_ids = list(self.data.keys())
+        pdb_ids = list(self.data.keys())
+
+        if not filtered_ids_list is None:
+            pdb_ids = set(self.data.keys()).intersection(set(filtered_ids_list)) 
+            disjoint = set(filtered_ids_list) - set(pdb_ids)
+            print(f"Did not find {len(disjoint)} IDs, including {list(disjoint)[:3]}")
+            # for pid in disjoint: print(pid)
+            # print("total number of samples: ", len(pdb_ids))
+        
+        self.pdb_ids = list(pdb_ids)
 
     def drop_protein(self, pid):
         drop = False
-        if not (self.ids_to_drop is None) and (pid in self.ids_to_drop):
-            drop = True
+        # fixed chain parsing issue, shouldn't have to drop proteins now.
+        # if not (self.ids_to_drop is None) and (pid in self.ids_to_drop):
+        #     drop = True
         return drop
 
     def load_partition(self, split: T.Optional[str] = None, embedder: T.Optional[str] = None):
@@ -129,6 +141,7 @@ class H5ShardDataset(torch.utils.data.Dataset):
 
     def get(self, idx: int) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
         # return (self.embs[idx, ...], self.sequences[idx], self.pdb_id[idx])
+        assert isinstance(self.pdb_ids, list)
         pid = self.pdb_ids[idx]
         return pid, self.data[pid]
 
@@ -151,16 +164,13 @@ class CATHStructureDataset(H5ShardDataset):
         embedder: str = "esmfold",
         max_seq_len: int = 64,
         dtype: str = "fp32",
-        path_to_dropped_ids: T.Optional[str] = None,
+        path_to_filtered_ids_list: T.Optional[T.List[str]] = None
     ):
-        ids_to_drop = None
-        if not path_to_dropped_ids is None:
-            # no longer actually needed after fixing the chain
-            print("using CATH dropped IDs at", path_to_dropped_ids)
-            with open(path_to_dropped_ids, "r") as f:
-                ids_to_drop = f.read().splitlines()
+        if not path_to_filtered_ids_list is None:
+            with open(path_to_filtered_ids_list, "r") as f:
+                filtered_ids = f.read().splitlines()
         
-        super().__init__(split, shard_dir, embedder, max_seq_len, dtype, ids_to_drop)
+        super().__init__(split, shard_dir, embedder, max_seq_len, dtype, filtered_ids)
 
         from plaid.utils import StructureFeaturizer
 
@@ -282,7 +292,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
-        path_to_dropped_ids: T.Optional[str] = None,
+        path_to_filtered_ids_list: T.Optional[T.List[str]] = None
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -293,7 +303,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.dataset_fn = CATHStructureDataset
         self.dtype = "fp32"
-        self.path_to_dropped_ids = path_to_dropped_ids
+        self.path_to_filtered_ids_list = path_to_filtered_ids_list
 
     def setup(self, stage: str = "fit"):
         if stage == "fit":
@@ -304,7 +314,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.embedder,
                 self.seq_len,
                 self.dtype,
-                self.path_to_dropped_ids,
+                self.path_to_filtered_ids_list,
             )
             self.val_dataset = self.dataset_fn(
                 "val",
@@ -313,7 +323,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.embedder,
                 self.seq_len,
                 self.dtype,
-                self.path_to_dropped_ids,
+                self.path_to_filtered_ids_list,
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
@@ -323,7 +333,7 @@ class CATHStructureDataModule(L.LightningDataModule):
                 self.embedder,
                 self.seq_len,
                 self.dtype,
-                self.path_to_dropped_ids,
+                self.path_to_filtered_ids_list,
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -475,7 +485,6 @@ if __name__ == "__main__":
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    path_to_dropped_ids = "/homefs/home/lux70/code/plaid/cath_ids_to_drop.txt"
 
     dm = CATHStructureDataModule(
         shard_dir,
@@ -483,7 +492,6 @@ if __name__ == "__main__":
         seq_len=256,
         batch_size=32,
         num_workers=0,
-        path_to_dropped_ids=path_to_dropped_ids,
     )
     dm.setup()
     train_dataloader = dm.train_dataloader()
