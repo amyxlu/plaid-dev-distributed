@@ -26,21 +26,21 @@ def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
     return [_get_random_sequence_crop(seq, max_len) for seq in sequence_batch]
 
 
-def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
-    """Trim or pad a tensor with shape (..., L, ...) to a given length."""
-    L = tensor.shape[length_dim]
-    if L >= pad_to:
-        tensor = tensor.index_select(length_dim, torch.arange(length_dim))
+# def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
+#     """Trim or pad a tensor with shape (..., L, ...) to a given length."""
+#     L = tensor.shape[length_dim]
+#     if L >= pad_to:
+#         tensor = tensor.index_select(length_dim, torch.arange(length_dim))
 
-    elif L < pad_to:
-        padding = torch.full(
-            size=(*tensor.shape[:length_dim], pad_to - L, *tensor.shape[length_dim + 1:]),
-            fill_value=pad_idx,
-            dtype=tensor.dtype,
-            device=tensor.device,
-        )
-        tensor = torch.concat((tensor, padding), dim=length_dim)
-    return tensor
+#     elif L < pad_to:
+#         padding = torch.full(
+#             size=(*tensor.shape[:length_dim], pad_to - L, *tensor.shape[length_dim + 1:]),
+#             fill_value=pad_idx,
+#             dtype=tensor.dtype,
+#             device=tensor.device,
+#         )
+#         tensor = torch.concat((tensor, padding), dim=length_dim)
+#     return tensor
 
 
 # def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
