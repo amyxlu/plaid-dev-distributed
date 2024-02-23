@@ -558,6 +558,32 @@ def build_contact_map(pdb_file, threshold=5.0):
     return contact_map
 
 
+
+def outputs_to_avg_metric(outputs):
+    avg_metrics = {}
+    metrics_to_log = [
+        "plddt",
+        "ptm",
+        "aligned_confidence_probs",
+        "predicted_aligned_error",
+    ]
+
+    for metric in metrics_to_log:
+        value = npy(outputs[metric])
+
+        if value.ndim == 1:
+            median = value
+        elif value.ndim == 2:
+            median = np.median(value, axis=1)
+        else:
+            assert value.ndim > 2
+            median = np.median(value, axis=tuple(range(1, value.ndim)))
+
+        avg_metrics[metric] = median
+
+    return avg_metrics
+
+
 ######
 # The following is adapted from pseudocode in Chen et al.,
 # https://arxiv.org/abs/2301.10972

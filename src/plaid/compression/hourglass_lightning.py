@@ -489,17 +489,16 @@ class HourglassTransformerLightningModule(L.LightningModule):
         
         if self.log_sequence_loss:
             seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
-            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            # tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
             self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True)
-            wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
             loss += seq_loss * self.seq_loss_weight
         
         if self.log_structure_loss:
             struct_loss, struct_loss_dict = self.structure_loss_fn(scaled_output, gt_structures, sequences)
             struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
             self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True)
-            wandb.log(struct_loss_dict)
             loss += struct_loss * self.struct_loss_weight
 
         return loss

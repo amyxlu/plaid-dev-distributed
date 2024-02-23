@@ -1,6 +1,7 @@
 import typing as T
 
 from openfold.utils.loss import backbone_loss
+from plaid.utils import outputs_to_avg_metric
 import pandas as pd
 import torch
 import wandb
@@ -99,7 +100,8 @@ class BackboneAuxiliaryLoss:
         )
 
         weight = self.weight if cur_weight is None else cur_weight
-        logdict = {"backbone_loss": loss.item()}
+        metrics = outputs_to_avg_metric(pred_raw_outputs)
+        logdict = {"backbone_loss": loss.item()} | metrics
         return weight * loss, logdict
 
 

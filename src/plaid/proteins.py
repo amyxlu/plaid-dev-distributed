@@ -15,7 +15,7 @@ import numpy as np
 import re
 from openfold.np import residue_constants
 
-from .utils._misc import npy, to_tensor
+from .utils._misc import npy, to_tensor, outputs_to_avg_metric
 from .decoder import FullyConnectedNetwork
 from .esmfold import ESMFOLD_Z_DIM, esmfold_v1
 from .esmfold.misc import output_to_pdb, batch_encode_sequences
@@ -159,30 +159,6 @@ class DecoderTokenizer:
     def remove_invalid_aa(self, string: str):
         return "".join([s for s in string if self._is_valid_aa(s)])
 
-
-def outputs_to_avg_metric(outputs):
-    avg_metrics = {}
-    metrics_to_log = [
-        "plddt",
-        "ptm",
-        "aligned_confidence_probs",
-        "predicted_aligned_error",
-    ]
-
-    for metric in metrics_to_log:
-        value = npy(outputs[metric])
-
-        if value.ndim == 1:
-            median = value
-        elif value.ndim == 2:
-            median = np.median(value, axis=1)
-        else:
-            assert value.ndim > 2
-            median = np.median(value, axis=tuple(range(1, value.ndim)))
-
-        avg_metrics[metric] = median
-
-    return avg_metrics
 
 
 class LatentToSequence:
