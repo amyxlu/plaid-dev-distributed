@@ -43,7 +43,6 @@ def cast_tuple(val, depth = 1):
 
 # factory
 def _valid_depth_dtype(depth):
-    import pdb;pdb.set_trace()
     if isinstance(depth, int):
         return True
     if isinstance(depth, tuple) or isinstance(depth, list) or isinstance(depth, ListConfig):
@@ -226,7 +225,9 @@ class Transformer(nn.Module):
             x = attn(x, context = context, mask = mask)
             x = ff(x)
 
-        return self.norm(x)
+        # compressed tensor is same as x_out for non-hourglass 
+        compressed = x.clone()
+        return x, compressed
 
 class HourglassTransformer(nn.Module):
     def __init__(
@@ -303,12 +304,12 @@ class HourglassTransformer(nn.Module):
         self.post_transformer = Transformer(dim = dim, depth = post_layers_depth, causal = causal, **transformer_kwargs)
         self.norm_out = nn.LayerNorm(dim) if norm_out else nn.Identity()
 
-    def forward(self, x, mask = None):
+    def forward(self, x, mask = None, prev_compressed=[]):
         # b : batch, n : sequence length, d : feature dimension, s : shortening factor
         s, b, n = self.shorten_factor, *x.shape[:2]
         
         # top half of hourglass, pre-transformer layers
-        x = self.pre_transformer(x, mask = mask)
+        x, _ = self.pre_transformer(x, mask = mask)
         
         # pad to multiple of shortening factor, in preparation for pooling
         x = pad_to_multiple(x, s, dim = -2)
@@ -352,7 +353,10 @@ class HourglassTransformer(nn.Module):
             downsampled = rearrange(downsampled, '(b n) () d -> b n d', b = b)
             
         # the "valley" - either a regular transformer or another hourglass
-        x = self.valley_transformer(downsampled, mask = downsampled_mask)
+        x, compressed = self.valley_transformer(downsampled, mask = downsampled_mask, prev_compressed=prev_compressed)
+        prev_compressed.append(compressed)
+
+        # this will only be returned for the first layer, since we don't return in the recursed instantiation
         valley_out = x.clone()
 
         # naive repeat upsample
@@ -376,8 +380,8 @@ class HourglassTransformer(nn.Module):
         x = x[:, :n]
         
         # post-valley transformers
-        x = self.post_transformer(x, mask = mask)
-        return self.norm_out(x)
+        x, _ = self.post_transformer(x, mask = mask)
+        return self.norm_out(x), prev_compressed
 
 
 class HourglassTransformerLightningModule(L.LightningModule):
@@ -465,7 +469,16 @@ class HourglassTransformerLightningModule(L.LightningModule):
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
-    def run_batch(self, batch, prefix="train"):
+    def run_batch(self, batch, prefix="train", seq_emb_fn: T.Optional[T.Callable] = None):
+        """
+        The input batch can be:
+        (1) precomputed embeddings along with a dictionary of structures (CATHShardedDataModule)
+        (2) precomputed embeddings with a placeholder for the structure dictionary (CATHStructureDataModule)
+        (3) raw headers and sequences tuples (FastaDataset)
+
+        to trigger the raw sequence mode, the `seq_emb_fn` should be passed, which should be defined outside 
+        the train loop, and should of the desired embedding function from ESMFold/etc., already moved to device.
+        """
         x, sequences, gt_structures = batch
         # todo: might be easier to just save seqlen when processing for making masks
         # in this form, the sequences *must* have the correct length (trimmed, no pad)
@@ -482,7 +495,9 @@ class HourglassTransformerLightningModule(L.LightningModule):
         mask = mask.bool()
         x, mask = x.to(self.device), mask.to(self.device)
         
-        output = self(x, mask)
+        output, list_of_compressed = self(x, mask)
+        self.log_dict({"compressed_len_0": list_of_compressed[0].shape[0], "compressed_depth_0": list_of_compressed[0].shape[1]}, on_step=False, on_epoch=True)
+        self.log_dict({"compressed_len_1": list_of_compressed[1].shape[0], "compressed_depth_1": list_of_compressed[1].shape[1]}, on_step=False, on_epoch=True)
         loss = F.mse_loss(x, output)
         scaled_output = self.latent_scaler.unscale(output)
         self.log_dict({f"{prefix}/recons_loss": loss.item()}, on_step=(prefix != "val"), on_epoch=True)
