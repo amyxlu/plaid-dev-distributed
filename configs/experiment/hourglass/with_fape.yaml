@@ -2,6 +2,7 @@
 
 datamodule:
   batch_size: 32
+  seq_len: 512
   
 hourglass:
   seq_loss_weight: 0.0
