@@ -169,6 +169,8 @@ class CATHStructureDataset(H5ShardDataset):
         if not path_to_filtered_ids_list is None:
             with open(path_to_filtered_ids_list, "r") as f:
                 filtered_ids = f.read().splitlines()
+        else:
+            filtered_ids = None
         
         super().__init__(split, shard_dir, embedder, max_seq_len, dtype, filtered_ids)
 

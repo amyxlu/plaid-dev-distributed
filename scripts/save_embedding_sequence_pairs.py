@@ -167,6 +167,9 @@ def make_shard(embedder, dataloader, max_seq_len, batch_converter=None, repr_lay
             feats, seq_lens, sequences = embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_seq_len)
 
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
+        from plaid.transforms import trim_or_pad_batch_first
+        # to avoid errors in cases where whole batch is less than the target
+        feats = trim_or_pad_batch_first(feats, max_seq_len)
 
         if not len(headers) == len(sequences) == len(feats) == len(seq_lens):
             import pdb;pdb.set_trace()
