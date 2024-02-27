@@ -1,4 +1,5 @@
 import typing as T
+from functools import partial
 
 import math
 from tqdm import tqdm, trange
@@ -41,7 +42,16 @@ def pad_to_multiple(tensor, multiple, dim = -1, value = 0):
 def cast_tuple(val, depth = 1):
     return val if isinstance(val, tuple) else ((val,) * depth)
 
-# factory
+def make_norm_layer(norm_type, dim):
+    if norm_type == "channel":
+        return partial(nn.InstanceNorm1d, dim)
+    elif norm_type == "layer":
+        return partial(nn.LayerNorm, dim)
+    elif (norm_type == "identity") or (norm_type is None):
+        return partial(nn.Identity)
+    else:
+        raise ValueError(f"Not understood {norm_type}")
+
 def _valid_depth_dtype(depth):
     if isinstance(depth, int):
         return True
@@ -49,6 +59,8 @@ def _valid_depth_dtype(depth):
         if len(depth) == 3:
             return True
     return False
+
+# factory
 
 def get_hourglass_transformer(
     dim,
@@ -58,14 +70,13 @@ def get_hourglass_transformer(
     downproj_factor,
     attn_resampling,
     updown_sample_type,
-    return_compressed=True,
     **kwargs
 ):
     assert _valid_depth_dtype, f'depth must be either an integer or a tuple of 3, indicating (pre_transformer_depth, <nested-hour-glass-config>, post_transformer_depth), got {type(depth)}.'
     assert not (isinstance(depth, int) and shorten_factor), 'there does not need to be a shortening factor when only a single transformer block is indicated (depth of one integer value)'
 
     if isinstance(depth, int):
-        return Transformer(dim = dim, depth = depth, return_compressed=return_compressed, **kwargs)
+        return Transformer(dim = dim, depth = depth, **kwargs)
 
     return HourglassTransformer(dim = dim, depth = depth, shorten_factor = shorten_factor, downproj_factor = downproj_factor, attn_resampling = attn_resampling, updown_sample_type = updown_sample_type, **kwargs)
 
@@ -110,27 +121,27 @@ class LinearUpsample(nn.Module):
 # classes
 
 class PreNormLinearDownProjection(nn.Module):
-    def __init__(self, dim, downproj_factor):
+    def __init__(self, dim, downproj_factor, norm_type="layer"):
         super().__init__()
-        self.norm = nn.LayerNorm(dim)
+        self.norm = make_norm_layer(norm_type, dim)
         self.proj = nn.Linear(dim, dim // downproj_factor)
 
     def forward(self, x):
         return self.proj(self.norm(x))
 
 class PreNormLinearUpProjection(nn.Module):
-    def __init__(self, dim, downproj_factor):
+    def __init__(self, dim, downproj_factor, norm_type="layer"):
         super().__init__()
-        self.norm = nn.LayerNorm(dim // downproj_factor)
+        self.norm = make_norm_layer(norm_type, dim // downproj_factor)
         self.proj = nn.Linear(dim // downproj_factor, dim)
 
     def forward(self, x):
         return self.proj(self.norm(x))
 
 class PreNormResidual(nn.Module):
-    def __init__(self, dim, fn):
+    def __init__(self, dim, fn, norm_type="layer"):
         super().__init__()
-        self.norm = nn.LayerNorm(dim)
+        self.norm = make_norm_layer(norm_type, dim)
         self.fn = fn
 
     def forward(self, x, **kwargs):
@@ -208,32 +219,29 @@ class Transformer(nn.Module):
         attn_dropout = 0.,
         ff_mult = 4,
         ff_dropout = 0.,
-        norm_out = False,
-        return_compressed = False
+        out_norm_type = "layer",
+        body_norm_type = "layer"
     ):
         super().__init__()
         self.layers = nn.ModuleList([])
-        self.return_compressed = return_compressed
 
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PreNormResidual(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout, causal = causal)),
-                PreNormResidual(dim, FeedForward(dim, mult = ff_mult, dropout = ff_dropout))
+                PreNormResidual(dim, Attention(dim, heads = heads, dim_head = dim_head, dropout = attn_dropout, causal = causal), body_norm_type),
+                PreNormResidual(dim, FeedForward(dim, mult = ff_mult, dropout = ff_dropout), body_norm_type)
             ]))
 
-        self.norm = nn.LayerNorm(dim) if norm_out else nn.Identity()
+        self.norm = make_norm_layer(out_norm_type, dim)
 
-    def forward(self, x, context = None, mask = None, prev_compressed=None):
+    def forward(self, x, context = None, mask = None, return_valley=False):
         for attn, ff in self.layers:
             x = attn(x, context = context, mask = mask)
             x = ff(x)
+        x = self.norm(x)
 
         # compressed tensor is same as x_out for non-hourglass 
         compressed = x.clone()
-        if self.return_compressed:
-            return x, compressed
-        else:
-            return x
+        return x, compressed
 
 class HourglassTransformer(nn.Module):
     def __init__(
@@ -248,7 +256,8 @@ class HourglassTransformer(nn.Module):
         heads = 8,
         dim_head = 64,
         causal = False,
-        norm_out = False,
+        out_norm_type = "layer",
+        body_norm_type = "layer"
     ):
         super().__init__()
         pre_layers_depth, valley_depth, post_layers_depth = depth
@@ -271,7 +280,9 @@ class HourglassTransformer(nn.Module):
 
         transformer_kwargs = dict(
             heads = heads,
-            dim_head = dim_head
+            dim_head = dim_head,
+            out_norm_type = out_norm_type,
+            body_norm_type = body_norm_type
         )
 
         self.causal = causal
@@ -287,8 +298,8 @@ class HourglassTransformer(nn.Module):
         else:
             raise ValueError(f'unknown updown_sample_type keyword value - must be either naive or linear for now')
 
-        self.down_projection = PreNormLinearDownProjection(dim, downproj_factor)
-        self.up_projection = PreNormLinearUpProjection(dim, downproj_factor)
+        self.down_projection = PreNormLinearDownProjection(dim, downproj_factor, body_norm_type)
+        self.up_projection = PreNormLinearUpProjection(dim, downproj_factor, body_norm_type)
         
         self.valley_transformer = get_hourglass_transformer(
             dim = dim // downproj_factor,
@@ -298,25 +309,24 @@ class HourglassTransformer(nn.Module):
             attn_resampling = attn_resampling,
             updown_sample_type = updown_sample_type,
             causal = causal,
-            return_compressed = True,
             **transformer_kwargs
         )
 
-        self.attn_resampling_context_downproj = PreNormLinearDownProjection(dim, downproj_factor) if attn_resampling else None
-        self.attn_resampling_context_upproj = PreNormLinearUpProjection(dim, downproj_factor) if attn_resampling else None
-        self.attn_resampling_pre_valley = Transformer(dim = dim // downproj_factor, depth = 1, return_compressed=False, **transformer_kwargs) if attn_resampling else None
-        self.attn_resampling_post_valley = Transformer(dim = dim, depth = 1, return_compressed=False, **transformer_kwargs) if attn_resampling else None
+        self.attn_resampling_context_downproj = PreNormLinearDownProjection(dim, downproj_factor, body_norm_type) if attn_resampling else None
+        self.attn_resampling_context_upproj = PreNormLinearUpProjection(dim, downproj_factor, body_norm_type) if attn_resampling else None
+        self.attn_resampling_pre_valley = Transformer(dim = dim // downproj_factor, depth = 1, **transformer_kwargs) if attn_resampling else None
+        self.attn_resampling_post_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
 
-        self.pre_transformer = Transformer(dim = dim, depth = pre_layers_depth, causal = causal, return_compressed=False, **transformer_kwargs)
-        self.post_transformer = Transformer(dim = dim, depth = post_layers_depth, causal = causal, return_compressed=False, **transformer_kwargs)
-        self.norm_out = nn.LayerNorm(dim) if norm_out else nn.Identity()
+        self.pre_transformer = Transformer(dim = dim, depth = pre_layers_depth, causal = causal, **transformer_kwargs)
+        self.post_transformer = Transformer(dim = dim, depth = post_layers_depth, causal = causal, **transformer_kwargs)
+        self.norm_out = make_norm_layer(out_norm_type, dim)
 
     def forward(self, x, mask = None, prev_compressed=[]):
         # b : batch, n : sequence length, d : feature dimension, s : shortening factor
         s, b, n = self.shorten_factor, *x.shape[:2]
         
         # top half of hourglass, pre-transformer layers
-        x = self.pre_transformer(x, mask = mask)
+        x, _ = self.pre_transformer(x, mask = mask)
         
         # pad to multiple of shortening factor, in preparation for pooling
         x = pad_to_multiple(x, s, dim = -2)
@@ -361,7 +371,7 @@ class HourglassTransformer(nn.Module):
             
         # the "valley" - either a regular transformer or another hourglass
         x, compressed = self.valley_transformer(downsampled, mask = downsampled_mask, prev_compressed=prev_compressed)
-        prev_compressed.extend(compressed)
+        prev_compressed.append(compressed)
 
         # this will only be returned for the first layer, since we don't return in the recursed instantiation
         valley_out = x.clone()
@@ -382,12 +392,11 @@ class HourglassTransformer(nn.Module):
 
             x = rearrange(x, '(b n) s d -> b (n s) d', b = b)
 
-
         # bring sequence back to original length, if it were padded for pooling
         x = x[:, :n]
         
         # post-valley transformers
-        x = self.post_transformer(x, mask = mask)
+        x, _ = self.post_transformer(x, mask = mask)
         return self.norm_out(x), prev_compressed
 
 
@@ -404,7 +413,9 @@ class HourglassTransformerLightningModule(L.LightningModule):
         heads = 8,
         dim_head = 64,
         causal = False,
-        norm_out = False,
+        norm_out = None, # deprecated
+        out_norm_type = "layer",
+        body_norm_type = "layer",
         # learning rates
         lr = 1e-4,
         lr_sched_type: str = "constant",
@@ -421,6 +432,11 @@ class HourglassTransformerLightningModule(L.LightningModule):
         log_structure_loss = True,
     ):
         super().__init__()
+        if not norm_out is None:
+            # backwards compatibility
+            out_norm_type = "layer"
+            body_norm_type = "layer"
+        
         self.latent_scaler = latent_scaler
         self.lm_embedder_type = lm_embedder_type
         self.log_sequence_loss = log_sequence_loss or (seq_loss_weight > 0.)
@@ -444,8 +460,8 @@ class HourglassTransformerLightningModule(L.LightningModule):
             heads=heads,
             dim_head=dim_head,
             causal=causal,
-            norm_out=norm_out,
-            return_compressed=True
+            out_norm_type=out_norm_type,
+            body_norm_type=body_norm_type,
         )
         self.model.to(self.device)
 
@@ -504,6 +520,8 @@ class HourglassTransformerLightningModule(L.LightningModule):
         x, mask = x.to(self.device), mask.to(self.device)
         
         output, list_of_compressed = self(x, mask)
+        self.log_dict({"compressed_len_0": list_of_compressed[0].shape[0], "compressed_depth_0": list_of_compressed[0].shape[1]}, on_step=False, on_epoch=True)
+        self.log_dict({"compressed_len_1": list_of_compressed[1].shape[0], "compressed_depth_1": list_of_compressed[1].shape[1]}, on_step=False, on_epoch=True)
         loss = F.mse_loss(x, output)
         scaled_output = self.latent_scaler.unscale(output)
         self.log_dict({f"{prefix}/recons_loss": loss.item()}, on_step=(prefix != "val"), on_epoch=True)
@@ -531,15 +549,15 @@ class HourglassTransformerLightningModule(L.LightningModule):
         return self.run_batch(batch, prefix="val")
     
 if __name__ == "__main__":
-    from plaid.datasets import CATHShardedDataModule
+    from plaid.datasets import CATHStructureDataModule
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/homefs/home/lux70/storage/data/cath/dompdb/"
     latent_scaler = LatentScaler()
     embedder = "esmfold"
     D = 1024 if embedder == "esmfold" else 320
-    print("Making dataset")
-    dm = CATHShardedDataModule(
+    dm = CATHStructureDataModule(
         shard_dir=shard_dir,
+        pdb_path_dir=pdb_dir,
         embedder=embedder,
         seq_len=256,
         batch_size=16
@@ -548,22 +566,21 @@ if __name__ == "__main__":
     train_dataloader = dm.train_dataloader()
     val_dataloader = dm.val_dataloader()
 
-    print("Making model")
     module = HourglassTransformerLightningModule(
         dim = D,                     # feature dimension
         heads = 8,                      # attention heads
         dim_head = 64,                  # dimension per attention head
-        shorten_factor = (4, 4),             # shortening factor
-        downproj_factor = (16, 16),
-        depth = (4, (4, 2, 4), 4),              # tuple of 3, standing for pre-transformer-layers, valley-transformer-layers (after downsample), post-transformer-layers (after upsample) - the valley transformer layers can be yet another nested tuple, in which case it will shorten again recursively
+        shorten_factor = 2,             # shortening factor
+        depth = (4, 2, 4),              # tuple of 3, standing for pre-transformer-layers, valley-transformer-layers (after downsample), post-transformer-layers (after upsample) - the valley transformer layers can be yet another nested tuple, in which case it will shorten again recursively
         attn_resampling = True,
         updown_sample_type = "naive",
-        causal = False,
+        causal = True,
         norm_out = True,
-        log_sequence_loss=False,
-        log_structure_loss=False,
+        latent_scaler=latent_scaler,
+        log_sequence_loss=True,
+        log_structure_loss=True,
+        seq_loss_weight=1.0,
+        struct_loss_weight=1.0
     )
     batch = next(iter(train_dataloader))
-    print("training step")
     module.training_step(batch, 0)
-    import IPython;IPython.embed()

@@ -9,7 +9,9 @@ updown_sample_type: 'naive'
 heads: 8
 dim_head: 64
 causal: false
-norm_out: false
+norm_out: true
+# out_norm_type: layer
+# body_norm_type: channel
 
 seq_loss_weight: 0.0
 struct_loss_weight: 0.0

@@ -12,8 +12,8 @@ hourglass:
   struct_loss_weight: 0.0
   log_sequence_loss: True 
   log_structure_loss: False 
-  shorten_factor: [2, 2]
-  downproj_factor: [2, 2]
+  shorten_factor: [8, 8]
+  downproj_factor: [16, 16]
   depth: [4, [4, 2, 4], 4]
 
 
