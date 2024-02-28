@@ -5,6 +5,8 @@ import torch
 import random
 import einops
 
+from .esmfold import esmfold_v1
+
 
 def mask_from_seq_lens(x: torch.Tensor, seqlen: torch.Tensor):
     mask = torch.arange(x.shape[1], device=x.device)
@@ -12,7 +14,7 @@ def mask_from_seq_lens(x: torch.Tensor, seqlen: torch.Tensor):
     return mask.long()
 
 
-def _get_random_sequence_crop(s, length):
+def get_random_sequence_crop(s, length):
     if len(s) > length:
         start = random.randint(0, len(s) - length)
         return s[start : start + length]
@@ -23,7 +25,7 @@ def _get_random_sequence_crop(s, length):
 def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
     if not min_len is None:
         sequence_batch = list(filter(lambda s: len(s) >= min_len, sequence_batch))
-    return [_get_random_sequence_crop(seq, max_len) for seq in sequence_batch]
+    return [get_random_sequence_crop(seq, max_len) for seq in sequence_batch]
 
 
 # def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
@@ -93,10 +95,17 @@ def trim_or_pad_batch_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0)
         tensor = torch.concat((tensor, padding), dim=1)
     return tensor
 
+
 class ESMFoldEmbed:
-    def __init__(self, esmfold):
+    def __init__(self, esmfold=None, shorten_len_to=None):
+        if esmfold is None:
+            esmfold = esmfold_v1()
         self.esmfold = esmfold
         self.esmfold = self.esmfold.eval().requires_grad_(False)
+        if shorten_len_to is None:
+            self.transform = lambda x: x
+        else:
+            self.transform = lambda batch: get_random_sequence_crop_batch(batch, max_len=shorten_len_to)
 
     def embed_fn(self, sequence: List[str]) -> Tuple[torch.Tensor, List[str]]:
         with torch.no_grad():
@@ -104,6 +113,7 @@ class ESMFoldEmbed:
         return output["s"]
 
     def __call__(self, sequence, device=None):
+        sequence = self.transform(sequence)
         if not device is None:
             self.esmfold = self.esmfold.to(device)
         return self.embed_fn(sequence)

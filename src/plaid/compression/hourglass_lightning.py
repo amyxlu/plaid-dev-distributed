@@ -425,7 +425,7 @@ class HourglassTransformerLightningModule(L.LightningModule):
         lr_num_cycles: int = 1,
         # scaler
         latent_scaler = LatentScaler(),
-        lm_embedder_type: str = "esmfold",
+        seq_emb_fn = None,
         # auxiliary losses
         seq_loss_weight: float = 0.0,
         struct_loss_weight: float = 0.0,
@@ -434,7 +434,7 @@ class HourglassTransformerLightningModule(L.LightningModule):
     ):
         super().__init__()
         self.latent_scaler = latent_scaler
-        self.lm_embedder_type = lm_embedder_type
+        self.seq_emb_fn = seq_emb_fn
         self.log_sequence_loss = log_sequence_loss or (seq_loss_weight > 0.)
         self.log_structure_loss = log_structure_loss or (struct_loss_weight > 0.)
         self.seq_loss_weight = seq_loss_weight
@@ -488,7 +488,7 @@ class HourglassTransformerLightningModule(L.LightningModule):
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
-    def run_batch(self, batch, prefix="train", seq_emb_fn: T.Optional[T.Callable] = None):
+    def run_batch(self, batch, prefix="train"):
         """
         The input batch can be:
         (1) precomputed embeddings along with a dictionary of structures (CATHShardedDataModule)
@@ -498,40 +498,47 @@ class HourglassTransformerLightningModule(L.LightningModule):
         to trigger the raw sequence mode, the `seq_emb_fn` should be passed, which should be defined outside 
         the train loop, and should of the desired embedding function from ESMFold/etc., already moved to device.
         """
-        x, sequences, gt_structures = batch
-        # todo: might be easier to just save seqlen when processing for making masks
-        # in this form, the sequences *must* have the correct length (trimmed, no pad)
+        if len(batch) == 3:
+            # todo: might be easier to just save seqlen when processing for making masks
+            # in this form, the sequences *must* have the correct length (trimmed, no pad)
+            x, sequences, gt_structures = batch
+        elif len(batch) == 2:
+            assert not self.seq_emb_fn is None
+            headers, sequences = batch
+            x = self.seq_emb_fn(sequences, device=self.device)
+        else:
+            raise
+            
+        batch_size = len(batch[0])
         tokens, mask, _, _, _ = batch_encode_sequences(sequences)
         if mask.shape[1] != x.shape[1]:
             # pad with False
             mask = trim_or_pad_batch_first(mask, x.shape[1], pad_idx=0)
             tokens = trim_or_pad_batch_first(tokens, x.shape[1], pad_idx=0)
 
-        if self.lm_embedder_type != "esmfold":
-            x, mask, tokens = x[:, 1:-1, :], mask[:, 1:-1], tokens[:, 1:-1]
-        else:
-            x = self.latent_scaler.scale(x)
+        x = self.latent_scaler.scale(x)
         mask = mask.bool()
         x, mask = x.to(self.device), mask.to(self.device)
+        batch_size = x.shape[0]
 
         x_recons, compressed_representation = self(x, mask)
 
         loss = F.mse_loss(x, x_recons)
         scaled_output = self.latent_scaler.unscale(x_recons)
-        self.log_dict({f"{prefix}/recons_loss": loss.item()}, on_step=(prefix != "val"), on_epoch=True)
+        self.log_dict({f"{prefix}/recons_loss": loss.item()}, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
 
         if self.log_sequence_loss:
             seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
             # tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
-            self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True)
+            self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
             loss += seq_loss * self.seq_loss_weight
 
         if self.log_structure_loss:
             struct_loss, struct_loss_dict = self.structure_loss_fn(scaled_output, gt_structures, sequences)
             struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
-            self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True)
+            self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             loss += struct_loss * self.struct_loss_weight
 
         return loss

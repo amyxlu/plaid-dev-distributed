@@ -14,8 +14,8 @@ import pickle
 import typing as T
 import lightning as L
 
-from .transforms import mask_from_seq_lens
-from .constants import ACCEPTED_LM_EMBEDDER_TYPES
+from plaid.transforms import mask_from_seq_lens, get_random_sequence_crop_batch, get_random_sequence_crop
+from plaid.constants import ACCEPTED_LM_EMBEDDER_TYPES
 
 
 class TensorShardDataset(torch.utils.data.Dataset):
@@ -374,16 +374,16 @@ class FastaDataModule(L.LightningDataModule):
         self,
         fasta_file: str,
         batch_size: int,
-        max_seq_len: int = 512,
         train_frac: float = 0.8,
         num_workers: int = 0,
+        *args,
+        **kwargs
     ):
         super().__init__()
         self.fasta_file = fasta_file
         self.train_frac, self.val_frac = train_frac, 1 - train_frac
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.max_seq_len = max_seq_len
 
     def setup(self, stage: str = "fit"):
         ds = FastaDataset(self.fasta_file, cache_indices=True)
@@ -414,53 +414,54 @@ class FastaDataModule(L.LightningDataModule):
         return self.val_dataloader()
 
 
-class EmbedFastaDataModule(FastaDataModule):
-    """Overrides the dataloader functions to embed with ESMFold instead."""
+# class EmbedFastaDataModule(FastaDataModule):
+#     """Overrides the dataloader functions to embed with ESMFold instead."""
 
-    def __init__(
-        self,
-        esmfold: torch.nn.Module,
-        fasta_file: str,
-        batch_size: int,
-        max_seq_len: int = 512,
-        train_frac: float = 0.8,
-        num_workers: int = 0,
-    ):
-        super().__init__(fasta_file, batch_size, max_seq_len, train_frac, num_workers)
-        self.esmfold = esmfold
-        self.esmfold = self.esmfold.eval().requires_grad_(False).cuda()
+#     def __init__(
+#         self,
+#         fasta_file: str,
+#         batch_size: int,
+#         esmfold: torch.nn.Module = None,
+#         seq_len: int = 512,
+#         train_frac: float = 0.8,
+#         num_workers: int = 0,
+#     ):
+#         super().__init__(fasta_file, batch_size, train_frac, num_workers)
+#         if esmfold is None:
+#             from plaid.esmfold import esmfold_v1
+#             self.esmfold = esmfold_v1()
+#         self.esmfold = self.esmfold.eval().requires_grad_(False).cuda()
+#         self.max_seq_len = seq_len
 
-    def embed_fn(self, header, sequence: List[str]) -> Tuple[torch.Tensor, List[str]]:
-        from plaid.utils import get_random_sequence_crop_batch
+#     def embed_fn(self, list_of_tuples) -> Tuple[torch.Tensor, List[str]]:
+#         sequence = get_random_sequence_crop_batch(sequence, self.max_seq_len)
+#         with torch.no_grad():
+#             output = self.esmfold.infer_embedding(sequence)
+#         return output["s"], header, sequence
 
-        sequence = get_random_sequence_crop_batch(sequence, self.max_seq_len)
-        with torch.no_grad():
-            output = self.esmfold.infer_embedding(sequence)
-        return output["s"], header, sequence
+#     def train_dataloader(self):
+#         """Dataloader will load the embedding and the original sequence (truncated to max length)"""
+#         return DataLoader(
+#             self.train_dataset,
+#             batch_size=self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=True,
+#             shuffle=True,
+#             collate_fn=self.embed_fn,
+#         )
 
-    def train_dataloader(self):
-        """Dataloader will load the embedding and the original sequence (truncated to max length)"""
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            shuffle=True,
-            collate_fn=self.embed_fn,
-        )
+#     def val_dataloader(self):
+#         return DataLoader(
+#             self.val_dataset,
+#             batch_size=self.batch_size,
+#             num_workers=self.num_workers,
+#             pin_memory=True,
+#             shuffle=False,
+#             collate_fn=self.embed_fn,
+#         )
 
-    def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            shuffle=False,
-            collate_fn=self.embed_fn,
-        )
-
-    def test_dataloader(self):
-        return self.val_dataloader()
+#     def test_dataloader(self):
+#         return self.val_dataloader()
 
 
 if __name__ == "__main__":
@@ -485,17 +486,21 @@ if __name__ == "__main__":
     # batch = next(iter(train_dataloader))
     # transform = esmfold.infer_embedding
 
-    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
-    pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
+    # shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
 
-    dm = CATHStructureDataModule(
-        shard_dir,
-        pdb_dir,
-        seq_len=256,
-        batch_size=32,
-        num_workers=0,
-    )
+    # dm = CATHStructureDataModule(
+    #     shard_dir,
+    #     pdb_dir,
+    #     seq_len=256,
+    #     batch_size=32,
+    #     num_workers=0,
+    # )
+    fasta_file = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
+    dm = EmbedFastaDataModule(fasta_file=fasta_file, batch_size=64, seq_len=64)
+
     dm.setup()
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))
     print(len(train_dataloader.dataset))
+    import IPython;IPython.set_trace()

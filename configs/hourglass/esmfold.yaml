@@ -9,15 +9,12 @@ updown_sample_type: 'naive'
 heads: 8
 dim_head: 64
 causal: false
-norm_out: true
-# out_norm_type: layer
-# body_norm_type: channel
+norm_out: false 
 
 seq_loss_weight: 0.0
 struct_loss_weight: 0.0
 log_sequence_loss: False
 log_structure_loss: False
-lm_embedder_type: "esmfold"
 
 lr: 1e-4
 lr_sched_type: "constant"
