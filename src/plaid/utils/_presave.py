@@ -29,7 +29,7 @@ def make_embedder(lm_embedder_type):
     return embedder, alphabet
 
 
-def embed_batch_esmfold(esmfold, sequences, max_len=512, embed_result_key="s"):
+def embed_batch_esmfold(esmfold, sequences, max_len=512, embed_result_key="s", return_seq_lens=True):
     with torch.no_grad():
         # don't disgard short sequences since we're also saving headers
         sequences = get_random_sequence_crop_batch(
@@ -38,11 +38,15 @@ def embed_batch_esmfold(esmfold, sequences, max_len=512, embed_result_key="s"):
         seq_lens = [len(seq) for seq in sequences]
         embed_results = esmfold.infer_embedding(sequences, return_intermediates=True)
         feats = embed_results[embed_result_key].detach()
+        masks = embed_results['mask'].detach()
         seq_lens = torch.tensor(seq_lens, device="cpu", dtype=torch.int16)
-    return feats, seq_lens, sequences
+    if return_seq_lens:
+        return feats, seq_lens, sequences
+    else:
+        return feats, masks, sequences
 
 
-def embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_len=512):
+def embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_len=512, return_seq_lens=True):
     sequences = get_random_sequence_crop_batch(
         sequences, max_len=max_len, min_len=0
     )
@@ -57,6 +61,9 @@ def embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_len=51
     with torch.no_grad():
         results = embedder(tokens, repr_layers=[repr_layer], return_contacts=False)
         feats = results["representations"][repr_layer]
-    
-    return feats, seq_lens, sequences
+
+    if return_seq_lens: 
+        return feats, seq_lens, sequences
+    else:
+        return feats, masks, sequences
     
