@@ -323,7 +323,7 @@ class HourglassTransformer(nn.Module):
             padded_mask = pad_to_multiple(mask, s, dim = -1, value = False)
 
         # save the residual, and for "attention resampling" at downsample and upsample
-        x_residual = x.clone()
+        # x_residual = x.clone()
 
         # if autoregressive, do the shift by shortening factor minus one
         if self.causal:
@@ -379,8 +379,8 @@ class HourglassTransformer(nn.Module):
         x = self.upsample(x)
         x = self.up_projection(x)
 
-        # add the residual
-        x = x + x_residual
+        # add the residual -- was causing bugs
+        # x = x + x_residual
 
         # post-valley "attention resampling"
         if exists(self.attn_resampling_post_valley):
@@ -388,7 +388,6 @@ class HourglassTransformer(nn.Module):
                 rearrange(x, 'b (n s) d -> (b n) s d', s = s),
                 rearrange(self.attn_resampling_context_upproj(valley_out), 'b n d -> (b n) () d')
             )
-
             x = rearrange(x, '(b n) s d -> b (n s) d', b = b)
 
 
@@ -529,15 +528,16 @@ class HourglassTransformerLightningModule(L.LightningModule):
 
         if self.log_sequence_loss:
             seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(scaled_output, tokens, mask, return_reconstructed_sequences=True)
-            # tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
             self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
-            # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            if self.global_step % 500 == 0:
+                tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+                wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
             loss += seq_loss * self.seq_loss_weight
 
         if self.log_structure_loss:
             struct_loss, struct_loss_dict = self.structure_loss_fn(scaled_output, gt_structures, sequences)
-            struct_loss_dict = {f"{prefix}/{k}": v for k, v in struct_loss_dict.items()}
+            struct_loss_dict = {f"{prefix}/{k}": v.mean() for k, v in struct_loss_dict.items()}
             self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             loss += struct_loss * self.struct_loss_weight
 
