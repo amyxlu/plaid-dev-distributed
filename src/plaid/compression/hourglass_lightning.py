@@ -293,10 +293,8 @@ class HourglassTransformer(nn.Module):
             **transformer_kwargs
         )
 
-        self.attn_resampling_context_downproj = PreNormLinearDownProjection(dim, downproj_factor) if attn_resampling else None
-        self.attn_resampling_context_upproj = PreNormLinearUpProjection(dim, downproj_factor) if attn_resampling else None
-        self.attn_resampling_pre_valley = Transformer(dim = dim // downproj_factor, depth = 1, **transformer_kwargs) if attn_resampling else None
-        self.attn_resampling_post_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
+        self.attn_resampling_pre_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
+        self.attn_resampling_post_valley = Transformer(dim = dim // downproj_factor, depth = 1, **transformer_kwargs) if attn_resampling else None
 
         self.pre_transformer = Transformer(dim = dim, depth = pre_layers_depth, causal = causal, **transformer_kwargs)
         self.post_transformer = Transformer(dim = dim, depth = post_layers_depth, causal = causal, **transformer_kwargs)
@@ -340,9 +338,6 @@ class HourglassTransformer(nn.Module):
         else:
             downsampled_mask = None
 
-        # also possibly reduce along dim=-1
-        downsampled = self.down_projection(downsampled)
-
         # pre-valley "attention resampling" - they have the pooled token in each bucket attend to the tokens pre-pooled
         if exists(self.attn_resampling_pre_valley):
             if exists(mask):
@@ -351,11 +346,14 @@ class HourglassTransformer(nn.Module):
                 attn_resampling_mask = None
             downsampled = self.attn_resampling_pre_valley(
                 rearrange(downsampled, 'b n d -> (b n) () d'),
-                rearrange(self.attn_resampling_context_downproj(x), 'b (n s) d -> (b n) s d', s = s),
+                rearrange(x, 'b (n s) d -> (b n) s d', s = s),
                 mask = attn_resampling_mask
             )
 
             downsampled = rearrange(downsampled, '(b n) () d -> b n d', b = b)
+
+        # also possibly reduce along dim=-1
+        downsampled = self.down_projection(downsampled)
 
         # the "valley" - either a regular transformer or another hourglass
         out = self.valley_transformer(downsampled, mask = downsampled_mask)
@@ -377,7 +375,6 @@ class HourglassTransformer(nn.Module):
 
         # naive repeat upsample
         x = self.upsample(x)
-        x = self.up_projection(x)
 
         # add the residual -- was causing bugs
         # x = x + x_residual
@@ -386,10 +383,11 @@ class HourglassTransformer(nn.Module):
         if exists(self.attn_resampling_post_valley):
             x = self.attn_resampling_post_valley(
                 rearrange(x, 'b (n s) d -> (b n) s d', s = s),
-                rearrange(self.attn_resampling_context_upproj(valley_out), 'b n d -> (b n) () d')
+                rearrange(valley_out, 'b n d -> (b n) () d')
             )
             x = rearrange(x, '(b n) s d -> b (n s) d', b = b)
 
+        x = self.up_projection(x)
 
         # bring sequence back to original length, if it were padded for pooling
         x = x[:, :n]
@@ -550,24 +548,30 @@ class HourglassTransformerLightningModule(L.LightningModule):
         return self.run_batch(batch, prefix="val")
     
 if __name__ == "__main__":
-    from plaid.datasets import CATHShardedDataModule
-    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
-    pdb_dir = "/homefs/home/lux70/storage/data/cath/dompdb/"
-    latent_scaler = LatentScaler()
-    embedder = "esmfold"
-    D = 1024 if embedder == "esmfold" else 320
-    print("Making dataset")
-    dm = CATHShardedDataModule(
-        shard_dir=shard_dir,
-        embedder=embedder,
-        seq_len=256,
-        batch_size=16
-    )
-    dm.setup()
-    train_dataloader = dm.train_dataloader()
-    val_dataloader = dm.val_dataloader()
+    # from plaid.datasets import CATHShardedDataModule
+    # shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    # pdb_dir = "/homefs/home/lux70/storage/data/cath/dompdb/"
+    # latent_scaler = LatentScaler()
+    # embedder = "esmfold"
+    # D = 1024 if embedder == "esmfold" else 320
+    # print("Making dataset")
+    # dm = CATHShardedDataModule(
+    #     shard_dir=shard_dir,
+    #     embedder=embedder,
+    #     seq_len=256,
+    #     batch_size=16
+    # )
+    # dm.setup()
+    # train_dataloader = dm.train_dataloader()
+    # val_dataloader = dm.val_dataloader()
 
-    print("Making model")
+    # print("Making model")
+    import einops
+    device = torch.device("cuda")
+    latent = torch.randn(8, 8, 1024).to(device)
+    mask = einops.repeat(torch.tensor([1,1,1,1,1,0,0]), "l -> b l", b = 8).to(device) 
+    batch = (latent, mask) 
+    D = 1024
     module = HourglassTransformerLightningModule(
         dim = D,                     # feature dimension
         heads = 8,                      # attention heads
@@ -576,13 +580,13 @@ if __name__ == "__main__":
         downproj_factor = (16, 16),
         depth = (4, (4, 2, 4), 4),              # tuple of 3, standing for pre-transformer-layers, valley-transformer-layers (after downsample), post-transformer-layers (after upsample) - the valley transformer layers can be yet another nested tuple, in which case it will shorten again recursively
         attn_resampling = True,
-        updown_sample_type = "naive",
+        updown_sample_type = "linear",
         causal = False,
         norm_out = True,
         log_sequence_loss=False,
         log_structure_loss=False,
     )
-    batch = next(iter(train_dataloader))
-    print("training step")
-    module.training_step(batch, 0)
+    # batch = next(iter(train_dataloader))
+    # print("training step")
+    out = module(latent, mask)
     import IPython;IPython.embed()

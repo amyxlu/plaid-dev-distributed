@@ -1,4 +1,3 @@
 _target_: lightning.pytorch.callbacks.LearningRateMonitor
-logging_interval: step
 log_momentum: true
 log_weight_decay: true

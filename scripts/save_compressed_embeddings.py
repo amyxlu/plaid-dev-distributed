@@ -142,9 +142,9 @@ def make_shard(embedder, compressor, dataloader, max_seq_len, batch_converter=No
         cur_compressed.append(compressed.cpu())
         cur_headers.extend(headers)
         cur_sequences.extend(sequences)
-        print(recons_error)
+        print(compressed.shape)
 
-    cur_compressed = torch.cat(cur_compressed)
+    cur_compressed = torch.cat(cur_compressed, dim=0)
     return cur_compressed, cur_sequences, cur_headers
 
 

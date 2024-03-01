@@ -1,11 +1,14 @@
 # @package _global_
 
+defaults:
+  - override /datamodule: cath_structure_h5
+
 datamodule:
-  batch_size: 32
-  seq_len: 512
+  batch_size: 16
+  seq_len: 128
   
 hourglass:
-  seq_loss_weight: 0.0
+  seq_loss_weight: 1.0
   struct_loss_weight: 1.0
   log_sequence_loss: True 
   log_structure_loss: True 
