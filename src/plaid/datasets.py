@@ -253,6 +253,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
+            shuffle=True
         )
 
     def val_dataloader(self):
@@ -261,6 +262,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
+            shuffle=False
         )
 
     def test_dataloader(self):
@@ -269,6 +271,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
+            shuffle=False
         )
 
     def predict_dataloader(self):

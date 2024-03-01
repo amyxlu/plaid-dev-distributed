@@ -344,9 +344,9 @@ if __name__ == "__main__":
     import torch
     from plaid.proteins import LatentToSequence, LatentToStructure
 
-    device = torch.device("cuda:3")
-    sequence_constructor = LatentToSequence(device, strategy="onehot_categorical")
-    structure_constructor = LatentToStructure(device)
+    device = torch.device("cuda")
+    sequence_constructor = LatentToSequence().to(device)
+    structure_constructor = LatentToStructure().to(device)
     latent = torch.randn(16, 128, 1024).to(device)
     _, _, strs = sequence_constructor.to_sequence(latent)
-    # structure_constructor.to_structure(latent, strs)
+    output = structure_constructor.to_structure(latent, strs)
