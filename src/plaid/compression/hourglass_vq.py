@@ -16,6 +16,9 @@ from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 
+from plaid.losses.functions import masked_mse_loss
+
+
 
 class HourglassVQLightningModule(L.LightningModule):
     def __init__(
@@ -74,6 +77,7 @@ class HourglassVQLightningModule(L.LightningModule):
         )
 
         self.z_q_dim = dim // np.prod(dim) 
+        self.n_e = n_e
         self.latent_scaler = latent_scaler
 
         self.lr = lr
@@ -106,13 +110,14 @@ class HourglassVQLightningModule(L.LightningModule):
         z_q = quant_out['z_q']
         x_recons = self.dec(z_q, downsampled_mask, original_length=orig_len)
 
-        if self.global_step % 1000 == 0:
+        if self.global_step % 5000 == 0:
             fig, ax = plt.subplots()
             ax.hist(quant_out['min_encoding_indices'].detach().cpu().numpy(), bins=self.n_e)
-            wandb.log({"codebook_index_hist": fig})
+            wandb.log({"codebook_index_hist": wandb.Image(fig)})
 
         vq_loss = quant_out['loss']
-        recons_loss = torch.mean((x_recons - x) ** 2)
+        # recons_loss = torch.mean((x_recons - x) ** 2)
+        recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = vq_loss + recons_loss
         log_dict = {
             "vq_loss": vq_loss.item(),

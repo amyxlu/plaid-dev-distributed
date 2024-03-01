@@ -18,7 +18,8 @@ git+https://github.com/amyxlu/evo.git
 scipy
 scikit-learn
 py3Dmol
-pyarrow
+pyarrow  # for pandas dataframe
+plotly   # to log wandb plots
 
 # for openfold, use this hack to get around clunky imports while
 # making sure the custom CUDA kernels used are being created: 
