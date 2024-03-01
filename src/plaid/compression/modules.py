@@ -303,11 +303,6 @@ class HourglassEncoder(nn.Module):
         # print(mask)
         if exists(mask):
             padded_mask = pad_to_multiple(mask, s, dim = -1, value = False)
-        # print(padded_mask)
-            
-
-        # save the residual, and for "attention resampling" at downsample and upsample
-        x_residual = x.clone()
 
         # if autoregressive, do the shift by shortening factor minus one
         if self.causal:
@@ -424,7 +419,7 @@ class HourglassDecoder(nn.Module):
         else:
             self.has_nest = False
 
-        self.post_transformer = Transformer(dim = dim * elongate_factor, depth = depth, causal = causal, **transformer_kwargs)
+        self.post_transformer = Transformer(dim = dim * upproj_factor, depth = depth, causal = causal, **transformer_kwargs)
         self.attn_resampling_post_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
         self.norm_out = nn.LayerNorm(dim) if norm_out else nn.Identity()
 

@@ -1,4 +1,5 @@
 import lightning as L
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torch.optim import AdamW
 import einops
@@ -104,6 +105,11 @@ class HourglassVQLightningModule(L.LightningModule):
         quant_out = self.quantizer(z_e)
         z_q = quant_out['z_q']
         x_recons = self.dec(z_q, downsampled_mask, original_length=orig_len)
+
+        if self.global_step % 1000 == 0:
+            fig, ax = plt.subplots()
+            ax.hist(quant_out['min_encoding_indices'].detach().cpu().numpy(), bins=self.n_e)
+            wandb.log({"codebook_index_hist": fig})
 
         vq_loss = quant_out['loss']
         recons_loss = torch.mean((x_recons - x) ** 2)
