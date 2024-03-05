@@ -51,6 +51,7 @@ def parse_args():
     parser.add_argument('--train_frac', type=float, default=0.8, help='Training fraction')
     parser.add_argument('--dtype', type=str, default="fp32", choices=["bf16", "fp32", "fp64"], help='Data type')
     parser.add_argument("--lm_embedder_type", type=str, default="esmfold", choices=ACCEPTED_LM_EMBEDDER_TYPES)
+    parser.add_argument("--max_num_samples", type=int, default=-1, help="If specified, uses up to this many samples before splitting into train/val")
     return parser.parse_args()
 
 
@@ -123,9 +124,15 @@ def _get_dtype(dtype):
 #     return feats, seq_lens, sequences
 
 
-def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4):
+def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4, max_num_samples=-1):
     # for loading batches into ESMFold and embedding
     ds = FastaDataset(fasta_file, cache_indices=True)
+    if max_num_samples != -1:
+        print(f"Orignal size of total dataset {len(ds):,}")
+        idxs = torch.randperm(len(ds))[:max_num_samples]
+        ds = torch.utils.data.Subset(ds, idxs)
+        print(f"Subsampled size of total dataset {len(ds):,}")
+
     train_ds, val_ds = torch.utils.data.random_split(ds, [0.8, 0.2])
     train_dataloader = torch.utils.data.DataLoader(
         train_ds, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=False
@@ -263,7 +270,7 @@ def run(dataloader, output_dir, cfg):
 
 def main(cfg):
     print(f"making dataloader from {cfg.fasta_file}")
-    train_dataloader, val_dataloader = make_fasta_dataloaders(cfg.fasta_file, cfg.batch_size, cfg.num_workers)
+    train_dataloader, val_dataloader = make_fasta_dataloaders(cfg.fasta_file, cfg.batch_size, cfg.num_workers, cfg.max_num_samples)
 
     print("creating val dataset")
     run(val_dataloader, cfg.val_output_dir, cfg)
