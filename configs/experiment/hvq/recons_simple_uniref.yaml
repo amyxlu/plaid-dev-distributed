@@ -1,0 +1,28 @@
+# @package _global_
+
+defaults:
+  - override /datamodule: uniref_subset_sharded
+
+datamodule:
+  batch_size: 64 
+  seq_len: 512 
+
+hourglass:
+  seq_loss_weight: 0.0
+  struct_loss_weight: 0.0
+  log_sequence_loss: True 
+  log_structure_loss: False
+  downproj_factor: 1 
+  shorten_factor: 1 
+  depth: 4 
+  updown_sample_type: "linear"
+
+  lr: 1e-4
+  lr_sched_type: "constant"
+  lr_num_warmup_steps: 0 
+  lr_num_training_steps: 1_000_000
+  lr_num_cycles: 1
+
+trainer:
+  precision: 32
+  log_every_n_steps: 10
