@@ -6,6 +6,7 @@ from torch import nn, einsum
 import torch.nn.functional as F
 from einops import rearrange, reduce, repeat
 import einops
+import numpy as np
 from omegaconf import ListConfig
 
 
@@ -16,6 +17,18 @@ def exists(val):
 
 def default(val, d):
     return val if exists(val) else d
+
+def maybe_shape_check(tensor, verbose, prefix=""):
+    if not verbose:
+        return
+    else:
+        print(prefix, tensor.shape)
+
+def expand_to_shape(x, target_shape):
+    # keep adding dimensions to the end until we match target dimensions
+    while len(x.shape) < len(target_shape):
+        x = x[..., None]
+    return x.expand(target_shape)
 
 def pad_to_multiple(tensor, multiple, dim = -1, value = 0):
     seq_len = tensor.shape[dim]
@@ -282,7 +295,7 @@ class HourglassEncoder(nn.Module):
         self.attn_resampling_pre_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
         self.norm_out = nn.LayerNorm(dim) if norm_out else nn.Identity()
 
-    def forward(self, x, mask = None):
+    def forward(self, x, mask = None, verbose=False):
         """
         x: input
         mask: indicates if input has a padding (True if we should keep it, False if it's padding & we should discard it)
@@ -293,16 +306,10 @@ class HourglassEncoder(nn.Module):
 
         # b : batch, n : sequence length, d : feature dimension, s : shortening factor
         s, b, n = self.shorten_factor, *x.shape[:2]
+        maybe_shape_check(x, verbose)
 
         # top half of hourglass, pre-transformer layers
         x = self.pre_transformer(x, mask = mask)
-
-        # pad to multiple of shortening factor, in preparation for pooling
-        x = pad_to_multiple(x, s, dim = -2)
-
-        # print(mask)
-        if exists(mask):
-            padded_mask = pad_to_multiple(mask, s, dim = -1, value = False)
 
         # if autoregressive, do the shift by shortening factor minus one
         if self.causal:
@@ -310,20 +317,20 @@ class HourglassEncoder(nn.Module):
             x = F.pad(x, (0, 0, shift, -shift), value = 0.)
 
             if exists(mask):
-                padded_mask = F.pad(padded_mask, (shift, -shift), value = False)
+                mask = F.pad(mask, (shift, -shift), value = False)
 
         # naive average pool along length dimension
         downsampled = self.downsample(x)
         if exists(mask):
-            downsampled_mask = reduce(padded_mask, 'b (n s) -> b n', 'sum', s = s) > 0
+            downsampled_mask = reduce(mask, 'b (n s) -> b n', 'sum', s = s) > 0
         else:
             downsampled_mask = None
-        # print('down sampled mask', downsampled_mask)
+        maybe_shape_check(downsampled, verbose)
 
         # pre-valley "attention resampling" - they have the pooled token in each bucket attend to the tokens pre-pooled
         if exists(self.attn_resampling_pre_valley):
             if exists(mask):
-                attn_resampling_mask = rearrange(padded_mask, 'b (n s) -> (b n) s', s = s)
+                attn_resampling_mask = rearrange(mask, 'b (n s) -> (b n) s', s = s)
             else:
                 attn_resampling_mask = None
             downsampled = self.attn_resampling_pre_valley(
@@ -331,9 +338,8 @@ class HourglassEncoder(nn.Module):
                 rearrange(x, 'b (n s) d -> (b n) s d', s = s),
                 mask = attn_resampling_mask
             )
-
             downsampled = rearrange(downsampled, '(b n) () d -> b n d', b = b)
-            
+
         # also possibly reduce along dim=-1
         out = self.down_projection(downsampled)
 
@@ -341,6 +347,7 @@ class HourglassEncoder(nn.Module):
         if self.has_nest: 
             out, downsampled_mask = self.nested_encoder(out, mask = downsampled_mask)
         
+        maybe_shape_check(out, verbose, "Encoder output:")
         return self.norm_out(out), downsampled_mask
 
 
@@ -423,18 +430,21 @@ class HourglassDecoder(nn.Module):
         self.attn_resampling_post_valley = Transformer(dim = dim, depth = 1, **transformer_kwargs) if attn_resampling else None
         self.norm_out = nn.LayerNorm(dim) if norm_out else nn.Identity()
 
-    def forward(self, z_q, mask = None, original_length = None):
+    def forward(self, z_q, mask = None, verbose=False):
         """
         z_q: input compressed representation
         mask: indicates if input has a padding (True if we should keep it, False if it's padding & we should discard it)
         compressed: at the start, should be None; if it's already populated, ignore further actions at the valley step
         """
         # b : batch, n : sequence length, d : feature dimension, s : elongation factor
+        maybe_shape_check(z_q, verbose, "Decoder z_q input:")
         s, b, n = self.elongate_factor, *z_q.shape[:2]
 
         assert z_q.shape[1] % self.elongate_factor == 0, "input sequence length must be a multiple of the shortening factor."
 
         upsampled = self.upsample(z_q)
+        maybe_shape_check(upsampled, verbose)
+
         if exists(mask):
             upsampled_mask = einops.repeat(mask, 'b n -> b (n s)', s = s) > 0
         else:
@@ -459,4 +469,96 @@ class HourglassDecoder(nn.Module):
         if self.has_nest: 
             out = self.nested_decoder(out, mask = upsampled_mask)
         
+        maybe_shape_check(out, verbose, "decoder output")
         return self.norm_out(out)
+
+
+class VectorQuantizer(nn.Module):
+    """
+    Discretization bottleneck part of the VQ-VAE.
+
+    Inputs:
+    - n_e : number of embeddings
+    - e_dim : dimension of embedding
+    - beta : commitment cost used in loss term, beta * ||z_e(x)-sg[e]||^2
+    """
+
+    def __init__(self, n_e, e_dim, beta):
+        super(VectorQuantizer, self).__init__()
+        self.n_e = n_e
+        self.e_dim = e_dim
+        self.beta = beta
+
+        self.embedding = nn.Embedding(self.n_e, self.e_dim)
+        self.embedding.weight.data.uniform_(-1.0 / self.n_e, 1.0 / self.n_e)
+
+    def forward(self, z, verbose=False):
+        """
+        Inputs the output of the encoder network z and maps it to a discrete 
+        one-hot vector that is the index of the closest embedding vector e_j
+
+        z (continuous) -> z_q (discrete)
+
+        z.shape = (batch, length, channel)
+
+        quantization pipeline:
+
+            1. get encoder input (B,L,C)
+            2. flatten input to (B*L,C)
+
+        """
+        # reshape z -> (batch, height, channel) and flatten
+        maybe_shape_check(z, verbose, "z_e quantizer input")
+        z_flattened = einops.rearrange(z, "b l c -> (b l) c").view(-1, self.e_dim)
+        maybe_shape_check(z_flattened, verbose, "z_flattened")
+        device = z.device
+
+        # distances from z to embeddings e_j (z - e)^2 = z^2 + e^2 - 2 e * z
+        d = torch.sum(z_flattened ** 2, dim=1, keepdim=True) + \
+            torch.sum(self.embedding.weight**2, dim=1) - 2 * \
+            torch.matmul(z_flattened, self.embedding.weight.t())
+
+        # find closest encodings
+        min_encoding_indices = torch.argmin(d, dim=1).unsqueeze(1)
+        min_encodings = torch.zeros(
+            min_encoding_indices.shape[0], self.n_e).to(device)
+        min_encodings.scatter_(1, min_encoding_indices, 1)
+
+        # get quantized latent vectors
+        z_q = torch.matmul(min_encodings, self.embedding.weight).view(z.shape)
+        maybe_shape_check(z_q, verbose, "z_q after min_encoding * embedding.weight")
+
+        # compute loss for embedding
+        # embedding_loss = masked_mse_loss(z_q.detach(), z, mask)
+        # commitment_loss = masked_mse_loss(z_q, z.detach(), mask)
+        # loss = embedding_loss + self.beta * commitment_loss
+        loss = torch.mean((z_q.detach()-z)**2) + self.beta * \
+            torch.mean((z_q - z.detach()) ** 2)
+
+        # preserve gradients
+        z_q = z + (z_q - z).detach()
+
+        # perplexity
+        e_mean = torch.mean(min_encodings, dim=0)
+        perplexity = torch.exp(-torch.sum(e_mean * torch.log(e_mean + 1e-10)))
+
+        return {
+            "loss": loss,
+            "z_q": z_q,
+            "perplexity": perplexity,
+            "min_encodings": min_encodings,
+            "min_encoding_indices": min_encoding_indices
+        }
+
+    def get_codebook_entry(self, indices, shape=None):
+        # shape specifying (batch, length, channel)
+        # TODO: check for more easy handling with nn.Embedding
+        min_encodings = torch.zeros(indices.shape[0], self.n_e).to(indices)
+        min_encodings.scatter_(1, indices[:,None], 1)
+
+        # get quantized latent vectors
+        z_q = torch.matmul(min_encodings.float(), self.embedding.weight)
+
+        if shape is not None:
+            z_q = z_q.view(shape)
+        return z_q

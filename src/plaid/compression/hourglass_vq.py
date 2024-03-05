@@ -8,8 +8,7 @@ import torch
 import numpy as np
 import pandas as pd
 
-from plaid.compression.modules import HourglassDecoder, HourglassEncoder
-from plaid.compression.quantizer import VectorQuantizer
+from plaid.compression.modules import HourglassDecoder, HourglassEncoder, VectorQuantizer
 from plaid.utils import LatentScaler, get_lr_scheduler
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
@@ -103,14 +102,14 @@ class HourglassVQLightningModule(L.LightningModule):
             self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
         self.save_hyperparameters()
 
-    def forward(self, x, mask):
+    def forward(self, x, mask, verbose=False, return_vq_output=False, log_wandb=True):
         orig_len = x.shape[0]
-        z_e, downsampled_mask = self.enc(x, mask)
-        quant_out = self.quantizer(z_e)
+        z_e, downsampled_mask = self.enc(x, mask, verbose)
+        quant_out = self.quantizer(z_e, verbose)
         z_q = quant_out['z_q']
-        x_recons = self.dec(z_q, downsampled_mask, original_length=orig_len)
+        x_recons = self.dec(z_q, downsampled_mask, verbose)
 
-        if self.global_step % 5000 == 0:
+        if (self.global_step % 5000 == 0) and log_wandb:
             fig, ax = plt.subplots()
             ax.hist(quant_out['min_encoding_indices'].detach().cpu().numpy(), bins=self.n_e)
             wandb.log({"codebook_index_hist": wandb.Image(fig)})
@@ -125,7 +124,10 @@ class HourglassVQLightningModule(L.LightningModule):
             "recons_loss": recons_loss.item(),
             "loss": loss.item(),
         }
-        return x_recons, loss, log_dict
+        if return_vq_output:
+            return x_recons, loss, log_dict, quant_out
+        else: 
+            return x_recons, loss, log_dict
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -209,3 +211,11 @@ class HourglassVQLightningModule(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         return self.run_batch(batch, prefix="val")
+
+
+if __name__ == "__main__":
+    device = torch.device("cuda")
+    hvq = HourglassVQLightningModule(1024).to(device)
+    x = torch.randn(8, 128, 1024).to(device)
+    mask = torch.ones(8, 128).bool().to(device)
+    hvq(x, mask, verbose=True)
