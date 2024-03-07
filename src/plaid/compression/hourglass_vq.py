@@ -102,7 +102,7 @@ class HourglassVQLightningModule(L.LightningModule):
             self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
         self.save_hyperparameters()
 
-    def forward(self, x, mask, verbose=False, return_vq_output=False, log_wandb=True):
+    def forward(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
         orig_len = x.shape[0]
         z_e, downsampled_mask = self.enc(x, mask, verbose)
         quant_out = self.quantizer(z_e, verbose)
@@ -124,10 +124,7 @@ class HourglassVQLightningModule(L.LightningModule):
             "recons_loss": recons_loss.item(),
             "loss": loss.item(),
         }
-        if return_vq_output:
-            return x_recons, loss, log_dict, quant_out
-        else: 
-            return x_recons, loss, log_dict
+        return x_recons, loss, log_dict, quant_out
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
@@ -180,7 +177,7 @@ class HourglassVQLightningModule(L.LightningModule):
         x = self.latent_scaler.scale(x)
 
         # forward pass
-        x_recons, loss, log_dict = self(x, mask.bool())
+        x_recons, loss, log_dict, _ = self(x, mask.bool())
         self.log_dict({f"{prefix}/{k}": v for k,v in log_dict.items()})
 
         # unscale to decode into sequence and/or structure
@@ -192,9 +189,9 @@ class HourglassVQLightningModule(L.LightningModule):
             seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True)
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
             self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
-            if self.global_step % 500 == 0:
-                tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-                wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            # if self.global_step % 500 == 0:
+            #     tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            #     wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
             loss += seq_loss * self.seq_loss_weight
 
         # structure loss

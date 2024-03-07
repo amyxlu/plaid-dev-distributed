@@ -10,18 +10,12 @@ datamodule:
 hourglass:
   seq_loss_weight: 0.0
   struct_loss_weight: 0.0
-  log_sequence_loss: True 
-  log_structure_loss: False
-  downproj_factor: 1 
-  shorten_factor: 1 
-  depth: 4 
-  updown_sample_type: "linear"
-
+  log_sequence_loss: False 
+  depth: 14
+  
   lr: 1e-4
   lr_sched_type: "constant"
-  lr_num_warmup_steps: 0 
-  lr_num_training_steps: 1_000_000
-  lr_num_cycles: 1
+  lr_num_warmup_steps: 2000
 
 trainer:
   precision: 32
