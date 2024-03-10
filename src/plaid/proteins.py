@@ -235,10 +235,18 @@ class LatentToSequence:
 
 
 class LatentToStructure:
-    def __init__(self, esmfold=None):
-        self.esmfold = esmfold_v1() if esmfold is None else esmfold
-        self.esmfold.to("cpu")
-        self.esmfold.set_chunk_size(64)
+    def __init__(self, esmfold=None, chunk_size=64):
+        if esmfold is None:
+            import time
+            print("loading esmfold model...")
+            start = time.time()
+            esmfold = esmfold_v1() 
+            end = time.time()
+            print(f"ESMFold model created in {end-start:.2f} seconds.")
+        
+        self.esmfold = esmfold
+        # self.esmfold.to("cpu")
+        self.esmfold.set_chunk_size(chunk_size)
         del self.esmfold.esm  # save some GPU space
         assert not self.esmfold.trunk is None
 
@@ -253,7 +261,7 @@ class LatentToStructure:
 
     @torch.no_grad()
     def run_batch(
-        self, s_, aa_, mask_, residx_, num_recycles, return_raw_features=False
+        self, s_, aa_, mask_, residx_, num_recycles, return_metrics=False, *args, **kwargs
     ):
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
@@ -280,21 +288,23 @@ class LatentToStructure:
                 num_recycles=num_recycles,
             )
         pdb_str = output_to_pdb(output)
-        if return_raw_features:
-            return pdb_str, output
-        else:
+        if return_metrics:
             metric = outputs_to_avg_metric(output)
-            return pdb_str, metric
+            return pdb_str, output, metric
+        else:
+            return pdb_str, output
 
     def to_structure(
         self,
         latent: ArrayLike,
         sequences: T.List[str],
-        num_recycles: int = 1,
+        num_recycles: int = 4,
         batch_size: T.Optional[int] = None,
-        return_raw_features: bool = False,
-        verbose: bool = False
-    ) -> T.Tuple[T.List[PathLike], pd.DataFrame]:
+        return_metrics: bool = False, 
+        verbose: bool = False,
+        *args,
+        **kwargs
+    ) -> T.Tuple[T.List[PathLike], T.Union[T.Dict, pd.DataFrame]]:
         """set up devices and tensors"""
         aatype, mask, residx, _, _ = batch_encode_sequences(sequences)
         aatype, mask, residx = tuple(
@@ -309,35 +319,47 @@ class LatentToStructure:
             if verbose:
                 print("Generating structure from latents")
             return self.run_batch(
-                latent, aatype, mask, residx, num_recycles, return_raw_features
+                latent, aatype, mask, residx, num_recycles, return_metrics 
             )
 
         else:
-            results = []
+            metric_dfs = []
+            output_dicts_list = []
             all_pdb_strs = []
             for start in trange(
                 0, len(latent), batch_size, desc="(Generating structure)"
             ):
+                
+                # Process current batch
                 s_, aa_, mask_, residx_ = tuple(
                     map(
                         lambda x: x[start : start + batch_size],
                         (latent, aatype, mask, residx),
                     )
                 )
-                pdb_str, result = self.run_batch(
-                    s_, aa_, mask_, residx_, num_recycles, return_raw_features
-                )
-                results.append(result)
+                
+                # Collect outputs
+                outputs = self.run_batch(s_, aa_, mask_, residx_, num_recycles, return_metrics)
+                if return_metrics:
+                   pdb_str, output_dict, metric_df = outputs 
+                   metric_dfs.append(metric_df)
+                else:
+                   pdb_str, output_dict = outputs 
                 all_pdb_strs.extend(pdb_str)
+                output_dicts_list.append(output_dict)
 
             # combine results at the end of the batches
-            if return_raw_features:
-                results = {k: v for D in results for k, v in D.items()}
+            # outputs = 
+            # if return_metrics: 
+            #     results = {k: v for D in results for k, v in D.items()}
+            # else:
+            #     results = [pd.DataFrame.from_dict(d) for d in results]
+            #     results = pd.concat(results)
+            # return all_pdb_strs, results
+            if return_metrics:
+                return all_pdb_strs, output_dicts_list, metric_dfs
             else:
-                results = [pd.DataFrame.from_dict(d) for d in results]
-                results = pd.concat(results)
-
-            return all_pdb_strs, results
+                return all_pdb_strs, output_dicts_list
 
 
 if __name__ == "__main__":
