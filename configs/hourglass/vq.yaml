@@ -9,6 +9,7 @@ updown_sample_type: 'linear'
 heads: 8
 dim_head: 64
 norm_out: false 
+use_quantizer: true
 
 n_e: 512
 e_dim: 64

@@ -11,19 +11,20 @@ hourglass:
   struct_loss_weight: 0.0
   log_sequence_loss: True 
   log_structure_loss: False
-  downproj_factor: 2
+  downproj_factor: 1
   shorten_factor: 1
   depth: 8
   n_e: 512
-  e_dim: 512
+  e_dim: 64
   updown_sample_type: "linear"
 
   lr: 1e-4
   lr_sched_type: "constant"
   lr_num_warmup_steps: 0 
   lr_num_training_steps: 1_000_000
-  lr_num_cycles: 1
+  lr_num_cycles: 2
 
 trainer:
   precision: 32
   log_every_n_steps: 20
+  gradient_clip_val: 2

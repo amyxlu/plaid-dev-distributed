@@ -101,3 +101,22 @@ class VectorQuantizer(nn.Module):
         z_q = z_q.permute(0, 2, 1).contiguous()
 
         return loss, z_q, perplexity, min_encodings, min_encoding_indices
+
+    def get_codebook_entry(self, indices, shape):
+        # adapted from:
+        # https://github.com/CompVis/taming-transformers/blob/master/taming/modules/vqvae/quantize.py#L92C1-L107C19
+        # shape specifying (batch, height, width, channel)
+        # TODO: check for more easy handling with nn.Embedding
+        min_encodings = torch.zeros(indices.shape[0], self.n_e).to(indices)
+        min_encodings.scatter_(1, indices[:,None], 1)
+
+        # get quantized latent vectors
+        z_q = torch.matmul(min_encodings.float(), self.embedding.weight)
+
+        if shape is not None:
+            z_q = z_q.view(shape)
+
+            # reshape back to match original input shape
+            z_q = z_q.permute(0, 2, 1).contiguous()
+
+        return z_q
