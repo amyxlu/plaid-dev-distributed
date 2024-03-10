@@ -14,7 +14,11 @@ import pickle
 import typing as T
 import lightning as L
 
-from plaid.transforms import mask_from_seq_lens, get_random_sequence_crop_batch, get_random_sequence_crop
+from plaid.transforms import (
+    mask_from_seq_lens,
+    get_random_sequence_crop_batch,
+    get_random_sequence_crop,
+)
 from plaid.constants import ACCEPTED_LM_EMBEDDER_TYPES
 
 
@@ -67,6 +71,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
             self.header_to_seq[header],
         )
 
+
 class H5ShardDataset(torch.utils.data.Dataset):
     """Loads H5 dataset, which is able to actually store strings, but is
     not able to support bf16 storage."""
@@ -79,6 +84,7 @@ class H5ShardDataset(torch.utils.data.Dataset):
         max_seq_len: int = 64,
         dtype: str = "fp32",
         filtered_ids_list: T.Optional[T.List[str]] = None,
+        max_num_samples: T.Optional[int] = None,
         # ids_to_drop: T.Optional[T.List[str]] = None,
     ):
         super().__init__()
@@ -88,17 +94,14 @@ class H5ShardDataset(torch.utils.data.Dataset):
         self.max_seq_len = max_seq_len
         self.shard_dir = Path(shard_dir)
         self.embedder = embedder
+        self.max_num_samples = max_num_samples
+        self.filtered_ids_list = filtered_ids_list
 
-        self.data = self.load_partition(split, embedder)
+        self.data = self.load_partition(
+            split, embedder, max_num_samples, filtered_ids_list
+        )
         pdb_ids = list(self.data.keys())
 
-        if not filtered_ids_list is None:
-            pdb_ids = set(self.data.keys()).intersection(set(filtered_ids_list)) 
-            disjoint = set(filtered_ids_list) - set(pdb_ids)
-            print(f"Did not find {len(disjoint)} IDs, including {list(disjoint)[:3]}")
-            # for pid in disjoint: print(pid)
-            # print("total number of samples: ", len(pdb_ids))
-        
         self.pdb_ids = list(pdb_ids)
 
     def drop_protein(self, pid):
@@ -108,17 +111,23 @@ class H5ShardDataset(torch.utils.data.Dataset):
         #     drop = True
         return drop
 
-    def load_partition(self, split: T.Optional[str] = None, embedder: T.Optional[str] = None):
+    def load_partition(
+        self,
+        split: T.Optional[str] = None,
+        embedder: T.Optional[str] = None,
+        max_num_samples: T.Optional[int] = None,
+        filtered_ids_list: T.Optional[T.List[str]] = None,
+    ):
         """
         2024/02/15: path format:
         ${shard_dir}/${split}/${embedder}/${seqlen}/${precision}/shard0000.h5
         """
+        # make sure that the specifications are valid
         datadir = self.shard_dir
-
         if not split is None:
             assert split in ("train", "val")
             datadir = datadir / split
-        
+
         if not embedder is None:
             assert embedder in ACCEPTED_LM_EMBEDDER_TYPES
             datadir = datadir / embedder
@@ -126,12 +135,28 @@ class H5ShardDataset(torch.utils.data.Dataset):
         datadir = datadir / f"seqlen_{self.max_seq_len}" / self.dtype
         outdict = {}
 
+        # load the shard hdf5 file
         with h5py.File(datadir / "shard0000.h5", "r") as f:
             emb = torch.from_numpy(np.array(f["embeddings"]))
             sequence = list(f["sequences"])
-            pdb_id = list(f["pdb_id"])
-            for i in range(len(pdb_id)):
-                pid = pdb_id[i].decode()
+            pdb_ids = list(f["pdb_id"])
+
+            # if prespecified a set of pdb ids, only load those
+            if not filtered_ids_list is None:
+                pdb_ids = set(pdb_ids).intersection(set(filtered_ids_list))
+                disjoint = set(filtered_ids_list) - set(pdb_ids)
+                print(
+                    f"Did not find {len(disjoint)} IDs, including {list(disjoint)[:3]}, etc."
+                )
+                pdb_ids = list(pdb_ids)
+
+            # possible trim to a subset to enable faster loading
+            if not max_num_samples is None:
+                pdb_ids = pdb_ids[:max_num_samples]
+
+            # loop through and decode the protein string one by one
+            for i in range(len(pdb_ids)):
+                pid = pdb_ids[i].decode()
                 if not self.drop_protein(pid):
                     outdict[pid] = (emb[i, ...], sequence[i].decode())
         return outdict
@@ -164,15 +189,26 @@ class CATHStructureDataset(H5ShardDataset):
         embedder: str = "esmfold",
         max_seq_len: int = 64,
         dtype: str = "fp32",
-        path_to_filtered_ids_list: T.Optional[T.List[str]] = None
+        path_to_filtered_ids_list: T.Optional[T.List[str]] = None,
+        max_num_samples: T.Optional[int] = None,
+        shuffle_val_dataset: bool = False,
     ):
         if not path_to_filtered_ids_list is None:
             with open(path_to_filtered_ids_list, "r") as f:
                 filtered_ids = f.read().splitlines()
         else:
             filtered_ids = None
-        
-        super().__init__(split, shard_dir, embedder, max_seq_len, dtype, filtered_ids)
+
+        super().__init__(
+            split=split,
+            shard_dir=shard_dir,
+            embedder=embedder,
+            max_seq_len=max_seq_len,
+            dtype=dtype,
+            filtered_ids=filtered_ids,
+            max_num_samples=max_num_samples,
+            shuffle_val_dataset=shuffle_val_dataset,
+        )
 
         from plaid.utils import StructureFeaturizer
 
@@ -187,14 +223,14 @@ class CATHStructureDataset(H5ShardDataset):
             pdb_str = f.read()
         # try:
         #     structure_features = self.structure_featurizer(pdb_str, self.max_seq_len)
-        #     return emb, seq, structure_features 
+        #     return emb, seq, structure_features
         # except KeyError as e:
         #     with open("bad_ids.txt", "a") as f:
         #         print(pdb_id, e)
         #         f.write(f"{pdb_id}\n")
         #     pass
         structure_features = self.structure_featurizer(pdb_str, self.max_seq_len)
-        return emb, seq, structure_features 
+        return emb, seq, structure_features
 
 
 class CATHShardedDataModule(L.LightningDataModule):
@@ -208,6 +244,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         batch_size: int = 32,
         num_workers: int = 0,
         dtype: str = "fp32",
+        shuffle_val_dataset: bool = False,
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -217,6 +254,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.storage_type = storage_type
+        self.shuffle_val_dataset = shuffle_val_dataset
 
         assert storage_type in ("safetensors", "hdf5")
         if storage_type == "safetensors":
@@ -235,14 +273,26 @@ class CATHShardedDataModule(L.LightningDataModule):
 
         if stage == "fit":
             self.train_dataset = self.dataset_fn(
-                "train", self.shard_dir, max_seq_len=self.seq_len, dtype=self.dtype, **kwargs
+                "train",
+                self.shard_dir,
+                max_seq_len=self.seq_len,
+                dtype=self.dtype,
+                **kwargs,
             )
             self.val_dataset = self.dataset_fn(
-                "val", self.shard_dir, max_seq_len=self.seq_len, dtype=self.dtype, **kwargs
+                "val",
+                self.shard_dir,
+                max_seq_len=self.seq_len,
+                dtype=self.dtype,
+                **kwargs,
             )
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(
-                "val", self.shard_dir, max_seq_len=self.seq_len, dtype=self.dtype, **kwargs
+                "val",
+                self.shard_dir,
+                max_seq_len=self.seq_len,
+                dtype=self.dtype,
+                **kwargs,
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -253,7 +303,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            shuffle=True
+            shuffle=True,
         )
 
     def val_dataloader(self):
@@ -262,20 +312,14 @@ class CATHShardedDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            shuffle=False
+            shuffle=self.shuffle_val_dataset,
         )
 
     def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            shuffle=False
-        )
+        return self.val_dataloader()
 
     def predict_dataloader(self):
-        return self.test_dataloader()
+        return self.val_dataloader()
 
 
 class CATHStructureDataModule(L.LightningDataModule):
@@ -297,7 +341,9 @@ class CATHStructureDataModule(L.LightningDataModule):
         seq_len: int = 64,
         batch_size: int = 32,
         num_workers: int = 0,
-        path_to_filtered_ids_list: T.Optional[T.List[str]] = None
+        path_to_filtered_ids_list: T.Optional[T.List[str]] = None,
+        max_num_samples: T.Optional[int] = None,
+        shuffle_val_dataset: bool = False,
     ):
         super().__init__()
         self.shard_dir = shard_dir
@@ -306,39 +352,46 @@ class CATHStructureDataModule(L.LightningDataModule):
         self.seq_len = seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.dataset_fn = CATHStructureDataset
         self.dtype = "fp32"
         self.path_to_filtered_ids_list = path_to_filtered_ids_list
+        self.max_num_samples = max_num_samples
+        self.shuffle_val_dataset = shuffle_val_dataset
 
     def setup(self, stage: str = "fit"):
         if stage == "fit":
-            self.train_dataset = self.dataset_fn(
-                "train",
-                self.shard_dir,
-                self.pdb_path_dir,
-                self.embedder,
-                self.seq_len,
-                self.dtype,
-                self.path_to_filtered_ids_list,
+            self.train_dataset = CATHStructureDataset(
+                split="train",
+                shard_dir=self.shard_dir,
+                pdb_path_dir=self.pdb_path_dir,
+                embedder=self.embedder,
+                max_seq_len=self.seq_len,
+                dtype=self.dtype,
+                path_to_filtered_ids_list=self.path_to_filtered_ids_list,
+                max_num_samples=self.max_num_samples,
+                shuffle_val_dataset=self.shuffle_val_dataset
             )
-            self.val_dataset = self.dataset_fn(
+            self.val_dataset = CATHStructureDataset( 
                 "val",
-                self.shard_dir,
-                self.pdb_path_dir,
-                self.embedder,
-                self.seq_len,
-                self.dtype,
-                self.path_to_filtered_ids_list,
+                shard_dir=self.shard_dir,
+                pdb_path_dir=self.pdb_path_dir,
+                embedder=self.embedder,
+                max_seq_len=self.seq_len,
+                dtype=self.dtype,
+                path_to_filtered_ids_list=self.path_to_filtered_ids_list,
+                max_num_samples=self.max_num_samples,
+                shuffle_val_dataset=self.shuffle_val_dataset
             )
         elif stage == "predict":
-            self.test_dataset = self.dataset_fn(
+            self.test_dataset = CATHStructureDataset( 
                 "val",
-                self.shard_dir,
-                self.pdb_path_dir,
-                self.embedder,
-                self.seq_len,
-                self.dtype,
-                self.path_to_filtered_ids_list,
+                shard_dir=self.shard_dir,
+                pdb_path_dir=self.pdb_path_dir,
+                embedder=self.embedder,
+                max_seq_len=self.seq_len,
+                dtype=self.dtype,
+                path_to_filtered_ids_list=self.path_to_filtered_ids_list,
+                max_num_samples=self.max_num_samples,
+                shuffle_val_dataset=self.shuffle_val_dataset
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -348,7 +401,7 @@ class CATHStructureDataModule(L.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=True
+            shuffle=True,
         )
 
     def val_dataloader(self):
@@ -356,20 +409,14 @@ class CATHStructureDataModule(L.LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            shuffle=True
+            shuffle=self.shuffle_val_dataset,
         )
 
     def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            shuffle=True
-        )
+        return self.val_dataloader()
 
     def predict_dataloader(self):
-        return self.test_dataloader()
+        return self.val_dataloader()
 
 
 class FastaDataModule(L.LightningDataModule):
@@ -379,14 +426,16 @@ class FastaDataModule(L.LightningDataModule):
         batch_size: int,
         train_frac: float = 0.8,
         num_workers: int = 0,
+        shuffle_val_dataset: bool = False,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__()
         self.fasta_file = fasta_file
         self.train_frac, self.val_frac = train_frac, 1 - train_frac
         self.batch_size = batch_size
         self.num_workers = num_workers
+        self.shuffle_val_dataset = shuffle_val_dataset
 
     def setup(self, stage: str = "fit"):
         ds = FastaDataset(self.fasta_file, cache_indices=True)
@@ -410,10 +459,13 @@ class FastaDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=True,
-            shuffle=False,
+            shuffle=self.shuffle_val_dataset,
         )
 
     def test_dataloader(self):
+        return self.val_dataloader()
+
+    def predict_dataloader(self):
         return self.val_dataloader()
 
 
@@ -467,43 +519,43 @@ class FastaDataModule(L.LightningDataModule):
 #         return self.val_dataloader()
 
 
-if __name__ == "__main__":
-    # from plaid.esmfold import esmfold_v1
-    # datadir = "/homefs/home/lux70/data/cath"
-    # pklfile = "/homefs/home/lux70/data/cath/sequences.pkl"
-    # dm = CATHShardedDataModule(
-    #     shard_dir=datadir,
-    #     header_to_sequence_file=pklfile,
-    # )
-    # dm.setup("fit")
-    # train_dataloader = dm.train_dataloader()
-    # batch = next(iter(train_dataloader))
-    # fasta_file = "/shared/amyxlu/data/uniref90/truncated.fasta"
+# if __name__ == "__main__":
+# from plaid.esmfold import esmfold_v1
+# datadir = "/homefs/home/lux70/data/cath"
+# pklfile = "/homefs/home/lux70/data/cath/sequences.pkl"
+# dm = CATHShardedDataModule(
+#     shard_dir=datadir,
+#     header_to_sequence_file=pklfile,
+# )
+# dm.setup("fit")
+# train_dataloader = dm.train_dataloader()
+# batch = next(iter(train_dataloader))
+# fasta_file = "/shared/amyxlu/data/uniref90/truncated.fasta"
 
-    # esmfold = esmfold_v1()
-    # esmfold = esmfold.eval().requires_grad_(False).cuda()
+# esmfold = esmfold_v1()
+# esmfold = esmfold.eval().requires_grad_(False).cuda()
 
-    # dm = EmbedFastaDataModule(esmfold, fasta_file, batch_size=32)
-    # dm.setup("fit")
-    # train_dataloader = dm.train_dataloader()
-    # batch = next(iter(train_dataloader))
-    # transform = esmfold.infer_embedding
+# dm = EmbedFastaDataModule(esmfold, fasta_file, batch_size=32)
+# dm.setup("fit")
+# train_dataloader = dm.train_dataloader()
+# batch = next(iter(train_dataloader))
+# transform = esmfold.infer_embedding
 
-    # shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
-    # pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
+# shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+# pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
 
-    # dm = CATHStructureDataModule(
-    #     shard_dir,
-    #     pdb_dir,
-    #     seq_len=256,
-    #     batch_size=32,
-    #     num_workers=0,
-    # )
-    fasta_file = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
-    dm = EmbedFastaDataModule(fasta_file=fasta_file, batch_size=64, seq_len=64)
+# dm = CATHStructureDataModule(
+#     shard_dir,
+#     pdb_dir,
+#     seq_len=256,
+#     batch_size=32,
+#     num_workers=0,
+# )
+# fasta_file = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
+# dm = EmbedFastaDataModule(fasta_file=fasta_file, batch_size=64, seq_len=64)
 
-    dm.setup()
-    train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
-    print(len(train_dataloader.dataset))
-    import IPython;IPython.set_trace()
+# dm.setup()
+# train_dataloader = dm.train_dataloader()
+# batch = next(iter(train_dataloader))
+# print(len(train_dataloader.dataset))
+# import IPython;IPython.set_trace()
