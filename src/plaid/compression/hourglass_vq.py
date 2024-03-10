@@ -33,6 +33,7 @@ class HourglassVQLightningModule(L.LightningModule):
         dim_head=64,
         causal=False,
         norm_out=False,
+        use_quantizer=True,
         # quantizer
         n_e=16,
         e_dim=64,
@@ -53,6 +54,7 @@ class HourglassVQLightningModule(L.LightningModule):
         log_structure_loss=False,
     ):
         super().__init__()
+        self.use_quantizer = use_quantizer
         self.enc = HourglassEncoder(
             dim=dim,
             depth=depth,
@@ -101,9 +103,23 @@ class HourglassVQLightningModule(L.LightningModule):
             self.structure_constructor.to(self.device)
             self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
         self.save_hyperparameters()
+    
+    def forward_no_quantize(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
+        z_e, downsampled_mask = self.enc(x, mask, verbose)
+        z_e_out = z_e.clone()
+        x_recons = self.dec(z_e, downsampled_mask, verbose)
+        recons_loss = masked_mse_loss(x_recons, x, mask)
+        loss = recons_loss
+        log_dict = {
+            "loss": loss.item(),
+            "recons_loss": recons_loss.item()
+        }
+        return x_recons, loss, log_dict, z_e_out
 
     def forward(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
-        orig_len = x.shape[0]
+        if not self.use_quantizer:
+            return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
+        
         z_e, downsampled_mask = self.enc(x, mask, verbose)
         quant_out = self.quantizer(z_e, verbose)
         z_q = quant_out['z_q']
@@ -115,7 +131,6 @@ class HourglassVQLightningModule(L.LightningModule):
             wandb.log({"codebook_index_hist": wandb.Image(fig)})
 
         vq_loss = quant_out['loss']
-        # recons_loss = torch.mean((x_recons - x) ** 2)
         recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = vq_loss + recons_loss
         log_dict = {
@@ -177,7 +192,10 @@ class HourglassVQLightningModule(L.LightningModule):
         x = self.latent_scaler.scale(x)
 
         # forward pass
-        x_recons, loss, log_dict, _ = self(x, mask.bool())
+        if self.use_quantizer:
+            x_recons, loss, log_dict, _ = self(x, mask.bool())
+        else:
+            x_recons, loss, log_dict, _ = self.forward_no_quantize(x, mask.bool())
         self.log_dict({f"{prefix}/{k}": v for k,v in log_dict.items()})
 
         # unscale to decode into sequence and/or structure
