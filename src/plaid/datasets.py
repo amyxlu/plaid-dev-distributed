@@ -95,7 +95,6 @@ class H5ShardDataset(torch.utils.data.Dataset):
         self.shard_dir = Path(shard_dir)
         self.embedder = embedder
         self.max_num_samples = max_num_samples
-        self.filtered_ids_list = filtered_ids_list
 
         self.data = self.load_partition(
             split, embedder, max_num_samples, filtered_ids_list
@@ -191,13 +190,12 @@ class CATHStructureDataset(H5ShardDataset):
         dtype: str = "fp32",
         path_to_filtered_ids_list: T.Optional[T.List[str]] = None,
         max_num_samples: T.Optional[int] = None,
-        shuffle_val_dataset: bool = False,
     ):
         if not path_to_filtered_ids_list is None:
             with open(path_to_filtered_ids_list, "r") as f:
-                filtered_ids = f.read().splitlines()
+                filtered_ids_list = f.read().splitlines()
         else:
-            filtered_ids = None
+            filtered_ids_list = None
 
         super().__init__(
             split=split,
@@ -205,9 +203,8 @@ class CATHStructureDataset(H5ShardDataset):
             embedder=embedder,
             max_seq_len=max_seq_len,
             dtype=dtype,
-            filtered_ids=filtered_ids,
+            filtered_ids_list=filtered_ids_list,
             max_num_samples=max_num_samples,
-            shuffle_val_dataset=shuffle_val_dataset,
         )
 
         from plaid.utils import StructureFeaturizer
@@ -368,7 +365,6 @@ class CATHStructureDataModule(L.LightningDataModule):
                 dtype=self.dtype,
                 path_to_filtered_ids_list=self.path_to_filtered_ids_list,
                 max_num_samples=self.max_num_samples,
-                shuffle_val_dataset=self.shuffle_val_dataset
             )
             self.val_dataset = CATHStructureDataset( 
                 "val",
@@ -379,7 +375,6 @@ class CATHStructureDataModule(L.LightningDataModule):
                 dtype=self.dtype,
                 path_to_filtered_ids_list=self.path_to_filtered_ids_list,
                 max_num_samples=self.max_num_samples,
-                shuffle_val_dataset=self.shuffle_val_dataset
             )
         elif stage == "predict":
             self.test_dataset = CATHStructureDataset( 
@@ -391,7 +386,6 @@ class CATHStructureDataModule(L.LightningDataModule):
                 dtype=self.dtype,
                 path_to_filtered_ids_list=self.path_to_filtered_ids_list,
                 max_num_samples=self.max_num_samples,
-                shuffle_val_dataset=self.shuffle_val_dataset
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
