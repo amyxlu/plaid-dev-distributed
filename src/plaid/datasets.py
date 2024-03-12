@@ -230,6 +230,39 @@ class CATHStructureDataset(H5ShardDataset):
         return emb, seq, structure_features
 
 
+class TokenDataset(Dataset):
+    def __init__(
+        self,
+        split,
+        compress_model_id = "2024-03-05T06-20-52",  # soft-violet
+        token_dir = "/homefs/home/lux70/storage/data/cath/tokens/",
+        max_seq_len = 128,
+        batch_size = 256,
+    ):
+        self.split = split
+        self.compress_model_id = compress_model_id
+        self.token_dir = Path(token_dir)
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+
+        self.tokens = self.load_partition(split)['tokens']
+    
+    def load_partition(self, split):
+        outpath = self.token_dir / self.compress_model_id / split / f"seqlen_{self.max_seq_len}" / "tokens.st" 
+        return load_file(outpath)
+    
+    def __len__(self):
+        return len(self.tokens)
+
+    def __getitem__(self, idx):
+        return self.tokens[idx, ...]
+
+
+
+"""
+Datamodule wrappers
+"""
+
 class CATHShardedDataModule(L.LightningDataModule):
     def __init__(
         self,
@@ -463,6 +496,74 @@ class FastaDataModule(L.LightningDataModule):
         return self.val_dataloader()
 
 
+class TokenDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        split,
+        compress_model_id = "2024-03-05T06-20-52",  # soft-violet
+        token_dir = "/homefs/home/lux70/storage/data/cath/tokens/",
+        max_seq_len = 128,
+        batch_size = 256,
+        num_workers = 0,
+        shuffle_val_dataset = False,
+    ):
+        self.split = split
+        self.compress_model_id = compress_model_id
+        self.token_dir = Path(token_dir)
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.shuffle_val_dataset = shuffle_val_dataset
+    
+    def setup(self, stage="fit"):
+        if stage == "fit":
+            self.train_dataset = TokenDataset(
+                "train",
+                compress_model_id=self.compress_model_id,
+                token_dir=self.token_dir,
+                max_seq_len=self.max_seq_len,
+                batch_size=self.batch_size,
+            )
+            self.val_dataset = TokenDataset(
+                "val",
+                compress_model_id=self.compress_model_id,
+                token_dir=self.token_dir,
+                max_seq_len=self.max_seq_len,
+                batch_size=self.batch_size,
+            )
+        elif stage == "predict":
+            self.test_dataset = TokenDataset(
+                "val",
+                compress_model_id=self.compress_model_id,
+                token_dir=self.token_dir,
+                max_seq_len=self.max_seq_len,
+                batch_size=self.batch_size,
+            )
+        else:
+            raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
+        
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=self.shuffle_val_dataset,
+        )
+    
+    def test_dataloader(self):
+        return val_dataloader()
+    
+    def predict_dataloader(self):
+        return val_dataloader()
+    
 # class EmbedFastaDataModule(FastaDataModule):
 #     """Overrides the dataloader functions to embed with ESMFold instead."""
 
