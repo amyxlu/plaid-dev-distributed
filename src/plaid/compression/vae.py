@@ -219,17 +219,17 @@ class Encoder(nn.Module):
     def __init__(
         self,
         *,
-        ch,
-        out_ch,
-        ch_mult=(1, 2, 4, 8),
-        num_res_blocks,
-        attn_resolutions,
-        dropout=0.0,
-        resamp_with_conv=True,
-        in_channels,
-        resolution,
-        z_channels,
-        double_z=True,
+        ch,                         # internal channel
+        out_ch,                     # latent channel dim
+        ch_mult=(1, 2, 4, 8),       # expansion factor for each resolution 
+        num_res_blocks,             # num resblocks at each resolution
+        attn_resolutions,           # ?
+        dropout=0.0,                # ?
+        resamp_with_conv=True,      # ?
+        in_channels,                # input channels, e.g. 3 for images, 1024 for ESMFold embed
+        initial_seq_len,            # protein analog to image resolution
+        z_channels,                 # latent channel dimension
+        double_z=True,              # for VAE 
         use_linear_attn=False,
         attn_type="vanilla",
         **ignore_kwargs,
@@ -238,10 +238,9 @@ class Encoder(nn.Module):
         if use_linear_attn:
             attn_type = "linear"
         self.ch = ch
-        # self.temb_ch = 0
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
-        self.resolution = resolution
+        self.resolution = initial_seq_len
         self.in_channels = in_channels
 
         # downsampling
@@ -249,21 +248,23 @@ class Encoder(nn.Module):
             in_channels, self.ch, kernel_size=3, stride=1, padding=1
         )
 
-        curr_res = resolution
-        in_ch_mult = (1,) + tuple(ch_mult)
+        curr_res = initial_seq_len 
+        in_ch_mult = (1,) + tuple(ch_mult)  # why add 1?
         self.in_ch_mult = in_ch_mult
         self.down = nn.ModuleList()
+
+        # make resblocks for each resolution
         for i_level in range(self.num_resolutions):
             block = nn.ModuleList()
             attn = nn.ModuleList()
             block_in = ch * in_ch_mult[i_level]
             block_out = ch * ch_mult[i_level]
-            for i_block in range(self.num_res_blocks):
+
+            for _ in range(self.num_res_blocks):
                 block.append(
                     ResnetBlock(
                         in_channels=block_in,
                         out_channels=block_out,
-                        # temb_channels=self.temb_ch,
                         dropout=dropout,
                     )
                 )
@@ -305,9 +306,6 @@ class Encoder(nn.Module):
         )
 
     def forward(self, x):
-        # # timestep embedding
-        # temb = None
-
         # downsampling
         hs = [self.conv_in(x)]
         for i_level in range(self.num_resolutions):
