@@ -1,6 +1,6 @@
 import warnings
 import torch
-from torch.utils.data import IterableDataset, DataLoader
+from torch.utils.data import IterableDataset, DataLoader, Dataset
 import numpy as np
 from typing import List, Tuple
 import h5py
@@ -22,7 +22,7 @@ from plaid.transforms import (
 from plaid.constants import ACCEPTED_LM_EMBEDDER_TYPES
 
 
-class TensorShardDataset(torch.utils.data.Dataset):
+class TensorShardDataset(Dataset):
     """Loads entire dataset as one Safetensor dataset. Returns the embedding, mask, and pdb id."""
 
     def __init__(
@@ -72,7 +72,7 @@ class TensorShardDataset(torch.utils.data.Dataset):
         )
 
 
-class H5ShardDataset(torch.utils.data.Dataset):
+class H5ShardDataset(Dataset):
     """Loads H5 dataset, which is able to actually store strings, but is
     not able to support bf16 storage."""
 
@@ -255,7 +255,12 @@ class TokenDataset(Dataset):
         return len(self.tokens)
 
     def __getitem__(self, idx):
-        return self.tokens[idx, ...]
+        tokens = self.tokens[idx, ...]
+        tokens = tokens.long().to(dtype=torch.int32)
+        N = tokens.shape[0]
+        tokens = tokens.view(N, -1)
+        assert tokens.ndim == 2
+        return tokens
 
 
 
@@ -499,7 +504,6 @@ class FastaDataModule(L.LightningDataModule):
 class TokenDataModule(L.LightningDataModule):
     def __init__(
         self,
-        split,
         compress_model_id = "2024-03-05T06-20-52",  # soft-violet
         token_dir = "/homefs/home/lux70/storage/data/cath/tokens/",
         max_seq_len = 128,
@@ -507,7 +511,6 @@ class TokenDataModule(L.LightningDataModule):
         num_workers = 0,
         shuffle_val_dataset = False,
     ):
-        self.split = split
         self.compress_model_id = compress_model_id
         self.token_dir = Path(token_dir)
         self.max_seq_len = max_seq_len
@@ -559,10 +562,10 @@ class TokenDataModule(L.LightningDataModule):
         )
     
     def test_dataloader(self):
-        return val_dataloader()
+        return self.val_dataloader()
     
     def predict_dataloader(self):
-        return val_dataloader()
+        return self.val_dataloader()
     
 # class EmbedFastaDataModule(FastaDataModule):
 #     """Overrides the dataloader functions to embed with ESMFold instead."""
