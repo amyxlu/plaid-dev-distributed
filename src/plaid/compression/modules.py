@@ -562,3 +562,65 @@ class VectorQuantizer(nn.Module):
         if shape is not None:
             z_q = z_q.view(shape)
         return z_q
+
+
+"""Torch implementation of Finite Scalar Quantization
+From Appendix 1"""
+
+
+def round_ste(z):
+    """Round with straight through gradients."""
+    zhat = torch.round(z)
+    return z + (zhat - z).detach()
+
+
+class FiniteScalarQuantizer:
+    def __init__(self, levels: T.List[int]):
+        levels = torch.tensor(levels)  # codebook size per position
+        basis = torch.cat(
+            [torch.tensor([1]), torch.cumprod(levels[:-1], dim=0)]
+        ).to(dtype=torch.int32)   # codebook indexed in aggregate
+        self.levels = levels
+        self.basis = basis
+
+        self.codebook_size = torch.prod(levels)
+        self.implicit_codebook = self.indexes_to_codes(torch.arange(self.codebook_size))
+
+    def bound(self, z, eps=1e-3):
+        """Bound z, an array of shape (..., d)."""
+        half_l = (self.levels - 1) * (1 - eps) / 2
+        offset = torch.where(self.levels % 2 ==1, 0.0, 0.5)
+        shift = torch.tan(offset / half_l)
+        return torch.tanh(z + shift) * half_l - offset
+    
+    def quantize(self, z):
+        """Quanitzes z, returns quantized zhat, same shape as z."""
+        quantized = round_ste(self.bound(z))
+        half_width = self.levels // 2  # Renormalize to [-1, 1].
+        return quantized / half_width
+    
+    def _scale_and_shift(self, zhat_normalized):
+        half_width = self.levels // 2
+        return (zhat_normalized * half_width) + half_width
+    
+    def _scale_and_shift_inverse(self, zhat):
+        half_width = self.levels // 2
+        return (zhat - half_width) / half_width
+    
+    def codes_to_indexes(self, zhat):
+        assert zhat.shape[-1] == len(self.levels)
+        zhat = self._scale_and_shift(zhat)
+        return (zhat * self.basis).sum(axis=-1).to(dtype=torch.int32)
+    
+    def indexes_to_codes(self, indices):
+        if indices.ndim < 2: 
+            indices = indices.unsqueeze(0)
+        codes_non_centered = torch.remainder( 
+            torch.floor_divide(indices, self.basis), self.levels
+        )
+        return self._scale_and_shift_inverse(codes_non_centered)
+    
+
+if __name__ == "__main__":
+    fsq = FiniteScalarQuantizer([8,8,8,5,5,5]) 
+    import IPython; IPython.embed()
