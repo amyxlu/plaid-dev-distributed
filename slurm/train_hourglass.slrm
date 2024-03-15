@@ -6,6 +6,7 @@
 #SBATCH --partition gpu2
 #SBATCH --cpus-per-gpu 16 
 #SBATCH --mem-per-gpu 300G
+#SBATCH --time=10-00:00:00
 
 eval "$(conda shell.bash hook)"
 conda activate plaid 

@@ -196,7 +196,7 @@ class HourglassVQLightningModule(L.LightningModule):
             x_recons, loss, log_dict, _ = self(x, mask.bool())
         else:
             x_recons, loss, log_dict, _ = self.forward_no_quantize(x, mask.bool())
-        self.log_dict({f"{prefix}/{k}": v for k,v in log_dict.items()})
+        self.log_dict({f"{prefix}/{k}": v for k,v in log_dict.items()}, batch_size=x.shape[0])
 
         # unscale to decode into sequence and/or structure
         x_recons_unscaled = self.latent_scaler.unscale(x_recons)

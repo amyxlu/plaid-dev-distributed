@@ -1,4 +1,6 @@
 import warnings
+
+import einops
 import torch
 from torch.utils.data import IterableDataset, DataLoader, Dataset
 import numpy as np
@@ -256,10 +258,8 @@ class TokenDataset(Dataset):
 
     def __getitem__(self, idx):
         tokens = self.tokens[idx, ...]
-        tokens = tokens.long().to(dtype=torch.int32)
-        N = tokens.shape[0]
-        tokens = tokens.view(N, -1)
-        assert tokens.ndim == 2
+        tokens = tokens.long()
+        tokens = einops.rearrange(tokens, "l c -> (l c)")
         return tokens
 
 
