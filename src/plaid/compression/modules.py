@@ -574,27 +574,37 @@ def round_ste(z):
     return z + (zhat - z).detach()
 
 
-class FiniteScalarQuantizer:
+class FiniteScalarQuantizer(nn.Module):
     def __init__(self, levels: T.List[int]):
-        levels = torch.tensor(levels)  # codebook size per position
+        super().__init__()
+
+        levels = torch.tensor(levels)         # indices per position
         basis = torch.cat(
             [torch.tensor([1]), torch.cumprod(levels[:-1], dim=0)]
-        ).to(dtype=torch.int32)   # codebook indexed in aggregate
+        ).to(dtype=torch.int32)
         self.levels = levels
         self.basis = basis
 
-        self.codebook_size = torch.prod(levels)
+        # number of dimensions expect from inputs
+        self.num_dimensions = len(levels)
+
+        # size of the codebook
+        self.codebook_size = torch.prod(levels)  
         self.implicit_codebook = self.indexes_to_codes(torch.arange(self.codebook_size))
+    
+    @property
+    def codebook(self):
+        return self.implicit_codebook
 
     def bound(self, z, eps=1e-3):
         """Bound z, an array of shape (..., d)."""
         half_l = (self.levels - 1) * (1 - eps) / 2
-        offset = torch.where(self.levels % 2 ==1, 0.0, 0.5)
+        offset = torch.where(self.levels % 2 == 1, 0.0, 0.5)
         shift = torch.tan(offset / half_l)
         return torch.tanh(z + shift) * half_l - offset
     
     def quantize(self, z):
-        """Quanitzes z, returns quantized zhat, same shape as z."""
+        """Quanitzes z, returns quantized zhat as codewords, same shape as z."""
         quantized = round_ste(self.bound(z))
         half_width = self.levels // 2  # Renormalize to [-1, 1].
         return quantized / half_width
@@ -613,14 +623,45 @@ class FiniteScalarQuantizer:
         return (zhat * self.basis).sum(axis=-1).to(dtype=torch.int32)
     
     def indexes_to_codes(self, indices):
+        # shape manipulations
         if indices.ndim < 2: 
-            indices = indices.unsqueeze(0)
+            indices = indices.unsqueeze(-1)
+
+        def _maybe_cast_shape(input_arr, target_arr):
+            # both should have 2 dimensions
+            if input_arr.shape != target_arr.shape:
+                return input_arr.expand_as(target_arr)
+            else:
+                return input_arr
+
+        basis = _maybe_cast_shape(self.basis)
+        levels = _maybe_cast_shape(self.levels)
+
+        # main logic:
         codes_non_centered = torch.remainder( 
-            torch.floor_divide(indices, self.basis), self.levels
+            torch.floor_divide(indices, basis), levels
         )
         return self._scale_and_shift_inverse(codes_non_centered)
     
 
 if __name__ == "__main__":
     fsq = FiniteScalarQuantizer([8,8,8,5,5,5]) 
+    x = torch.randn(4, 128, 6)
+    device = torch.device("cuda")
+    fsq.to(device)
+    x.to(device)
     import IPython; IPython.embed()
+
+    codebook = fsq.quantize(x)
+    indices = fsq.codes_to_indexes(codebook)
+    codebook_remap = fsq.indexes_to_codes(indices)
+    # In [4]: np.unique(codebook)
+    # Out[4]:
+    # array([-1.  , -0.75, -0.5 , -0.25,  0.  ,  0.25,  0.5 ,  0.75,  1.  ],
+    #     dtype=float32)
+
+    # In [5]: len(np.unique(codebook))
+    # Out[5]: 9
+
+    # In [8]: indices.max()
+    # Out[8]: tensor(63463, dtype=torch.int32)
