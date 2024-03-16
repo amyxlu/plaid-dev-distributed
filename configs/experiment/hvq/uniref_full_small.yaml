@@ -10,7 +10,7 @@ defaults:
   - override /datamodule: uniref_fasta 
 
 logger:
-  name: uniref-seqlen${seq_len}-ne${n_e}-dproj${downproj_factor}-depth${depth}
+  name: uniref
   
 datamodule:
   batch_size: 64
@@ -26,7 +26,7 @@ hourglass:
   e_dim: ${e_dim}
   downproj_factor: ${downproj_factor}
   
-  lr: 8e-5
+  lr: 5e-5
   lr_sched_type: "constant"
   lr_num_warmup_steps: 2000
 
@@ -34,3 +34,4 @@ trainer:
   precision: "bf16-mixed"
   log_every_n_steps: 20
   gradient_clip_val: 0.5
+  val_check_interval: 50000

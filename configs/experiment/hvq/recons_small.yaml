@@ -18,7 +18,7 @@ hourglass:
   e_dim: 64
   updown_sample_type: "linear"
 
-  lr: 1e-4
+  lr: 7e-5 
   lr_sched_type: "constant"
   lr_num_warmup_steps: 3000 
   lr_num_training_steps: 1_000_000

@@ -598,6 +598,7 @@ class FiniteScalarQuantizer(nn.Module):
 
     def bound(self, z, eps=1e-3):
         """Bound z, an array of shape (..., d)."""
+        self.levels = self.levels.to(z.device)
         half_l = (self.levels - 1) * (1 - eps) / 2
         offset = torch.where(self.levels % 2 == 1, 0.0, 0.5)
         shift = torch.tan(offset / half_l)
@@ -619,6 +620,7 @@ class FiniteScalarQuantizer(nn.Module):
     
     def codes_to_indexes(self, zhat):
         assert zhat.shape[-1] == len(self.levels)
+        self.basis = self.basis.to(zhat.device)
         zhat = self._scale_and_shift(zhat)
         return (zhat * self.basis).sum(axis=-1).to(dtype=torch.int32)
     
@@ -627,19 +629,21 @@ class FiniteScalarQuantizer(nn.Module):
         if indices.ndim < 2: 
             indices = indices.unsqueeze(-1)
 
-        def _maybe_cast_shape(input_arr, target_arr):
-            # both should have 2 dimensions
-            if input_arr.shape != target_arr.shape:
-                return input_arr.expand_as(target_arr)
-            else:
-                return input_arr
+        # def _maybe_cast_shape(input_arr, target_arr):
+        #     # both should have 2 dimensions
+        #     # but user-specified indices might be batched
+        #     if input_arr.shape != target_arr.shape:
+        #         return input_arr.expand_as(target_arr)
+        #     else:
+        #         return input_arr
 
-        basis = _maybe_cast_shape(self.basis)
-        levels = _maybe_cast_shape(self.levels)
-
+        # basis = _maybe_cast_shape(self.basis, indices)
+        # levels = _maybe_cast_shape(self.levels, indices)
         # main logic:
+        self.basis = self.basis.to(indices.device)
+        self.levels = self.levels.to(indices.device)
         codes_non_centered = torch.remainder( 
-            torch.floor_divide(indices, basis), levels
+            torch.floor_divide(indices, self.basis), self.levels
         )
         return self._scale_and_shift_inverse(codes_non_centered)
     

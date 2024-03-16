@@ -1,3 +1,5 @@
+import typing as T
+
 import lightning as L
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -8,13 +10,12 @@ import torch
 import numpy as np
 import pandas as pd
 
-from plaid.compression.modules import HourglassDecoder, HourglassEncoder, VectorQuantizer
+from plaid.compression.modules import HourglassDecoder, HourglassEncoder, VectorQuantizer, FiniteScalarQuantizer
 from plaid.utils import LatentScaler, get_lr_scheduler
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
-
 from plaid.losses.functions import masked_mse_loss
 
 
@@ -33,13 +34,15 @@ class HourglassVQLightningModule(L.LightningModule):
         dim_head=64,
         causal=False,
         norm_out=False,
-        use_quantizer=True,
+        use_quantizer="vq",
         # quantizer
         n_e=16,
         e_dim=64,
         vq_beta=0.25,
+        fsq_levels: T.Optional[T.List[int]] = None,  # Maybe specify levels & num_codebooks instead?
         # learning rates
         lr=1e-4,
+        lr_adam_betas=(0.9, 0.999),
         lr_sched_type: str = "constant",
         lr_num_warmup_steps: int = 0,
         lr_num_training_steps: int = 10_000_000,
@@ -54,7 +57,32 @@ class HourglassVQLightningModule(L.LightningModule):
         log_structure_loss=False,
     ):
         super().__init__()
-        self.use_quantizer = use_quantizer
+        
+        """Make quantizer. Can be either the traditional VQ-VAE, the FSQ, or
+        none (i.e. output of encoder goes directly back into the decoder).
+        """
+        if isinstance(use_quantizer,  bool):
+            if use_quantizer:
+                print("using quantization: vq")
+                self.quantize_scheme = "vq"
+            else:
+                print("using non-quantization mode")
+                self.quantize_scheme = None  # no quantization
+        else:
+            assert use_quantizer in ['vq', 'fsq']
+            self.quantize_scheme = use_quantizer
+            print(f"using quantizer {use_quantizer}")
+        
+        if self.quantize_scheme == "vq":
+            self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
+
+        elif self.quantize_scheme == "fsq":
+            assert not fsq_levels is None
+            assert len(fsq_levels) == (dim / downproj_factor) 
+            self.quantizer = FiniteScalarQuantizer(fsq_levels)
+
+        self.quantizer.to(self.device)
+
         self.enc = HourglassEncoder(
             dim=dim,
             depth=depth,
@@ -67,7 +95,6 @@ class HourglassVQLightningModule(L.LightningModule):
             causal=causal,
             norm_out=norm_out
         )
-        self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
         self.dec = HourglassDecoder(
             dim=dim // downproj_factor,
             depth=depth,
@@ -82,6 +109,7 @@ class HourglassVQLightningModule(L.LightningModule):
         self.latent_scaler = latent_scaler
 
         self.lr = lr
+        self.lr_adam_betas = lr_adam_betas
         self.lr_sched_type = lr_sched_type
         self.lr_num_warmup_steps = lr_num_warmup_steps
         self.lr_num_training_steps = lr_num_training_steps
@@ -117,34 +145,51 @@ class HourglassVQLightningModule(L.LightningModule):
         return x_recons, loss, log_dict, z_e_out
 
     def forward(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
-        if not self.use_quantizer:
+        # exit and call other function not using quantization
+        if self.quantize_scheme is None:
             return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
-        
+
+        # encode and possibly downsample
         z_e, downsampled_mask = self.enc(x, mask, verbose)
-        quant_out = self.quantizer(z_e, verbose)
-        z_q = quant_out['z_q']
+        log_dict = {}
+
+        # quantize and get z_q
+        if self.quantize_scheme == "vq": 
+            quant_out = self.quantizer(z_e, verbose)
+            z_q = quant_out['z_q']
+            vq_loss = quant_out['loss']
+            log_dict["vq_loss"] = quant_out['loss']
+            log_dict["vq_perplexity"] = quant_out['perplexity']
+            codebook = quant_out['min_encoding_indices'].detach().cpu().numpy().reshape(-1)
+            n_bins = self.n_e
+
+        elif self.quantize_scheme == "fsq":
+            z_q = self.quantizer.quantize(z_e)
+            n_bins = self.quantizer.codebook_size
+            vq_loss = 0
+            codebook = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy().reshape(-1)
+            quant_out = {"codebook": codebook}  # for inference use
+        else:
+            raise NotImplementedError
+
         x_recons = self.dec(z_q, downsampled_mask, verbose)
 
-        if (self.global_step % 5000 == 0) and log_wandb:
+        if (self.global_step % 5000 == 0) and log_wandb and (self.quantize_scheme is not None):
             fig, ax = plt.subplots()
-            ax.hist(quant_out['min_encoding_indices'].detach().cpu().numpy(), bins=self.n_e)
+            ax.hist(codebook, bins=n_bins)
             wandb.log({"codebook_index_hist": wandb.Image(fig)})
 
-        vq_loss = quant_out['loss']
         recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = vq_loss + recons_loss
-        log_dict = {
-            "vq_loss": vq_loss.item(),
-            "vq_perplexity": quant_out['perplexity'],
-            "recons_loss": recons_loss.item(),
-            "loss": loss.item(),
-        }
+        log_dict['recons_loss'] = recons_loss.item()
+        log_dict['loss'] = loss.item()
         return x_recons, loss, log_dict, quant_out
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
             list(self.enc.parameters()) + list(self.dec.parameters()) + list(self.quantizer.parameters()),
-            lr=self.lr
+            lr=self.lr,
+            betas=self.lr_adam_betas
         )
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
@@ -192,7 +237,7 @@ class HourglassVQLightningModule(L.LightningModule):
         x = self.latent_scaler.scale(x)
 
         # forward pass
-        if self.use_quantizer:
+        if not self.quantize_scheme is None:
             x_recons, loss, log_dict, _ = self(x, mask.bool())
         else:
             x_recons, loss, log_dict, _ = self.forward_no_quantize(x, mask.bool())
@@ -230,7 +275,13 @@ class HourglassVQLightningModule(L.LightningModule):
 
 if __name__ == "__main__":
     device = torch.device("cuda")
-    hvq = HourglassVQLightningModule(1024).to(device)
+    hvq = HourglassVQLightningModule(
+        dim=1024,
+        fsq_levels=[8] * 16,
+        downproj_factor=64
+    ).to(device)
+
     x = torch.randn(8, 128, 1024).to(device)
     mask = torch.ones(8, 128).bool().to(device)
-    hvq(x, mask, verbose=True)
+
+    print(hvq(x, mask, verbose=True))

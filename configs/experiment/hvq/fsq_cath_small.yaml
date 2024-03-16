@@ -1,0 +1,22 @@
+# @package _global_
+
+# make sure that 1024 / downproj_factor = e_dim
+
+datamodule:
+  batch_size: 64 
+  seq_len: 64 
+
+logger:
+  name: fsq
+
+hourglass:
+  n_e: -1
+  e_dim: 64
+  use_quantizer: "fsq"
+  fsq_levels: [8, 8, 8, 8, 8, 8, 8, 8]
+  downproj_factor: 128
+
+trainer:
+  precision: "bf16-mixed"
+  log_every_n_steps: 20
+  gradient_clip_val: 1
