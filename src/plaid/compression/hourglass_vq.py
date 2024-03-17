@@ -39,8 +39,7 @@ class HourglassVQLightningModule(L.LightningModule):
         n_e=16,
         e_dim=64,
         vq_beta=0.25,
-        fsq_levels: T.Optional[T.List[int]] = None,  # Maybe specify levels & num_codebooks instead?
-        # learning rates
+        fsq_levels: T.Optional[T.List[int]] = None,
         lr=1e-4,
         lr_adam_betas=(0.9, 0.999),
         lr_sched_type: str = "constant",
@@ -61,6 +60,7 @@ class HourglassVQLightningModule(L.LightningModule):
         """Make quantizer. Can be either the traditional VQ-VAE, the FSQ, or
         none (i.e. output of encoder goes directly back into the decoder).
         """
+
         if isinstance(use_quantizer,  bool):
             if use_quantizer:
                 print("using quantization: vq")
@@ -77,7 +77,8 @@ class HourglassVQLightningModule(L.LightningModule):
             self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
 
         elif self.quantize_scheme == "fsq":
-            assert not fsq_levels is None
+            self.fsq_levels = fsq_levels
+
             assert len(fsq_levels) == (dim / downproj_factor) 
             self.quantizer = FiniteScalarQuantizer(fsq_levels)
 

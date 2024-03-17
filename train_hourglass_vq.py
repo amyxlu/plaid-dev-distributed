@@ -40,7 +40,7 @@ def train(cfg: DictConfig):
     job_id = None  # possibly replace w/ SLURM ID
     if not cfg.dryrun:
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
-        logger.watch(model, log="all", log_graph=False)
+        # logger.watch(model, log="all", log_graph=False)
     else:
         logger = None
 
