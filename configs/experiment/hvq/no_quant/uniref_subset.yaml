@@ -1,0 +1,34 @@
+# @package _global_
+
+# make sure that 1024 / downproj_factor = e_dim
+
+datamodule:
+  batch_size: 64 
+  seq_len: 512 
+
+logger:
+  name: no-quant
+
+hourglass:
+  seq_loss_weight: 0.0
+  struct_loss_weight: 0.0
+  log_sequence_loss: True 
+  log_structure_loss: False
+  downproj_factor: 1 
+  shorten_factor: 1
+  use_quantizer: False
+  depth: 8 
+  n_e: 512
+  e_dim: 64
+  updown_sample_type: "linear"
+
+  lr: 3e-5 
+  lr_sched_type: "constant"
+  lr_num_warmup_steps: 3000
+  lr_num_training_steps: 1_000_000
+  lr_num_cycles: 2
+
+trainer:
+  precision: "bf16-mixed"
+  log_every_n_steps: 20
+  gradient_clip_val: 1

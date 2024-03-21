@@ -1,0 +1,37 @@
+# @package _global_
+seq_len: 256
+n_e: 65536
+e_dim: 64
+downproj_factor: 16
+depth: 8
+
+defaults:
+  # - override /datamodule: uniref_subset_sharded
+  - override /datamodule: uniref_fasta 
+
+logger:
+  name: uniref
+  
+datamodule:
+  batch_size: 64
+  seq_len: ${seq_len} 
+
+hourglass:
+  seq_loss_weight: 0.0
+  struct_loss_weight: 0.0
+  log_sequence_loss: True 
+  depth: ${depth}
+
+  n_e: ${n_e}
+  e_dim: ${e_dim}
+  downproj_factor: ${downproj_factor}
+  
+  lr: 5e-5
+  lr_sched_type: "constant"
+  lr_num_warmup_steps: 2000
+
+trainer:
+  precision: "bf16-mixed"
+  log_every_n_steps: 20
+  gradient_clip_val: 0.5
+  val_check_interval: 2000

@@ -1,14 +1,11 @@
-import typing as T
-import os
+import time
 
 import hydra
-import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 from omegaconf import DictConfig, OmegaConf
 import torch
 
-from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.transforms import ESMFoldEmbed
 from plaid.datasets import FastaDataModule
 
@@ -22,8 +19,11 @@ def train(cfg: DictConfig):
         print(OmegaConf.to_yaml(log_cfg))
 
     # lightning data modules, scalar, and maybe sequence embedder
+    start = time.time()
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
+    end = time.time()
+    print(f"Datamodule set up in {end - start:.2f}.")
 
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
     if isinstance(datamodule, FastaDataModule):
@@ -49,6 +49,7 @@ def train(cfg: DictConfig):
     trainer = hydra.utils.instantiate(
         cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor]
     )
+
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
