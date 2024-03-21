@@ -20,7 +20,6 @@ from ..transforms import trim_or_pad_length_first
 PathLike = T.Union[Path, str]
 
 
-
 class StructureFeaturizer:
     def _openfold_features_from_pdb(
         self, pdb_str: str, pdb_id: T.Optional[str] = None

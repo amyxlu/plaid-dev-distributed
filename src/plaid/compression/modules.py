@@ -232,30 +232,30 @@ class HourglassEncoder(nn.Module):
         super().__init__()
 
         # shorten factor
-        if isinstance(shorten_factor, (tuple, list, ListConfig)):
+        if _check_if_nest(shorten_factor):
             assert len(depth) == len(shorten_factor) == len(downproj_factor)
             shorten_factor, *rest_shorten_factor = shorten_factor
-        elif isinstance(shorten_factor, int):
-            shorten_factor, rest_shorten_factor = shorten_factor, None
         else:
-            raise TypeError()
+            shorten_factor, rest_shorten_factor = shorten_factor, None
+            if not isinstance(shorten_factor, int):
+                shorten_factor = shorten_factor[0]
 
         # downproj factor
-        if isinstance(downproj_factor, (tuple, list, ListConfig)):
+        if _check_if_nest(downproj_factor):
             downproj_factor, *rest_downproj_factor = downproj_factor
-        elif isinstance(downproj_factor, int):
-            downproj_factor, rest_downproj_factor = downproj_factor, None
         else:
-            raise TypeError()
+            downproj_factor, rest_downproj_factor = downproj_factor, None
+            if not isinstance(downproj_factor, int):
+                downproj_factor = downproj_factor[0]
 
         # depth 
-        if isinstance(depth, (tuple, list, ListConfig)):
+        if _check_if_nest(depth):
             depth, *rest_depth = depth
-        elif isinstance(depth, int):
-            depth, rest_depth = depth, None
         else:
-            raise TypeError()
-
+            depth, rest_depth = depth, None
+            if not isinstance(depth, int):
+                depth = depth[0]
+        
         # shared transformer kwargs
         transformer_kwargs = dict(
             heads = heads,
@@ -578,7 +578,7 @@ class FiniteScalarQuantizer(nn.Module):
     def __init__(self, levels: T.List[int]):
         super().__init__()
 
-        levels = torch.tensor(levels)         # indices per position
+        levels = torch.tensor(levels)
         basis = torch.cat(
             [torch.tensor([1]), torch.cumprod(levels[:-1], dim=0)]
         ).to(dtype=torch.int32)
@@ -591,6 +591,7 @@ class FiniteScalarQuantizer(nn.Module):
         # size of the codebook
         self.codebook_size = torch.prod(levels)  
         self.implicit_codebook = self.indexes_to_codes(torch.arange(self.codebook_size))
+        print("Codebook size:", self.codebook_size)
     
     @property
     def codebook(self):
@@ -598,9 +599,9 @@ class FiniteScalarQuantizer(nn.Module):
 
     def bound(self, z, eps=1e-3):
         """Bound z, an array of shape (..., d)."""
-        self.levels = self.levels.to(z.device)
-        half_l = (self.levels - 1) * (1 - eps) / 2
-        offset = torch.where(self.levels % 2 == 1, 0.0, 0.5)
+        levels = self.levels.to(z.device)
+        half_l = (levels - 1) * (1 - eps) / 2
+        offset = torch.where(levels % 2 == 1, 0.0, 0.5)
         shift = torch.tan(offset / half_l)
         return torch.tanh(z + shift) * half_l - offset
     
@@ -608,27 +609,30 @@ class FiniteScalarQuantizer(nn.Module):
         """Quanitzes z, returns quantized zhat as codewords, same shape as z."""
         quantized = round_ste(self.bound(z))
         half_width = self.levels // 2  # Renormalize to [-1, 1].
+        half_width = half_width.to(z.device)
         return quantized / half_width
     
     def _scale_and_shift(self, zhat_normalized):
-        half_width = self.levels // 2
+        levels = self.levels.to(zhat_normalized.device)
+        half_width = levels // 2
         return (zhat_normalized * half_width) + half_width
     
     def _scale_and_shift_inverse(self, zhat):
-        half_width = self.levels // 2
+        levels = self.levels.to(zhat.device)
+        half_width = levels // 2
         return (zhat - half_width) / half_width
     
     def codes_to_indexes(self, zhat):
-        assert zhat.shape[-1] == len(self.levels)
-        self.basis = self.basis.to(zhat.device)
+        # assert zhat.shape[-1] == len(self.levels)
+        basis = self.basis.to(zhat.device)
         zhat = self._scale_and_shift(zhat)
-        return (zhat * self.basis).sum(axis=-1).to(dtype=torch.int32)
+        return (zhat * basis).sum(axis=-1).to(dtype=torch.int32)
     
     def indexes_to_codes(self, indices):
         # shape manipulations
         if indices.ndim < 2: 
             indices = indices.unsqueeze(-1)
-
+        
         # def _maybe_cast_shape(input_arr, target_arr):
         #     # both should have 2 dimensions
         #     # but user-specified indices might be batched
@@ -639,17 +643,16 @@ class FiniteScalarQuantizer(nn.Module):
 
         # basis = _maybe_cast_shape(self.basis, indices)
         # levels = _maybe_cast_shape(self.levels, indices)
-        # main logic:
-        self.basis = self.basis.to(indices.device)
-        self.levels = self.levels.to(indices.device)
+        basis = self.basis.to(indices.device)
+        levels = self.levels.to(indices.device)
         codes_non_centered = torch.remainder( 
-            torch.floor_divide(indices, self.basis), self.levels
+            torch.floor_divide(indices, basis), levels
         )
         return self._scale_and_shift_inverse(codes_non_centered)
     
 
 if __name__ == "__main__":
-    fsq = FiniteScalarQuantizer([8,8,8,5,5,5]) 
+    fsq = FiniteScalarQuantizer([8,8,8,8,8,8,8,8])
     x = torch.randn(4, 128, 6)
     device = torch.device("cuda")
     fsq.to(device)

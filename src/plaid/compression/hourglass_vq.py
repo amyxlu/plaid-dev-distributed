@@ -75,14 +75,14 @@ class HourglassVQLightningModule(L.LightningModule):
         
         if self.quantize_scheme == "vq":
             self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
-
+            self.quantizer.to(self.device)
         elif self.quantize_scheme == "fsq":
-            self.fsq_levels = fsq_levels
-
             assert len(fsq_levels) == (dim / downproj_factor) 
+            self.fsq_levels = fsq_levels
             self.quantizer = FiniteScalarQuantizer(fsq_levels)
-
-        self.quantizer.to(self.device)
+            self.quantizer.to(self.device)
+        else:
+            self.quantizer = None
 
         self.enc = HourglassEncoder(
             dim=dim,
@@ -153,7 +153,6 @@ class HourglassVQLightningModule(L.LightningModule):
         # encode and possibly downsample
         z_e, downsampled_mask = self.enc(x, mask, verbose)
         log_dict = {}
-
         # quantize and get z_q
         if self.quantize_scheme == "vq": 
             quant_out = self.quantizer(z_e, verbose)
@@ -172,13 +171,13 @@ class HourglassVQLightningModule(L.LightningModule):
             quant_out = {"codebook": codebook}  # for inference use
         else:
             raise NotImplementedError
-
         x_recons = self.dec(z_q, downsampled_mask, verbose)
 
-        if (self.global_step % 5000 == 0) and log_wandb and (self.quantize_scheme is not None):
-            fig, ax = plt.subplots()
-            ax.hist(codebook, bins=n_bins)
-            wandb.log({"codebook_index_hist": wandb.Image(fig)})
+        # Computationally prohibitive for very very large codebook sizes
+        # if (self.global_step % 5000 == 0) and log_wandb and (self.quantize_scheme is not None):
+        #     fig, ax = plt.subplots()
+        #     ax.hist(codebook, bins=n_bins)
+        #     wandb.log({"codebook_index_hist": wandb.Image(fig)})
 
         recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = vq_loss + recons_loss
@@ -187,8 +186,12 @@ class HourglassVQLightningModule(L.LightningModule):
         return x_recons, loss, log_dict, quant_out
 
     def configure_optimizers(self):
+        parameters = list(self.enc.parameters()) + list(self.dec.parameters())
+        if not self.quantizer is None:
+            parameters += list(self.quantizer.parameters())
+
         optimizer = torch.optim.AdamW(
-            list(self.enc.parameters()) + list(self.dec.parameters()) + list(self.quantizer.parameters()),
+            parameters,
             lr=self.lr,
             betas=self.lr_adam_betas
         )
@@ -278,11 +281,13 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     hvq = HourglassVQLightningModule(
         dim=1024,
-        fsq_levels=[8] * 16,
-        downproj_factor=64
+        fsq_levels=[8] * 8,
+        downproj_factor=128,
+        use_quantizer="fsq"
     ).to(device)
 
     x = torch.randn(8, 128, 1024).to(device)
     mask = torch.ones(8, 128).bool().to(device)
 
-    print(hvq(x, mask, verbose=True))
+    out = hvq(x, mask, verbose=True)
+    hvq.training_step((x, mask), 0)
