@@ -9,6 +9,7 @@ defaults:
   - trainer: default
   - callbacks/checkpoint: hourglass_vq 
   - callbacks/lr_monitor: default
+  - callbacks/compression: default
   - logger: hourglass_vq
   - experiment: null
 

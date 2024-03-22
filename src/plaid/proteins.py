@@ -236,6 +236,7 @@ class LatentToSequence:
 
 class LatentToStructure:
     def __init__(self, esmfold=None, chunk_size=64):
+        self.device = torch.device("cpu")
         if esmfold is None:
             import time
             print("loading esmfold model...")

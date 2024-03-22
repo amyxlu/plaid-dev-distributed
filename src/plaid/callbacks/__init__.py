@@ -1,1 +1,2 @@
 from .sample_callback import SampleCallback
+from .compression_callback import CompressionReconstructionCallback

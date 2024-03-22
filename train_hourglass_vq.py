@@ -23,7 +23,7 @@ def train(cfg: DictConfig):
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
     end = time.time()
-    print(f"Datamodule set up in {end - start:.2f}.")
+    print(f"Datamodule set up in {end - start:.2f} seconds.")
 
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
     if isinstance(datamodule, FastaDataModule):
@@ -46,8 +46,13 @@ def train(cfg: DictConfig):
 
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
+    compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
+
+    model_id = str(checkpoint_callback.dirpath).split("/")[-1]
+    log_cfg['model_id'] = model_id
+
     trainer = hydra.utils.instantiate(
-        cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor]
+        cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor, compression_callback]
     )
 
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
