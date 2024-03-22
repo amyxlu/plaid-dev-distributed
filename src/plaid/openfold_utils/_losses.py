@@ -19,17 +19,12 @@ import torch
 import torch.nn as nn
 from typing import Dict, Optional, Tuple
 
-from openfold.np import residue_constants
-from openfold.utils.rigid_utils import Rotation, Rigid
-from openfold.utils.geometry.vector import Vec3Array, euclidean_distance
-from openfold.utils.all_atom_multimer import get_rc_tensor
-from openfold.utils.tensor_utils import (
-    tree_map,
-    masked_mean,
-    permute_final_dims,
-)
+from . import _residue_constants as rc
+from ._rigids import Rotation, Rigid
+# from openfold.utils.geometry.vector import Vec3Array, euclidean_distance
+# from openfold.utils.all_atom_multimer import get_rc_tensor
+from ._tensor_utils import tree_map, tensor_tree_map, masked_mean, permute_final_dims
 import logging
-from openfold.utils.tensor_utils import tensor_tree_map
 
 logger = logging.getLogger(__name__)
 

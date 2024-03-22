@@ -12,9 +12,11 @@ from ._residue_constants import make_atom14_dists_bounds
 from ._data_pipeline import make_pdb_features
 from ._data_transforms import (
     make_pseudo_beta,
+    make_seq_mask,
     make_atom14_masks,
     make_atom14_masks_np,
     make_atom14_positions,
+    make_all_atom_aatype,
     atom37_to_frames,
     get_chi_atom_indices,
     atom37_to_torsion_angles,

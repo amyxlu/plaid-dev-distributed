@@ -4,12 +4,12 @@ from pathlib import Path
 import numpy as np
 import torch
 
-# from openfold.data.data_pipeline import make_pdb_features
-# from openfold.data.data_transforms import atom37_to_frames, get_backbone_frames
-# from openfold.np.protein import Protein as OFProtein
-# from openfold.np.protein import protein_from_pdb_string
 from ..openfold_utils import (
     make_pdb_features,
+    make_all_atom_aatype,
+    make_seq_mask,
+    make_atom14_masks,
+    make_atom14_positions,
     atom37_to_frames,
     get_backbone_frames,
     OFProtein,
@@ -18,6 +18,36 @@ from ..openfold_utils import (
 from ..transforms import trim_or_pad_length_first
 
 PathLike = T.Union[Path, str]
+
+
+FEATURES_REQUIRING_PADDING = [
+ 'aatype',
+ 'between_segment_residues',
+ 'residue_index',
+ 'seq_length',
+ 'all_atom_positions',
+ 'all_atom_mask',
+#  'resolution',
+#  'is_distillation',
+ 'all_atom_aatype',
+ 'seq_mask',
+ 'atom14_atom_exists',
+ 'residx_atom14_to_atom37',
+ 'residx_atom37_to_atom14',
+ 'atom37_atom_exists',
+ 'atom14_gt_exists',
+ 'atom14_gt_positions',
+ 'atom14_alt_gt_positions',
+ 'atom14_alt_gt_exists',
+ 'atom14_atom_is_ambiguous',
+ 'rigidgroups_gt_frames',
+ 'rigidgroups_gt_exists',
+ 'rigidgroups_group_exists',
+ 'rigidgroups_group_is_ambiguous',
+ 'rigidgroups_alt_gt_frames',
+ 'backbone_rigid_tensor',
+ 'backbone_rigid_mask'
+]
 
 
 class StructureFeaturizer:
@@ -52,15 +82,6 @@ class StructureFeaturizer:
         self, features: T.Dict[str, np.ndarray], seq_len: int
     ):
         """Process feature dtypes and pad to max length."""
-        features_requiring_padding = [
-            "aatype",
-            "between_segment_residues",
-            "residue_index",
-            "all_atom_positions",
-            "all_atom_mask",
-            # ... add additionals here.
-        ]
-
         for k, v in features.items():
             # Handle data types in converting from numpy to torch
             if v.dtype == np.dtype("int32"):
@@ -72,7 +93,7 @@ class StructureFeaturizer:
                 features[k] = torch.from_numpy(v)
 
             # Trim or pad to a fixed length for all per-specific features
-            if k in features_requiring_padding:
+            if k in FEATURES_REQUIRING_PADDING:
                 features[k] = trim_or_pad_length_first(features[k], seq_len)
 
             # 'seq_length' is a tensor with shape equal to the aatype array length,
@@ -91,6 +112,18 @@ class StructureFeaturizer:
     def __call__(self, pdb_str: str, seq_len: int, pdb_id: T.Optional[str] = None):
         features = self._openfold_features_from_pdb(pdb_str, pdb_id)
         features = self._process_structure_features(features, seq_len)
-        features = atom37_to_frames(features)
-        features = get_backbone_frames(features)
+        p = make_all_atom_aatype(features)
+        p = make_seq_mask(p)
+        p = make_atom14_masks(p)
+        p = make_atom14_positions(p)
+        p = atom37_to_frames(p)
+        p = get_backbone_frames(p)
+
+        # f = make_pseudo_beta("")
+        # p = f(p)
+
+        # f = atom37_to_torsion_angles("")
+        # p = f(p)
+
+        # p = get_chi_angles(p)
         return features
