@@ -112,12 +112,12 @@ class StructureFeaturizer:
     def __call__(self, pdb_str: str, seq_len: int, pdb_id: T.Optional[str] = None):
         features = self._openfold_features_from_pdb(pdb_str, pdb_id)
         features = self._process_structure_features(features, seq_len)
-        p = make_all_atom_aatype(features)
-        p = make_seq_mask(p)
-        p = make_atom14_masks(p)
-        p = make_atom14_positions(p)
-        p = atom37_to_frames(p)
-        p = get_backbone_frames(p)
+        features = make_all_atom_aatype(features)
+        features = make_seq_mask(features) 
+        features = make_atom14_masks(features)
+        features = make_atom14_positions(features)
+        features = atom37_to_frames(features)
+        features = get_backbone_frames(features)
 
         # f = make_pseudo_beta("")
         # p = f(p)
