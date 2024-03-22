@@ -1,6 +1,8 @@
 import math
 import torch
 import numpy as np
+import typing as T
+from torch.nn.functional import nll_loss
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from ..utils import to_tensor 
