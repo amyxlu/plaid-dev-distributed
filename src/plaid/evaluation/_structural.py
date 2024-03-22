@@ -5,6 +5,7 @@ import numpy as np
 
 
 def pdb_path_to_biotite_atom_array(file_path):
+    """Returns an atom array stack - if only one chain, can take just the first of the tuple to get the atom array."""
     pdb_file = pdb.PDBFile.read(file_path)
     atom_array = pdb.get_structure(pdb_file)
     return atom_array

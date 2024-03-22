@@ -19,7 +19,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, Optional, Tuple
 
-from . import _residue_constants as rc
+from . import _residue_constants as residue_constants
 from ._rigids import Rotation, Rigid
 # from openfold.utils.geometry.vector import Vec3Array, euclidean_distance
 # from openfold.utils.all_atom_multimer import get_rc_tensor
@@ -1620,61 +1620,61 @@ def masked_msa_loss(logits, true_msa, bert_mask, num_classes, eps=1e-8, **kwargs
     return loss
 
 
-def chain_center_of_mass_loss(
-    all_atom_pred_pos: torch.Tensor,
-    all_atom_positions: torch.Tensor,
-    all_atom_mask: torch.Tensor,
-    asym_id: torch.Tensor,
-    clamp_distance: float = -4.0,
-    weight: float = 0.05,
-    eps: float = 1e-10, **kwargs
-) -> torch.Tensor:
-    """
-    Computes chain centre-of-mass loss. Implements section 2.5, eqn 1 in the Multimer paper.
+# def chain_center_of_mass_loss(
+#     all_atom_pred_pos: torch.Tensor,
+#     all_atom_positions: torch.Tensor,
+#     all_atom_mask: torch.Tensor,
+#     asym_id: torch.Tensor,
+#     clamp_distance: float = -4.0,
+#     weight: float = 0.05,
+#     eps: float = 1e-10, **kwargs
+# ) -> torch.Tensor:
+#     """
+#     Computes chain centre-of-mass loss. Implements section 2.5, eqn 1 in the Multimer paper.
 
-    Args:
-        all_atom_pred_pos:
-            [*, N_pts, 37, 3] All-atom predicted atom positions
-        all_atom_positions:
-            [*, N_pts, 37, 3] Ground truth all-atom positions
-        all_atom_mask:
-            [*, N_pts, 37] All-atom positions mask
-        asym_id:
-            [*, N_pts] Chain asym IDs
-        clamp_distance:
-            Cutoff above which distance errors are disregarded
-        weight:
-            Weight for loss
-        eps:
-            Small value used to regularize denominators
-    Returns:
-        [*] loss tensor
-    """
-    ca_pos = residue_constants.atom_order["CA"]
-    all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
-    all_atom_positions = all_atom_positions[..., ca_pos, :]
-    all_atom_mask = all_atom_mask[..., ca_pos: (ca_pos + 1)]  # keep dim
+#     Args:
+#         all_atom_pred_pos:
+#             [*, N_pts, 37, 3] All-atom predicted atom positions
+#         all_atom_positions:
+#             [*, N_pts, 37, 3] Ground truth all-atom positions
+#         all_atom_mask:
+#             [*, N_pts, 37] All-atom positions mask
+#         asym_id:
+#             [*, N_pts] Chain asym IDs
+#         clamp_distance:
+#             Cutoff above which distance errors are disregarded
+#         weight:
+#             Weight for loss
+#         eps:
+#             Small value used to regularize denominators
+#     Returns:
+#         [*] loss tensor
+#     """
+#     ca_pos = residue_constants.atom_order["CA"]
+#     all_atom_pred_pos = all_atom_pred_pos[..., ca_pos, :]
+#     all_atom_positions = all_atom_positions[..., ca_pos, :]
+#     all_atom_mask = all_atom_mask[..., ca_pos: (ca_pos + 1)]  # keep dim
 
-    one_hot = torch.nn.functional.one_hot(asym_id.long()).to(dtype=all_atom_mask.dtype)
-    one_hot = one_hot * all_atom_mask
-    chain_pos_mask = one_hot.transpose(-2, -1)
-    chain_exists = torch.any(chain_pos_mask, dim=-1).to(dtype=all_atom_positions.dtype)
+#     one_hot = torch.nn.functional.one_hot(asym_id.long()).to(dtype=all_atom_mask.dtype)
+#     one_hot = one_hot * all_atom_mask
+#     chain_pos_mask = one_hot.transpose(-2, -1)
+#     chain_exists = torch.any(chain_pos_mask, dim=-1).to(dtype=all_atom_positions.dtype)
 
-    def get_chain_center_of_mass(pos):
-        center_sum = (chain_pos_mask[..., None] * pos[..., None, :, :]).sum(dim=-2)
-        centers = center_sum / (torch.sum(chain_pos_mask, dim=-1, keepdim=True) + eps)
-        return Vec3Array.from_array(centers)
+#     def get_chain_center_of_mass(pos):
+#         center_sum = (chain_pos_mask[..., None] * pos[..., None, :, :]).sum(dim=-2)
+#         centers = center_sum / (torch.sum(chain_pos_mask, dim=-1, keepdim=True) + eps)
+#         return Vec3Array.from_array(centers)
 
-    pred_centers = get_chain_center_of_mass(all_atom_pred_pos)  # [B, NC, 3]
-    true_centers = get_chain_center_of_mass(all_atom_positions)  # [B, NC, 3]
+#     pred_centers = get_chain_center_of_mass(all_atom_pred_pos)  # [B, NC, 3]
+#     true_centers = get_chain_center_of_mass(all_atom_positions)  # [B, NC, 3]
 
-    pred_dists = euclidean_distance(pred_centers[..., None, :], pred_centers[..., :, None], epsilon=eps)
-    true_dists = euclidean_distance(true_centers[..., None, :], true_centers[..., :, None], epsilon=eps)
-    losses = torch.clamp((weight * (pred_dists - true_dists - clamp_distance)), max=0) ** 2
-    loss_mask = chain_exists[..., :, None] * chain_exists[..., None, :]
+#     pred_dists = euclidean_distance(pred_centers[..., None, :], pred_centers[..., :, None], epsilon=eps)
+#     true_dists = euclidean_distance(true_centers[..., None, :], true_centers[..., :, None], epsilon=eps)
+#     losses = torch.clamp((weight * (pred_dists - true_dists - clamp_distance)), max=0) ** 2
+#     loss_mask = chain_exists[..., :, None] * chain_exists[..., None, :]
 
-    loss = masked_mean(loss_mask, losses, dim=(-1, -2))
-    return loss
+#     loss = masked_mean(loss_mask, losses, dim=(-1, -2))
+#     return loss
 
 
 class AlphaFoldLoss(nn.Module):

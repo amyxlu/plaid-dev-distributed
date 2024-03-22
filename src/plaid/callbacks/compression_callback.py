@@ -1,17 +1,22 @@
-from plaid.datasets import CATHStructureDataModule
-import os
 from pathlib import Path
 import time
-from plaid.esmfold.misc import batch_encode_sequences
-from plaid.transforms import trim_or_pad_batch_first
-from plaid.utils import LatentScaler
-from plaid.proteins import LatentToStructure
+
+from tqdm import tqdm, trange
+import numpy as np
+from biotite import structure
 import torch
-from plaid.compression.hourglass_vq import HourglassVQLightningModule
 import matplotlib.pyplot as plt
+from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.utilities import rank_zero_only
 
-
-device = torch.device("cuda")
+from plaid.esmfold.misc import batch_encode_sequences
+from plaid.datasets import CATHStructureDataModule
+from plaid.transforms import trim_or_pad_batch_first
+from plaid.utils import LatentScaler, pdb_path_to_biotite_atom_array, alpha_carbons_from_atom_array 
+from plaid.proteins import LatentToStructure
+from plaid.evaluation import run_tmalign
+from plaid.evaluation import lDDT
+from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 
 def load_compression_model(model_id):
@@ -19,13 +24,19 @@ def load_compression_model(model_id):
     return HourglassVQLightningModule.load_from_checkpoint(dirpath / "last.ckpt")
 
 
-class CompressionReconstructionCallback:
+def maybe_print(msg):
+    if rank_zero_only.rank == 0:
+        print(msg)
+
+
+class CompressionReconstructionCallback(Callback):
     """
     For compression experiments, evaluate the reconstruction quality.
     """
     def __init__(
             self,
             compression_model,
+            device,
             batch_size,
             esmfold=None,
             shard_dir = "/homefs/home/lux70/storage/data/cath/shards/",
@@ -34,28 +45,31 @@ class CompressionReconstructionCallback:
             max_seq_len: int = 256,
             num_recycles: int = 4
         ):
+        self.device = device
+        self.compression_model = compression_model
+
         self.latent_scaler = LatentScaler()
         self.structure_constructor = LatentToStructure(esmfold=esmfold)
+        self.structure_constructor.to(device)
+        self.compression_model.to(device)
 
         self.batch_size = batch_size
         self.shard_dir = shard_dir
         self.pdb_dir = pdb_dir
         self.num_samples = num_samples
         self.max_seq_len = max_seq_len
-        self.compression_model = compression_model
         self.num_recycles = num_recycles
         self.base_pdb_dir = Path("/homefs/home/lux70/cache/")
 
-        self.quantize_scheme = self.model.quantize_scheme
+        self.quantize_scheme = self.compression_model.quantize_scheme
         x, mask, sequences, gt_structures = self._get_validation_data() 
 
         self.x = x
         self.mask = mask
         self.sequences = sequences
         self.gt_structures = gt_structures
+        import IPython;IPython.embed()
 
-    # TODO: device?
-        
     def _get_validation_data(self):
         start = time.time()
         print(f"Creating reference validation data of {self.num_samples} points...")
@@ -87,8 +101,9 @@ class CompressionReconstructionCallback:
 
     def _compress_and_reconstruct(self):
         print("Running dataset through model bottleneck...")
-        x_norm = self.latent_scaler.scale(self.x)
-        recons_norm, loss, log_dict, quant_out = self.compression_model(x_norm, self.mask.bool(), log_wandb=False)
+        x_norm = self.latent_scaler.scale(self.x).to(self.device)
+        mask = self.mask.bool().to(self.device)
+        recons_norm, loss, log_dict, quant_out = self.compression_model(x_norm, mask, log_wandb=False)
         recons = self.latent_scaler.unscale(recons_norm)
 
         if self.quantize_scheme == "vq":
@@ -113,9 +128,11 @@ class CompressionReconstructionCallback:
     
     def _save_pdbs(self, struct_features, prefix=""):
         assert prefix in ["", "recons", "orig"]
-        for i, pdbstr in enumerate(struct_features):
-            with open(self.base_pdb_dir / f"/{prefix}_{i}.pdb", "w") as f: 
-                f.write(pdbstr)
+        filenames = [str(self.base_pdb_dir / f"{prefix}_{i}.pdb") for i in range(len(struct_features))]
+        for i in trange(len(struct_features), desc=f"Writing PDBs for {prefix} at {str(self.base_pdb_dir)}..."):
+            with open(filenames[i], "w") as f:
+                f.write(struct_features[i])
+        return filenames
     
     def _structure_features_from_latent(self, latent_recons):
         shared_args = {
@@ -127,20 +144,56 @@ class CompressionReconstructionCallback:
         orig_pred_struct = self.structure_constructor.to_structure(self.x, self.sequences, **shared_args)
         # only the first of the tuple is the structure feature 
         return recons_struct[0], orig_pred_struct[0]
-    
-    def __call__(self):
+
+    def _run_tmalign(self, orig_pdbs, recons_pdbs):
+        all_scores = []
+        for orig, recons in zip(orig_pdbs, recons_pdbs):
+            tmscore = run_tmalign(orig, recons)
+            all_scores.append(tmscore)
+        print("mean:", np.mean(all_scores))
+        print("median:", np.median(all_scores)) 
+        return all_scores
+
+    def validate(self):
         # compress latent and reconstruct
         recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct() 
 
         # coerce latent back into structure features for both reconstruction and the original prediction 
-        recons_struct, orig_pred_struct = self._reconstruct_protein_from_latent(recons)
-        self._save_pdbs(recons_struct, "recons")
-        self._save_pdbs(orig_pred_struct, "orig")
-
         # TODO: also compare to the ground truth structure? 
+        recons_struct, orig_pred_struct = self._structure_features_from_latent(recons)
+        recons_pdb_paths = self._save_pdbs(recons_struct, "recons")
+        orig_pdb_paths = self._save_pdbs(orig_pred_struct, "orig")
+
+        # calculate the TM-scores with implicity alignment
+        tm_scores_list = self._run_tmalign(orig_pdb_paths, recons_pdb_paths)
+        log_dict['tm_score_mean'] = np.mean(tm_scores_list)
+        log_dict['tm_score_median'] = np.median(tm_scores_list)
+
+        # pdb parse returns an atom stack; take only the first atom array
+        orig_atom_arrays = [pdb_path_to_biotite_atom_array(fpath)[0] for fpath in orig_pdb_paths]
+        recons_atom_arrays = [pdb_path_to_biotite_atom_array(fpath)[0] for fpath in recons_pdb_paths]
+        recons_superimposed = [structure.superimpose(orig, recons)[0] for (orig, recons) in zip(orig_atom_arrays, recons_atom_arrays)]
+
+        # calculate superimposed RMSD
+        superimposed_rmsd_scores = [structure.rmsd(orig, recons) for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)]
+        log_dict['rmsd_mean'] = np.mean(superimposed_rmsd_scores)
+        log_dict['rmsd_median'] = np.median(superimposed_rmsd_scores)
+
+        # calculate lDDT from alpha carbons
+        orig_ca_pos = [alpha_carbons_from_atom_array(aarr) for aarr in orig_atom_arrays]
+        recons_ca_pos  = [alpha_carbons_from_atom_array(aarr) for aarr in recons_superimposed]
+        lddts = [lDDT(torch.from_numpy(orig_ca_pos[i].coord), torch.from_numpy(recons_ca_pos[i].coord)) for i in range(len(orig_ca_pos))]
+        log_dict['lddt_mean'] = np.mean(lddts)
+        log_dict['lddt_median'] = np.median(lddts)
+
+        # calculate RMSD between pairwise distances (superimposition independent)
+        rmspd_scores = [structure.rmspd(orig, recons) for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)]
+        log_dict['rmspd_mean'] = np.mean(rmspd_scores)
+        log_dict['rmspd_median'] = np.median(rmspd_scores)
+
     
 
 if __name__ == "__main__":
     model = load_compression_model("2024-03-17T23-21-19")
-    callback = CompressionReconstructionCallback(model, batch_size=4)
-    import IPython;IPython.embed()
+    device = torch.device("cuda")
+    callback = CompressionReconstructionCallback(model, device, batch_size=4)

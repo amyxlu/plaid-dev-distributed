@@ -558,6 +558,17 @@ def build_contact_map(pdb_file, threshold=5.0):
     return contact_map
 
 
+def pdb_path_to_biotite_atom_array(file_path):
+    from biotite.structure.io import pdb
+    pdb_file = pdb.PDBFile.read(file_path)
+    atom_array_stack = pdb.get_structure(pdb_file)
+    return atom_array_stack
+
+
+# Filter for alpha carbon atoms
+def alpha_carbons_from_atom_array(atom_array):
+    return atom_array[atom_array.atom_name == "CA"]
+
 
 def outputs_to_avg_metric(outputs):
     avg_metrics = {}
