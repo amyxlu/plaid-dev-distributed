@@ -18,10 +18,10 @@
 # sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++datamodule.num_workers=16 ++hourglass.downproj_factor=8 ++hourglass.shorten_factor=4"   # 128 x 128
 # sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++datamodule.num_workers=16 ++hourglass.downproj_factor=16 ++hourglass.shorten_factor=8"  # 64 x 64 
 
-sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++datamodule.num_workers=16 ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=1"  # 512 x 8 
-sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++datamodule.num_workers=16 ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=1"  # 512 x 4 
-sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++datamodule.num_workers=16 ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=2"  # 512 x 8 
-sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++datamodule.num_workers=16 ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=2"  # 512 x 4 
+sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++hourglass.lr=3e-5 ++hourglass.lr_adam_betas=[0.5,0.99] ++datamodule.num_workers=16 ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=1"  # 512 x 8 
+sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++hourglass.lr=3e-5 ++hourglass.lr_adam_betas=[0.5,0.99] ++datamodule.num_workers=16 ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=1"  # 512 x 4 
+sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++hourglass.lr=3e-5 ++hourglass.lr_adam_betas=[0.5,0.99] ++datamodule.num_workers=16 ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=2"  # 512 x 8 
+sbatch train_hourglass.slrm "experiment=hvq/no_quant/uniref_subset.yaml ++hourglass.lr=3e-5 ++hourglass.lr_adam_betas=[0.5,0.99] ++datamodule.num_workers=16 ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=2"  # 512 x 4 
 
-sbatch train_hourglass.slrm "experiment=hvq/fsq_uniref_subset_small.yaml ++hourglass.fsq_levels=[4,4,4,4,4,4,4,4]" 
-sbatch train_hourglass.slrm "experiment=hvq/fsq_uniref_subset_small.yaml ++hourglass.fsq_levels=[8,8,8,8]"
+# sbatch train_hourglass.slrm "experiment=hvq/fsq_uniref_subset_small.yaml ++hourglass.fsq_levels=[4,4,4,4,4,4,4,4]" 
+# sbatch train_hourglass.slrm "experiment=hvq/fsq_uniref_subset_small.yaml ++hourglass.fsq_levels=[8,8,8,8]"

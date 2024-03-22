@@ -12,7 +12,7 @@ from lightning.pytorch.utilities import rank_zero_only
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.datasets import CATHStructureDataModule
 from plaid.transforms import trim_or_pad_batch_first
-from plaid.utils import LatentScaler, pdb_path_to_biotite_atom_array, alpha_carbons_from_atom_array 
+from plaid.utils import LatentScaler, pdb_path_to_biotite_atom_array, alpha_carbons_from_atom_array, get_model_device 
 from plaid.proteins import LatentToStructure
 from plaid.evaluation import run_tmalign
 from plaid.evaluation import lDDT
@@ -35,8 +35,6 @@ class CompressionReconstructionCallback(Callback):
     """
     def __init__(
             self,
-            compression_model,
-            device,
             batch_size,
             esmfold=None,
             shard_dir = "/homefs/home/lux70/storage/data/cath/shards/",
@@ -45,13 +43,8 @@ class CompressionReconstructionCallback(Callback):
             max_seq_len: int = 256,
             num_recycles: int = 4
         ):
-        self.device = device
-        self.compression_model = compression_model
-
         self.latent_scaler = LatentScaler()
-        self.structure_constructor = LatentToStructure(esmfold=esmfold)
-        self.structure_constructor.to(device)
-        self.compression_model.to(device)
+        self.structure_constructor = LatentToStructure(esmfold=esmfold)  # on CPU
 
         self.batch_size = batch_size
         self.shard_dir = shard_dir
@@ -68,7 +61,6 @@ class CompressionReconstructionCallback(Callback):
         self.mask = mask
         self.sequences = sequences
         self.gt_structures = gt_structures
-        import IPython;IPython.embed()
 
     def _get_validation_data(self):
         start = time.time()
@@ -99,23 +91,23 @@ class CompressionReconstructionCallback(Callback):
         print(f"Created reference structure validation dataset in {end - start:.2f} seconds.")
         return x, mask, sequences, gt_structures
 
-    def _compress_and_reconstruct(self):
+    def _compress_and_reconstruct(self, compression_model):
         print("Running dataset through model bottleneck...")
-        x_norm = self.latent_scaler.scale(self.x).to(self.device)
-        mask = self.mask.bool().to(self.device)
-        recons_norm, loss, log_dict, quant_out = self.compression_model(x_norm, mask, log_wandb=False)
+        device = get_model_device(compression_model)
+        x_norm = self.latent_scaler.scale(self.x).to(device)
+        mask = self.mask.bool().to(device)
+
+        recons_norm, loss, log_dict, quant_out = compression_model(x_norm, mask, log_wandb=False)
         recons = self.latent_scaler.unscale(recons_norm)
+
+        del x_norm, mask
 
         if self.quantize_scheme == "vq":
             N, L, _ = x_norm.shape
-            print(quant_out['min_encoding_indices'].shape)
-            print(quant_out['min_encoding_indices'].reshape(N, -1).shape)
-            print(quant_out['min_encoding_indices'].reshape(N, L, -1).shape)
             compressed_representation = quant_out['min_encoding_indices'].reshape(N, L, -1)
 
         elif self.quantize_scheme == "fsq":
             codebook = quant_out['codebook']
-            print(codebook.shape)
             print(codebook.max())
             compressed_representation = codebook.reshape(-1, self.quantizer.num_dimensions)
 
@@ -154,9 +146,11 @@ class CompressionReconstructionCallback(Callback):
         print("median:", np.median(all_scores)) 
         return all_scores
 
-    def validate(self):
+    def validate(self, model):
         # compress latent and reconstruct
-        recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct() 
+        # assumes that model is already on the desired device
+        torch.cuda.empty_cache()
+        recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct(model) 
 
         # coerce latent back into structure features for both reconstruction and the original prediction 
         # TODO: also compare to the ground truth structure? 
@@ -164,7 +158,10 @@ class CompressionReconstructionCallback(Callback):
         recons_pdb_paths = self._save_pdbs(recons_struct, "recons")
         orig_pdb_paths = self._save_pdbs(orig_pred_struct, "orig")
 
-        # calculate the TM-scores with implicity alignment
+        # delete more tensors from GPU; rest of the operations happen on CPU.
+        del recons_struct, orig_pred_struct
+
+        # calculate the TM-scores with implicit alignment
         tm_scores_list = self._run_tmalign(orig_pdb_paths, recons_pdb_paths)
         log_dict['tm_score_mean'] = np.mean(tm_scores_list)
         log_dict['tm_score_median'] = np.median(tm_scores_list)
@@ -190,10 +187,41 @@ class CompressionReconstructionCallback(Callback):
         rmspd_scores = [structure.rmspd(orig, recons) for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)]
         log_dict['rmspd_mean'] = np.mean(rmspd_scores)
         log_dict['rmspd_median'] = np.median(rmspd_scores)
-
+        return log_dict
     
+    def on_train_epoch_end(self, trainer, pl_module):
+        device = pl_module.device
 
-if __name__ == "__main__":
-    model = load_compression_model("2024-03-17T23-21-19")
+        # move the structure decoder onto GPU only when using validation
+        self.structure_constructor.to(device)
+
+        if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
+            self.validate(pl_module)
+            self.structure_constructor.to(torch.device("cpu"))
+            torch.cuda.empty_cache()
+        else:
+            pass
+    
+    def on_sanity_check_start(self, trainer, pl_module):
+        device = pl_module.device
+        self.structure_constructor.to(device)
+
+        self.validate(pl_module)
+        torch.cuda.empty_cache()
+        self.structure_constructor.to(torch.device("cpu"))  # move back to CPU to save some space
+        torch.cuda.empty_cache()
+
+
+
+def main():
+    """For use as a standalone script"""
+    import sys
+    model_id = sys.argv[1]
+
+    model = load_compression_model(model_id)
     device = torch.device("cuda")
-    callback = CompressionReconstructionCallback(model, device, batch_size=4)
+    model.to(device)
+
+    callback = CompressionReconstructionCallback(batch_size=4)
+    log_dict = callback.validate(model)
+    print(log_dict)
