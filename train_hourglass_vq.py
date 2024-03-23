@@ -18,19 +18,21 @@ def train(cfg: DictConfig):
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
 
-    # lightning data modules, scalar, and maybe sequence embedder
+    # lightning data modules
     start = time.time()
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
     end = time.time()
     print(f"Datamodule set up in {end - start:.2f} seconds.")
 
+    # normalize by channel
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
     if isinstance(datamodule, FastaDataModule):
         seq_emb_fn = ESMFoldEmbed(shorten_len_to=cfg.datamodule.seq_len)
     else:
         seq_emb_fn = None
 
+    # set up lightning module
     model = hydra.utils.instantiate(
         cfg.hourglass,
         latent_scaler=latent_scaler,
@@ -44,6 +46,7 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
+    # callback options
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU

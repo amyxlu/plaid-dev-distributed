@@ -15,3 +15,5 @@ defaults:
 
 dryrun: False 
 run_test: null
+
+run_structure_eval: False
