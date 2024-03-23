@@ -182,11 +182,13 @@ class CompressionReconstructionCallback(Callback):
     def validate(self, model, max_samples=None):
         # compress latent and reconstruct
         # assumes that model is already on the desired device
+        start = time.time()
         torch.cuda.empty_cache()
         device = model.device
         self.structure_constructor.to(device)
 
         recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct(model, max_samples=max_samples)
+        compressed_representation = compressed_representation.detach().cpu().numpy()
         log_dict['compressed_rep_hist'] = wandb.Histogram(compressed_representation.flatten(), num_bins=30)
 
         # coerce latent back into structure features for both reconstruction and the original prediction
@@ -249,19 +251,23 @@ class CompressionReconstructionCallback(Callback):
         ]
         log_dict["rmspd_mean"] = np.mean(rmspd_scores)
         log_dict["rmspd_median"] = np.median(rmspd_scores)
-        log_dict['rmspd_hist'] = wandb.Histogram(rmspd_scores, bins=n)
+        log_dict['rmspd_hist'] = wandb.Histogram(rmspd_scores, num_bins=n)
+
+        end = time.time()
+        print(f"Structure reconstruction validation completed in {end - start:.2f} seconds.")
         return log_dict
 
-    def on_train_step_end(self, trainer, pl_module):
-        device = pl_module.device
-        logger = pl_module.logger.experiment
-        max_samples = min(trainer.datamodule.batch_size, self.num_samples)
-
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if (trainer.global_step % self.run_every_n_steps == 0) and not (trainer.global_step == 0):
+            device = pl_module.device
+            logger = pl_module.logger.experiment
+            max_samples = min(trainer.datamodule.batch_size, self.num_samples)
+
             # move the structure decoder onto GPU only when using validation
             self.structure_constructor.to(device)
 
             log_dict = self.validate(pl_module, max_samples=max_samples)
+            log_dict = {f"compression_eval/{k}": v for k, v in log_dict.items()}
             logger.log(log_dict)
             
             # clear up GPU
