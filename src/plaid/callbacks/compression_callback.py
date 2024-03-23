@@ -267,7 +267,7 @@ class CompressionReconstructionCallback(Callback):
             self.structure_constructor.to(device)
 
             log_dict = self.validate(pl_module, max_samples=max_samples)
-            log_dict = {f"compression_eval/{k}": v for k, v in log_dict.items()}
+            log_dict = {f"structure_reconstruction/{k}": v for k, v in log_dict.items()}
             logger.log(log_dict)
             
             # clear up GPU
