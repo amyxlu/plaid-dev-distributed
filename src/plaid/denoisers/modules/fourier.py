@@ -46,3 +46,5 @@ class Base2FourierFeatures(nn.Module):
         h = w * h
         h = torch.concatenate([torch.sin(h), torch.cos(h)], axis=-1)
         return h
+
+
