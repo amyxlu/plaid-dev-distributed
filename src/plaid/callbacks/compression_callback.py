@@ -19,6 +19,8 @@ from plaid.utils import (
     alpha_carbons_from_atom_array,
     get_model_device,
     write_pdb_to_disk,
+    npy,
+    to_tensor
 )
 from plaid.proteins import LatentToStructure
 from plaid.evaluation import run_tmalign
@@ -188,7 +190,7 @@ class CompressionReconstructionCallback(Callback):
         self.structure_constructor.to(device)
 
         recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct(model, max_samples=max_samples)
-        compressed_representation = compressed_representation.detach().cpu().numpy()
+        compressed_representation = npy(compressed_representation)
         log_dict['compressed_rep_hist'] = wandb.Histogram(compressed_representation.flatten(), num_bins=30)
 
         # coerce latent back into structure features for both reconstruction and the original prediction
@@ -235,8 +237,8 @@ class CompressionReconstructionCallback(Callback):
         ]
         lddts = [
             lDDT(
-                torch.from_numpy(orig_ca_pos[i].coord),
-                torch.from_numpy(recons_ca_pos[i].coord),
+                to_tensor(orig_ca_pos[i].coord),
+                to_tensor(recons_ca_pos[i].coord),
             )
             for i in range(len(orig_ca_pos))
         ]
