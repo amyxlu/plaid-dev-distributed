@@ -72,18 +72,25 @@ class HourglassVQLightningModule(L.LightningModule):
             assert use_quantizer in ['vq', 'fsq']
             self.quantize_scheme = use_quantizer
             print(f"using quantizer {use_quantizer}")
-        
+
+        # Set up quantizer modules
+        self.pre_quant_proj = None 
+        self.post_quant_proj = None
+
         if self.quantize_scheme == "vq":
             self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
             self.quantizer.to(self.device)
         elif self.quantize_scheme == "fsq":
-            assert len(fsq_levels) == (dim / downproj_factor) 
+            if not len(fsq_levels) == (dim / downproj_factor):
+                self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, len(fsq_levels)) 
+                self.post_quant_proj = torch.nn.Linear(len(fsq_levels), dim // downproj_factor)
             self.fsq_levels = fsq_levels
             self.quantizer = FiniteScalarQuantizer(fsq_levels)
             self.quantizer.to(self.device)
         else:
             self.quantizer = None
 
+        # Set up encoder/decoders
         self.enc = HourglassEncoder(
             dim=dim,
             depth=depth,
@@ -105,6 +112,7 @@ class HourglassVQLightningModule(L.LightningModule):
             updown_sample_type="linear"
         )
 
+        # other misc settings
         self.z_q_dim = dim // np.prod(dim) 
         self.n_e = n_e
         self.latent_scaler = latent_scaler
@@ -122,6 +130,7 @@ class HourglassVQLightningModule(L.LightningModule):
         self.seq_loss_weight = seq_loss_weight
         self.struct_loss_weight = struct_loss_weight
 
+        # auxiliary losses
         if self.log_sequence_loss:
             self.sequence_constructor = LatentToSequence()
             self.sequence_constructor.to(self.device)
@@ -151,8 +160,12 @@ class HourglassVQLightningModule(L.LightningModule):
             return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
 
         # encode and possibly downsample
-        z_e, downsampled_mask = self.enc(x, mask, verbose)
         log_dict = {}
+        z_e, downsampled_mask = self.enc(x, mask, verbose)
+
+        if self.pre_quant_proj is not None:
+            z_e = self.pre_quant_proj(z_e)
+
         # quantize and get z_q
         if self.quantize_scheme == "vq": 
             quant_out = self.quantizer(z_e, verbose)
@@ -171,6 +184,10 @@ class HourglassVQLightningModule(L.LightningModule):
             quant_out = {"codebook": codebook}  # for inference use
         else:
             raise NotImplementedError
+
+        if self.post_quant_proj is not None:
+            z_q = self.post_quant_proj(z_q)
+            
         x_recons = self.dec(z_q, downsampled_mask, verbose)
 
         # Computationally prohibitive for very very large codebook sizes
@@ -281,7 +298,7 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     hvq = HourglassVQLightningModule(
         dim=1024,
-        fsq_levels=[8] * 8,
+        fsq_levels=[8] * 6,
         downproj_factor=128,
         use_quantizer="fsq"
     ).to(device)
@@ -290,4 +307,4 @@ if __name__ == "__main__":
     mask = torch.ones(8, 128).bool().to(device)
 
     out = hvq(x, mask, verbose=True)
-    hvq.training_step((x, mask), 0)
+    hvq.training_step((x, mask, None), 0)

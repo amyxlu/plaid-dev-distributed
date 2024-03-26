@@ -7,4 +7,4 @@ pdb_dir: ${paths.bucket_dir}/cath/dompdb
 num_samples: 32
 max_seq_len: 256
 num_recycles: 4
-run_every_n_steps: 10000
+run_every_n_steps: 5000

@@ -6,7 +6,7 @@ defaults:
   # - override /datamodule: cath_h5
 
 datamodule:
-  batch_size: 64
+  batch_size: 128 
   seq_len: 512 
   num_workers: 16
 

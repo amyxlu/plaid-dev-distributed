@@ -121,16 +121,16 @@ class CompressionReconstructionCallback(Callback):
 
         if quantize_scheme == "vq":
             N, L, _ = x_norm.shape
-            compressed_representation = quant_out["min_encoding_indices"].reshape(
-                N, L, -1
-            )
+            # compressed_representation = quant_out["min_encoding_indices"].reshape(
+            #     N, L, -1
+            # )
 
         elif quantize_scheme == "fsq":
-            codebook = quant_out["codebook"]
-            print(codebook.max())
-            compressed_representation = codebook.reshape(
-                -1, compression_model.quantizer.num_dimensions
-            )
+            compressed_representation = quant_out["codebook"]
+            # print(codebook.max())
+            # compressed_representation = codebook.reshape(
+            #     -1, compression_model.quantizer.num_dimensions
+            # )
 
         else:
             # no quantization, quant_out is the output of the encoder
