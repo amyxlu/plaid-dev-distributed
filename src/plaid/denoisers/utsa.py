@@ -18,9 +18,10 @@ from plaid.esmfold import (
     FoldingTrunkConfig,
 )
 from plaid.denoisers import BaseDenoiser
-from plaid.constants import c_s, c_z, structure_module_c_s, structure_module_c_z
+from plaid.constants import c_s, c_z
 from plaid.denoisers.modules import TriangularSelfAttentionBlock
 from plaid.esmfold.misc import get_esmfold_model_state
+from plaid.transforms import trim_or_pad_batch_first
 
 
 PathLike = T.Union[str, Path]
@@ -37,6 +38,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         use_self_conditioning: bool = False,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
+        input_dim_if_different: T.Optional[int] = None
     ):
         super().__init__(
             hid_dim=hid_dim,
@@ -45,6 +47,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             use_self_conditioning=use_self_conditioning,
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
+            input_dim_if_different=input_dim_if_different
         )
 
         # fixed dimensions
@@ -54,7 +57,6 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         self.pairwise_positional_embedding = RelativePosition(
             trunk_cfg.position_bins, c_z
         )
-
         self.conditioning_strategy = conditioning_strategy
         self.make_blocks()
 
@@ -82,15 +84,24 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         mask: (B, L) mask
         """
         # self conditioning should be either zeros or x_prev, determined in outer loop
+        if self.input_projection is not None:
+            x = self.input_projection(x)
+
+        B, L, _ = x.shape
+
         if mask is None:
-            mask = x.new_ones(x.shape[:2]).long()
+            mask = x.new_ones((B, L).long())
+        
+        if mask.shape[-1] != L:
+            mask = trim_or_pad_batch_first(mask, L)
 
         if not x_self_cond is None:
             x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
 
-        B, L, _ = x.shape
         if z is None:
             z = x.new_zeros(B, L, L, c_z)
+        else:
+            assert z.shape[1] == z.shape[2] == L, "supplied pairwise features have dimension mismatch."
 
         t = self.timestep_embedder(t)
 
@@ -112,6 +123,9 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         if self.conditioning_strategy == "length_concat":
             x = x[:, :-1, :]
             z = z[:, :-1, :-1, :]
+
+        if self.output_projection is not None:
+            x = self.output_projection(x)
 
         return x
 
@@ -136,7 +150,7 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
         )
-        assert hid_dim == c_s
+        assert hid_dim == c_s, "If finetuning denoiser from ESMFold, input latent must have 1024 features."
 
     def _filter_state_dict(self, state_dict):
         orig_keys = list(state_dict.keys())
@@ -207,7 +221,8 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         use_skip_connections: bool = True,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
-        pairwise_hid_dim: int = c_z
+        pairwise_hid_dim: int = c_z,
+        input_dim_if_different: T.Optional[int] = None
     ):
         self.num_blocks = num_blocks
         self.use_skip_connections = use_skip_connections
@@ -221,6 +236,7 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             use_self_conditioning=use_self_conditioning,
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
+            input_dim_if_different=input_dim_if_different
         )
 
     def make_blocks(self):
@@ -273,6 +289,7 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         self.xavier_init_module(self.mid_block)
 
     def _iteration(self, x, z, c, mask):
+        # x should already be upprojected to hid_dim if input_dim != hid_dim
         x_skips = []
         z_skips = []
         for block in self.in_blocks:

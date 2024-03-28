@@ -1,0 +1,6 @@
+_target_: plaid.datasets.CompressedContinuousDataModule
+compression_model_id: ???
+seq_len: 512
+base_data_dir: /homefs/home/lux70/storage/data/rocklin/compressed/
+batch_size: 64
+num_workers: 16

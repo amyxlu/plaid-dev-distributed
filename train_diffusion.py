@@ -85,7 +85,9 @@ def train(cfg: DictConfig):
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
-        callbacks=[lr_monitor, checkpoint_callback, sample_callback],
+        # callbacks=[lr_monitor, checkpoint_callback, sample_callback],
+        callbacks=[lr_monitor, checkpoint_callback],
+        
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)

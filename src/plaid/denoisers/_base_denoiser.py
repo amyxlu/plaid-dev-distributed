@@ -17,6 +17,7 @@ class BaseDenoiser(nn.Module):
         use_self_conditioning: bool = False,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
+        input_dim_if_different: T.Optional[int] = None,
         *args,
         **kwargs
     ):
@@ -40,6 +41,15 @@ class BaseDenoiser(nn.Module):
                 hidden_size=hid_dim,
                 dropout_prob=cfg_dropout,
             )
+
+        # for cases where the compressed input is much smaller than hid_dim
+        if input_dim_if_different is not None:
+            self.input_projection = nn.Linear(input_dim_if_different, hid_dim)
+            self.output_projection = nn.Linear(hid_dim, input_dim_if_different)
+        else:
+            self.input_projection = None
+            self.output_projection = None
+
 
     @abc.abstractmethod
     def make_denoising_blocks(self, *args, **kwargs):

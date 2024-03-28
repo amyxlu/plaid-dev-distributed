@@ -1,0 +1,16 @@
+# @package _global_
+
+compression_model_id: 2024-03-21T18-49-51
+input_dim: 8
+
+defaults:
+  - override /denoiser: utsa.yaml
+  - override /latent_scaler: identity
+  - override /datamodule: rocklin/compressed_continuous
+
+datamodule:
+  compression_model_id: ${compression_model_id}
+
+denoiser:
+  num_blocks: 3
+  input_dim_if_different: ${input_dim}
