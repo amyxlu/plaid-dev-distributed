@@ -239,13 +239,11 @@ class TokenDataset(Dataset):
         compress_model_id = "2024-03-05T06-20-52",  # soft-violet
         token_dir = "/homefs/home/lux70/storage/data/cath/tokens/",
         max_seq_len = 128,
-        batch_size = 256,
     ):
         self.split = split
         self.compress_model_id = compress_model_id
         self.token_dir = Path(token_dir)
         self.max_seq_len = max_seq_len
-        self.batch_size = batch_size
 
         self.tokens = self.load_partition(split)['tokens']
     
@@ -263,10 +261,132 @@ class TokenDataset(Dataset):
         return tokens
 
 
+class CompressedContinuousDataset(Dataset):
+    """TODO: possibly refactor to inherit from the same base class as H5ShardDataset"""
+    def __init__(
+        self,
+        split,
+        compression_model_id,
+        seq_len,
+        base_data_dir="/homefs/home/lux70/storage/data/rocklin/compressed/",
+        filtered_ids_list=None,
+        max_num_samples=None
+    ):
+        super().__init__()
+        self.datadir = Path(base_data_dir) / split / f"hourglass_{compression_model_id}" / f"seqlen_{seq_len}"
+        self.filtered_ids_list = filtered_ids_list
+        self.max_num_samples = max_num_samples
+        self.data = self._load_filtered_partition()
+        self.pdb_ids = list(self.data.keys())
+    
+    def _load_filtered_partition(self):
+        outdict = {}
+        # load the shard hdf5 file
+        with h5py.File(self.datadir / "shard0000.h5", "r") as f:
+            emb = torch.from_numpy(np.array(f["embeddings"]))
+            sequence = list(f["sequences"])
+            pdb_ids = list(f["pdb_id"])
+
+            # if prespecified a set of pdb ids, only load those
+            if not self.filtered_ids_list is None:
+                pdb_ids = set(pdb_ids).intersection(set(self.filtered_ids_list))
+                disjoint = set(self.filtered_ids_list) - set(pdb_ids)
+                print(
+                    f"Did not find {len(disjoint)} IDs, including {list(disjoint)[:3]}, etc."
+                )
+                pdb_ids = list(pdb_ids)
+
+            # possible trim to a subset to enable faster loading
+            if not self.max_num_samples is None:
+                pdb_ids = pdb_ids[:self.max_num_samples]
+
+            # loop through and decode the protein string one by one
+            for i in range(len(pdb_ids)):
+                pid = pdb_ids[i].decode()
+                # NOTE: could also refactor such that we work on a "keep unless dropped" basis
+                # if not self.drop_protein(pid):
+                outdict[pid] = (emb[i, ...], sequence[i].decode())
+        return outdict
+
+    
+    def __len__(self):
+        return len(self.pdb_ids)
+
+    def get(self, idx: int) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
+        # define a separate fn to separate out __getitem__ logic for dataloaders
+        # that load a ground truth structure vs. embedding only.
+        assert isinstance(self.pdb_ids, list)
+        pid = self.pdb_ids[idx]
+        return pid, self.data[pid]
+
+    def __getitem__(
+        self, idx: int
+    ) -> T.Tuple[str, T.Tuple[torch.Tensor, torch.Tensor]]:
+        # wrapper for non-structure dataloaders, rearrange output tuple
+        pdb_id, (emb, seq) = self.get(idx)
+        return emb, seq, pdb_id 
+    
+    
 
 """
 Datamodule wrappers
 """
+class CompressedContinuousDataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        compression_model_id,
+        seq_len,
+        base_data_dir,
+        batch_size,
+        num_workers,
+        shuffle_val_dataset=False,
+        filtered_ids_list=None,
+        max_num_samples=None,
+    ):
+        super().__init__()
+        self.dataset_fn = CompressedContinuousDataset
+        self.shuffle_val_dataset = shuffle_val_dataset
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.dataset_kwargs = {
+            "compression_model_id": compression_model_id,
+            "seq_len": seq_len,
+            "base_data_dir": base_data_dir,
+            "filtered_ids_list": filtered_ids_list,
+            "max_num_samples": max_num_samples
+        }
+    
+    def setup(self, stage: str = "fit"):
+        if stage == "fit":
+            self.train_dataset = self.dataset_fn("train", **self.dataset_kwargs)
+            self.val_dataset = self.dataset_fn("val", **self.dataset_kwargs)
+        elif stage == "predict":
+            self.test_dataset = self.dataset_fn("val", **self.dataset_kwargs)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=self.shuffle_val_dataset,
+        )
+
+    def test_dataloader(self):
+        return self.val_dataloader()
+
+    def predict_dataloader(self):
+        return self.val_dataloader()
+
 
 class CATHShardedDataModule(L.LightningDataModule):
     def __init__(
@@ -287,6 +407,7 @@ class CATHShardedDataModule(L.LightningDataModule):
         self.dtype = dtype
         self.seq_len = seq_len
         self.batch_size = batch_size
+
         self.num_workers = num_workers
         self.storage_type = storage_type
         self.shuffle_val_dataset = shuffle_val_dataset
@@ -525,14 +646,12 @@ class TokenDataModule(L.LightningDataModule):
                 compress_model_id=self.compress_model_id,
                 token_dir=self.token_dir,
                 max_seq_len=self.max_seq_len,
-                batch_size=self.batch_size,
             )
             self.val_dataset = TokenDataset(
                 "val",
                 compress_model_id=self.compress_model_id,
                 token_dir=self.token_dir,
                 max_seq_len=self.max_seq_len,
-                batch_size=self.batch_size,
             )
         elif stage == "predict":
             self.test_dataset = TokenDataset(
@@ -540,7 +659,6 @@ class TokenDataModule(L.LightningDataModule):
                 compress_model_id=self.compress_model_id,
                 token_dir=self.token_dir,
                 max_seq_len=self.max_seq_len,
-                batch_size=self.batch_size,
             )
         else:
             raise ValueError(f"stage must be one of ['fit', 'predict'], got {stage}")
@@ -617,43 +735,16 @@ class TokenDataModule(L.LightningDataModule):
 #         return self.val_dataloader()
 
 
-# if __name__ == "__main__":
-# from plaid.esmfold import esmfold_v1
-# datadir = "/homefs/home/lux70/data/cath"
-# pklfile = "/homefs/home/lux70/data/cath/sequences.pkl"
-# dm = CATHShardedDataModule(
-#     shard_dir=datadir,
-#     header_to_sequence_file=pklfile,
-# )
-# dm.setup("fit")
-# train_dataloader = dm.train_dataloader()
-# batch = next(iter(train_dataloader))
-# fasta_file = "/shared/amyxlu/data/uniref90/truncated.fasta"
-
-# esmfold = esmfold_v1()
-# esmfold = esmfold.eval().requires_grad_(False).cuda()
-
-# dm = EmbedFastaDataModule(esmfold, fasta_file, batch_size=32)
-# dm.setup("fit")
-# train_dataloader = dm.train_dataloader()
-# batch = next(iter(train_dataloader))
-# transform = esmfold.infer_embedding
-
-# shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
-# pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-
-# dm = CATHStructureDataModule(
-#     shard_dir,
-#     pdb_dir,
-#     seq_len=256,
-#     batch_size=32,
-#     num_workers=0,
-# )
-# fasta_file = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
-# dm = EmbedFastaDataModule(fasta_file=fasta_file, batch_size=64, seq_len=64)
-
-# dm.setup()
-# train_dataloader = dm.train_dataloader()
-# batch = next(iter(train_dataloader))
-# print(len(train_dataloader.dataset))
-# import IPython;IPython.set_trace()
+if __name__ == "__main__":
+    dm = CompressedContinuousDataModule(
+        "2024-03-17T23-21-19",
+        seq_len=512,
+        base_data_dir="/homefs/home/lux70/storage/data/rocklin/compressed/",
+        batch_size=64,
+        num_workers=4
+    )
+    dm.setup()
+    train_dataloader = dm.train_dataloader()
+    batch = next(iter(train_dataloader))
+    print(batch)
+    import pdb; pdb.set_trace()
