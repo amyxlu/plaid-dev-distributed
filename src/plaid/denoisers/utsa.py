@@ -21,7 +21,6 @@ from plaid.denoisers import BaseDenoiser
 from plaid.constants import c_s, c_z
 from plaid.denoisers.modules import TriangularSelfAttentionBlock
 from plaid.esmfold.misc import get_esmfold_model_state
-from plaid.transforms import trim_or_pad_batch_first
 
 
 PathLike = T.Union[str, Path]
@@ -92,9 +91,6 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         if mask is None:
             mask = x.new_ones((B, L).long())
         
-        if mask.shape[-1] != L:
-            mask = trim_or_pad_batch_first(mask, L)
-
         if not x_self_cond is None:
             x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
 

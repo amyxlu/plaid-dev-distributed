@@ -34,6 +34,7 @@ from plaid.losses.functions import masked_mse_loss, masked_huber_loss
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
+from plaid.transforms import trim_or_pad_batch_first
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -521,8 +522,9 @@ class GaussianDiffusion(L.LightningModule):
         clip_x_start=True,
     ):
         x_start = self.latent_scaler.scale(x_unnormalized).to(self.device)
+        B, L, _ = x_start.shape
         t = (
-            torch.randint(0, self.num_timesteps, (x_start.shape[0],))
+            torch.randint(0, self.num_timesteps, (B,))
             .long()
             .to(self.device)
         )
@@ -532,11 +534,15 @@ class GaussianDiffusion(L.LightningModule):
         if the length of the structure doesn't match, we prioritize choosing a sequence string that
         matches the latent 
         """
-        assert max([len(s) for s in sequences]) <= x_unnormalized.shape[1]
+        assert max([len(s) for s in sequences]) <= L
 
         # get mask
         true_aatype, mask, _, _, _ = batch_encode_sequences(sequences)
         mask = mask.to(self.device)
+
+        if mask.shape[-1] != L:
+            mask = trim_or_pad_batch_first(mask, L)
+
 
         # potentially unscale
         x_start *= self.x_downscale_factor
