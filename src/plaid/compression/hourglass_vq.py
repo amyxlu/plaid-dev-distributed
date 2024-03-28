@@ -69,7 +69,7 @@ class HourglassVQLightningModule(L.LightningModule):
                 print("using non-quantization mode")
                 self.quantize_scheme = None  # no quantization
         else:
-            assert use_quantizer in ['vq', 'fsq']
+            assert use_quantizer in ['vq', 'fsq', 'fsq_bound_only']
             self.quantize_scheme = use_quantizer
             print(f"using quantizer {use_quantizer}")
 
@@ -80,7 +80,7 @@ class HourglassVQLightningModule(L.LightningModule):
         if self.quantize_scheme == "vq":
             self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
             self.quantizer.to(self.device)
-        elif self.quantize_scheme == "fsq":
+        elif "fsq" in self.quantize_scheme:
             if not len(fsq_levels) == (dim / downproj_factor):
                 self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, len(fsq_levels)) 
                 self.post_quant_proj = torch.nn.Linear(len(fsq_levels), dim // downproj_factor)
@@ -173,15 +173,19 @@ class HourglassVQLightningModule(L.LightningModule):
             vq_loss = quant_out['loss']
             log_dict["vq_loss"] = quant_out['loss']
             log_dict["vq_perplexity"] = quant_out['perplexity']
-            codebook = quant_out['min_encoding_indices'].detach().cpu().numpy().reshape(-1)
+            codebook = quant_out['min_encoding_indices'].detach().cpu().numpy()
             n_bins = self.n_e
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
             n_bins = self.quantizer.codebook_size
             vq_loss = 0
-            codebook = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy().reshape(-1)
+            codebook = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy()
             quant_out = {"codebook": codebook}  # for inference use
+        
+        elif self.quantize_scheme == "fsq_bound_only":
+            z_q = self.quantizer.bound(z_e)
+            quant_out = {"bounded": z_q.detach().cpu().numpy()}
         else:
             raise NotImplementedError
 

@@ -131,6 +131,9 @@ class CompressionReconstructionCallback(Callback):
             # compressed_representation = codebook.reshape(
             #     -1, compression_model.quantizer.num_dimensions
             # )
+        
+        elif quantize_scheme == "fsq_bound_only":
+            compressed_representation = quant_out['bounded']
 
         else:
             # no quantization, quant_out is the output of the encoder
