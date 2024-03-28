@@ -173,19 +173,21 @@ class HourglassVQLightningModule(L.LightningModule):
             vq_loss = quant_out['loss']
             log_dict["vq_loss"] = quant_out['loss']
             log_dict["vq_perplexity"] = quant_out['perplexity']
-            codebook = quant_out['min_encoding_indices'].detach().cpu().numpy()
-            n_bins = self.n_e
+            # codebook = quant_out['min_encoding_indices'].detach().cpu().numpy()
+            # n_bins = self.n_e
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
-            n_bins = self.quantizer.codebook_size
+            # n_bins = self.quantizer.codebook_size
             vq_loss = 0
             codebook = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy()
             quant_out = {"codebook": codebook}  # for inference use
         
         elif self.quantize_scheme == "fsq_bound_only":
             z_q = self.quantizer.bound(z_e)
+            # codebook = z_q.detach().cpu().numpy()
             quant_out = {"bounded": z_q.detach().cpu().numpy()}
+            vq_loss = 0
         else:
             raise NotImplementedError
 
