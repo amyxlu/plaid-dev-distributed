@@ -267,14 +267,14 @@ def rand_split_log_normal(
     return torch.where(u < ratio, n_left, n_right).exp()
 
 
-def dct(x):
-    if x.ndim == 3:
-        return df.dct(x)
-    if x.ndim == 4:
-        return df.dct2(x)
-    if x.ndim == 5:
-        return df.dct3(x)
-    raise ValueError(f"Unsupported dimensionality {x.ndim}")
+# def dct(x):
+#     if x.ndim == 3:
+#         return df.dct(x)
+#     if x.ndim == 4:
+#         return df.dct2(x)
+#     if x.ndim == 5:
+#         return df.dct3(x)
+#     raise ValueError(f"Unsupported dimensionality {x.ndim}")
 
 
 @lru_cache
