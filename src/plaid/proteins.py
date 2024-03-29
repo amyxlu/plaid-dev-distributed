@@ -363,6 +363,8 @@ class LatentToStructure:
                 return all_pdb_strs, output_dicts_list
 
 
+
+
 if __name__ == "__main__":
     import torch
     from plaid.proteins import LatentToSequence, LatentToStructure

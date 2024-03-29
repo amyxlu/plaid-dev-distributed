@@ -73,6 +73,8 @@ class HourglassVQLightningModule(L.LightningModule):
             self.quantize_scheme = use_quantizer
             print(f"using quantizer {use_quantizer}")
 
+        assert self.check_valid_compression_method(self.quantize_scheme)
+
         # Set up quantizer modules
         self.pre_quant_proj = None 
         self.post_quant_proj = None
@@ -142,6 +144,9 @@ class HourglassVQLightningModule(L.LightningModule):
             self.structure_constructor.to(self.device)
             self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
         self.save_hyperparameters()
+
+    def check_valid_compression_method(self, method):
+        return method in ['fsq', 'vq', 'tanh', None]
     
     def forward_no_quantize(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
         z_e, downsampled_mask = self.enc(x, mask, verbose)
@@ -185,6 +190,7 @@ class HourglassVQLightningModule(L.LightningModule):
             quant_out = {"codebook": codebook}  # for inference use
         
         elif self.quantize_scheme == "tanh":
+            z_e = z_e.to(torch.promote_types(z_e.dtype, torch.float32))
             z_q = torch.tanh(z_e)
             # codebook = z_q.detach().cpu().numpy()
             quant_out = {"bounded": z_q.detach().cpu().numpy()}

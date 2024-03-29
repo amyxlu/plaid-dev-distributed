@@ -132,7 +132,7 @@ class CompressionReconstructionCallback(Callback):
             #     -1, compression_model.quantizer.num_dimensions
             # )
         
-        elif quantize_scheme == "fsq_bound_only":
+        elif quantize_scheme == "tanh":
             compressed_representation = quant_out['bounded']
 
         else:
@@ -194,7 +194,7 @@ class CompressionReconstructionCallback(Callback):
 
         recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct(model, max_samples=max_samples)
         compressed_representation = npy(compressed_representation)
-        log_dict['compressed_rep_hist'] = wandb.Histogram(compressed_representation.flatten(), num_bins=30)
+        log_dict['compressed_rep_hist'] = wandb.Histogram(compressed_representation.flatten(), num_bins=50)
 
         # coerce latent back into structure features for both reconstruction and the original prediction
         # TODO: also compare to the ground truth structure?
