@@ -10,16 +10,17 @@ datamodule:
   num_workers: 16
 
 logger:
-  name: "fsq_bounded"
+  name: "tanh"
 
 hourglass:
   n_e: 128 
   e_dim: 64
-  use_quantizer: "fsq_bound_only"
-  fsq_levels: [8,8,8,8,8,8,8,8]
-  downproj_factor: 128 # ignored 
+  use_quantizer: "tanh"
+  fsq_levels: None
+  downproj_factor: 128 
   lr: 3e-5
   lr_num_warmup_steps: 5000
+  lr_sched_type: "constant_with_warmup"
 
 trainer:
   precision: "bf16-mixed"

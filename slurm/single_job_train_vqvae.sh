@@ -1,1 +1,0 @@
-sbatch train_vqvae.slrm ++vqvae.sequence_decoder_weight=0.001

@@ -69,7 +69,7 @@ class HourglassVQLightningModule(L.LightningModule):
                 print("using non-quantization mode")
                 self.quantize_scheme = None  # no quantization
         else:
-            assert use_quantizer in ['vq', 'fsq', 'fsq_bound_only']
+            assert use_quantizer in ['vq', 'fsq', 'tanh']
             self.quantize_scheme = use_quantizer
             print(f"using quantizer {use_quantizer}")
 
@@ -80,7 +80,7 @@ class HourglassVQLightningModule(L.LightningModule):
         if self.quantize_scheme == "vq":
             self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
             self.quantizer.to(self.device)
-        elif "fsq" in self.quantize_scheme:
+        elif self.quantize_scheme == "fsq":
             if not len(fsq_levels) == (dim / downproj_factor):
                 self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, len(fsq_levels)) 
                 self.post_quant_proj = torch.nn.Linear(len(fsq_levels), dim // downproj_factor)
@@ -88,6 +88,7 @@ class HourglassVQLightningModule(L.LightningModule):
             self.quantizer = FiniteScalarQuantizer(fsq_levels)
             self.quantizer.to(self.device)
         else:
+            # self.quantize_scheme in [None, "tanh"]
             self.quantizer = None
 
         # Set up encoder/decoders
@@ -183,8 +184,8 @@ class HourglassVQLightningModule(L.LightningModule):
             codebook = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy()
             quant_out = {"codebook": codebook}  # for inference use
         
-        elif self.quantize_scheme == "fsq_bound_only":
-            z_q = self.quantizer.bound(z_e)
+        elif self.quantize_scheme == "tanh":
+            z_q = torch.tanh(z_e)
             # codebook = z_q.detach().cpu().numpy()
             quant_out = {"bounded": z_q.detach().cpu().numpy()}
             vq_loss = 0
