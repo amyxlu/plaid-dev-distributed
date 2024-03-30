@@ -82,6 +82,8 @@ class GaussianDiffusion(L.LightningModule):
         min_snr_loss_weight=False,
         min_snr_gamma=5,
         soft_clip_x_start_to: T.Optional[float] = 1.3,  # determines behavior during training, and value to use during sampling
+        # compression related
+        shorten_factor=1.0,
         # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
         sampling_timesteps=500,  # None,
@@ -108,6 +110,7 @@ class GaussianDiffusion(L.LightningModule):
         self.self_condition = self.model.use_self_conditioning
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective
+        self.shorten_factor = shorten_factor
         assert objective in {
             "pred_noise",
             "pred_x0",
@@ -329,7 +332,7 @@ class GaussianDiffusion(L.LightningModule):
         """
         gradient = cond_fn(x, t, **guidance_kwargs)
         new_mean = mean + variance * gradient
-        print("gradient: ", (variance * gradient).mean())
+        # print("gradient: ", (variance * gradient).mean())
         return new_mean
 
     @torch.no_grad()
@@ -512,6 +515,17 @@ class GaussianDiffusion(L.LightningModule):
             * noise
         )
 
+    def _make_mask(self, latent: torch.Tensor, sequences: T.List[str]) -> torch.Tensor:
+        """Make the mask from the input latent and the string of original sequences.
+        The latent might have been shortened, so the mask always takes the same length as the latent,
+        but we use the string of original sequences to compute which positions should be masked.
+        This requires the shortening factor used in the dataloader to be provided a priori."""
+        B, L, _ = latent.shape
+        sequence_lengths = torch.tensor([len(s) for s in sequences], device=latent.device)[:, None]
+        idxs = torch.tile(torch.arange(L, device=latent.device), (B, 1))
+        fractional_lengths = torch.tile(sequence_lengths / self.shorten_factor, (1, L))
+        return (idxs < fractional_lengths).long()
+
     def forward(
         self,
         x_unnormalized,
@@ -534,15 +548,7 @@ class GaussianDiffusion(L.LightningModule):
         if the length of the structure doesn't match, we prioritize choosing a sequence string that
         matches the latent 
         """
-        assert max([len(s) for s in sequences]) <= L
-
-        # get mask
-        true_aatype, mask, _, _, _ = batch_encode_sequences(sequences)
-        mask = mask.to(self.device)
-
-        if mask.shape[-1] != L:
-            mask = trim_or_pad_batch_first(mask, L)
-
+        mask = self._make_mask(x_start, sequences)
 
         # potentially unscale
         x_start *= self.x_downscale_factor
@@ -618,8 +624,10 @@ class GaussianDiffusion(L.LightningModule):
 
         # TODO: anneal losses
         if self.sequence_decoder_weight > 0.0:
+            # mask has same length as sequence even if latent was shortened!
+            true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
             seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
-                latent, true_aatype, mask, cur_weight=None
+                latent, true_aatype, seq_mask, cur_weight=None
             )
             log_dict = (
                 log_dict | seq_loss_dict
@@ -634,6 +642,7 @@ class GaussianDiffusion(L.LightningModule):
             assert (
                 not gt_structures is None
             ), "If using structure as an auxiliary loss, ground truth structures must be provided"
+            # structure loss implicitly calls tokenizer again
             struct_loss, struct_loss_dict = self.structure_loss(
                 latent, gt_structures, sequences, cur_weight=None
             )
