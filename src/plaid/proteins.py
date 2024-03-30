@@ -355,7 +355,6 @@ class LatentToStructure:
                 output_dicts_list.append(output_dict)
 
             # combine results at the end of the batches
-            import IPython;IPython.embed()
             # outputs = 
             # if return_metrics: 
             #     results = {k: v for D in results for k, v in D.items()}
