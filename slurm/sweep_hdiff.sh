@@ -1,0 +1,1 @@
+sbatch train_diffusion.slrm experiment=hdif/d128_s1

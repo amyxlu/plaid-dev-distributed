@@ -6,7 +6,7 @@
 # TODO: make masking for shortened sequences
 
 compression_model_id: 2024-03-17T23-21-19
-hid_dim: 128
+input_dim: 128
 
 defaults:
   - override /denoiser: utsa.yaml
@@ -17,5 +17,5 @@ datamodule:
   compression_model_id: ${compression_model_id}
 
 denoiser:
-  hid_dim: ${hid_dim}
+  input_dim_if_different: ${input_dim}
   num_blocks: 3

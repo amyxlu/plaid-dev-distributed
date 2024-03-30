@@ -18,7 +18,6 @@ from plaid.esmfold import (
     FoldingTrunkConfig,
 )
 from plaid.denoisers import BaseDenoiser
-from plaid.constants import c_s, c_z
 from plaid.denoisers.modules import TriangularSelfAttentionBlock
 from plaid.esmfold.misc import get_esmfold_model_state
 
@@ -35,6 +34,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         timestep_embedding_strategy: str = "fourier",
         pos_embedding_strategy: str = "rotary",
         use_self_conditioning: bool = False,
+        pairwise_state_dim: int = 128,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
         input_dim_if_different: T.Optional[int] = None
@@ -48,15 +48,14 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             cfg_dropout=cfg_dropout,
             input_dim_if_different=input_dim_if_different
         )
-
-        # fixed dimensions
-        trunk_cfg: FoldingTrunkConfig = FoldingTrunkConfig()
-        self.trunk_cfg = trunk_cfg
-        self.chunk_size = trunk_cfg.chunk_size
+        self.default_trunk_cfg: FoldingTrunkConfig = FoldingTrunkConfig()
         self.pairwise_positional_embedding = RelativePosition(
-            trunk_cfg.position_bins, c_z
+            bins=self.default_trunk_cfg.position_bins,
+            pairwise_state_dim=pairwise_state_dim
         )
+        self.chunk_size = None
         self.conditioning_strategy = conditioning_strategy
+        self.paiwise_state_dim = pairwise_state_dim
         self.make_blocks()
 
     @abc.abstractmethod
@@ -95,7 +94,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
 
         if z is None:
-            z = x.new_zeros(B, L, L, c_z)
+            z = x.new_zeros(B, L, L, self.pairwise_state_dim)
         else:
             assert z.shape[1] == z.shape[2] == L, "supplied pairwise features have dimension mismatch."
 
@@ -146,7 +145,8 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
         )
-        assert hid_dim == c_s, "If finetuning denoiser from ESMFold, input latent must have 1024 features."
+        assert hid_dim == self.default_trunk_cfg.sequence_state_dim, \
+            "If finetuning denoiser from ESMFold, input latent must have 1024 features."
 
     def _filter_state_dict(self, state_dict):
         orig_keys = list(state_dict.keys())
@@ -177,15 +177,15 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         self.blocks = nn.ModuleList(
             [
                 block(
-                    sequence_state_dim=c_s,
-                    pairwise_state_dim=c_z,
-                    sequence_head_width=self.trunk_cfg.sequence_head_width,
-                    pairwise_head_width=self.trunk_cfg.pairwise_head_width,
+                    sequence_state_dim=self.default_trunk_cfg.sequence_state_dim,
+                    pairwise_state_dim=self.default_trunk_cfg.pairwise_state_dim,
+                    sequence_head_width=self.default_trunk_cfg.sequence_head_width,
+                    pairwise_head_width=self.default_trunk_cfg.pairwise_head_width,
                     conditioning_strategy=self.conditioning_strategy,
-                    dropout=self.trunk_cfg.dropout,
+                    dropout=self.default_trunk_cfg.dropout,
                     skip=False,
                 )
-                for i in range(self.trunk_cfg.num_blocks)
+                for i in range(self.default_trunk_cfg.num_blocks)
             ]
         )
         self.load_pretrained_weights()
@@ -217,12 +217,16 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         use_skip_connections: bool = True,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
-        pairwise_hid_dim: int = c_z,
+        pairwise_state_dim: int = 128,
+        sequence_head_width: int = 32,
+        pairwise_head_width: int = 32,
         input_dim_if_different: T.Optional[int] = None
     ):
         self.num_blocks = num_blocks
         self.use_skip_connections = use_skip_connections
-        self.pairwise_hid_dim = pairwise_hid_dim
+        self.pairwise_state_dim = pairwise_state_dim
+        self.sequence_head_width = sequence_head_width
+        self.pairwise_head_width = pairwise_head_width
 
         super().__init__(
             hid_dim=hid_dim,
@@ -230,6 +234,7 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             timestep_embedding_strategy=timestep_embedding_strategy,
             pos_embedding_strategy=pos_embedding_strategy,
             use_self_conditioning=use_self_conditioning,
+            pairwise_state_dim=pairwise_state_dim,
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
             input_dim_if_different=input_dim_if_different
@@ -244,11 +249,11 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             [
                 block(
                     sequence_state_dim=self.hid_dim,
-                    pairwise_state_dim=self.pairwise_hid_dim,
-                    sequence_head_width=self.trunk_cfg.sequence_head_width,
-                    pairwise_head_width=self.trunk_cfg.pairwise_head_width,
+                    pairwise_state_dim=self.pairwise_state_dim,
+                    sequence_head_width=self.sequence_head_width,
+                    pairwise_head_width=self.pairwise_head_width,
                     conditioning_strategy=self.conditioning_strategy,
-                    dropout=self.trunk_cfg.dropout,
+                    dropout=self.default_trunk_cfg.dropout,
                     skip=False,
                 )
                 for _ in range((self.num_blocks - 1) // 2)
@@ -257,11 +262,11 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
 
         self.mid_block = block(
             sequence_state_dim=self.hid_dim,
-            pairwise_state_dim=self.pairwise_hid_dim,
-            sequence_head_width=self.trunk_cfg.sequence_head_width,
-            pairwise_head_width=self.trunk_cfg.pairwise_head_width,
+            pairwise_state_dim=self.pairwise_state_dim,
+            sequence_head_width=self.sequence_head_width,
+            pairwise_head_width=self.pairwise_head_width,
             conditioning_strategy=self.conditioning_strategy,
-            dropout=self.trunk_cfg.dropout,
+            dropout=self.default_trunk_cfg.dropout,
             skip=False,
         )
 
@@ -269,11 +274,11 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             [
                 block(
                     sequence_state_dim=self.hid_dim,
-                    pairwise_state_dim=self.pairwise_hid_dim,
-                    sequence_head_width=self.trunk_cfg.sequence_head_width,
-                    pairwise_head_width=self.trunk_cfg.pairwise_head_width,
+                    pairwise_state_dim=self.pairwise_state_dim,
+                    sequence_head_width=self.sequence_head_width,
+                    pairwise_head_width=self.pairwise_head_width,
                     conditioning_strategy=self.conditioning_strategy,
-                    dropout=self.trunk_cfg.dropout,
+                    dropout=self.default_trunk_cfg.dropout,
                     skip=self.use_skip_connections,
                 )
                 for _ in range((self.num_blocks - 1) // 2)
