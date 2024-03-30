@@ -82,7 +82,7 @@ class GaussianDiffusion(L.LightningModule):
         min_snr_loss_weight=False,
         min_snr_gamma=5,
         soft_clip_x_start_to: T.Optional[float] = 1.3,  # determines behavior during training, and value to use during sampling
-        # compression related
+        # compression and architecture
         shorten_factor=1.0,
         # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM

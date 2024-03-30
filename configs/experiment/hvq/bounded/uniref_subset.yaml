@@ -19,7 +19,7 @@ hourglass:
   fsq_levels: None
   downproj_factor: 128 
   lr: 3e-5
-  lr_num_warmup_steps: 5000
+  lr_num_warmup_steps: 3000
   lr_sched_type: "constant_with_warmup"
 
 trainer:
