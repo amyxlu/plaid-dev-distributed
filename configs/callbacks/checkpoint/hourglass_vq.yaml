@@ -1,5 +1,4 @@
 _target_: lightning.pytorch.callbacks.ModelCheckpoint
-dirpath: ${paths.checkpoint_dir}/hourglass_vq/${timestamp}
 filename: "{epoch}-{step}"
 verbose: true
 save_last: true

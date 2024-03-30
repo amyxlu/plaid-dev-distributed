@@ -1,5 +1,3 @@
-timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
-
 lm_embedder_type: esmfold
 max_seq_len: 512
 

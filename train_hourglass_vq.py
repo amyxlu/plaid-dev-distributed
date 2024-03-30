@@ -1,5 +1,7 @@
 import time
+from pathlib import Path
 
+import wandb
 import hydra
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
@@ -39,7 +41,7 @@ def train(cfg: DictConfig):
         seq_emb_fn=seq_emb_fn
     )
 
-    job_id = None  # possibly replace w/ SLURM ID
+    job_id = wandb.util.generate_id() 
     if not cfg.dryrun:
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
         # logger.watch(model, log="all", log_graph=False)
@@ -47,7 +49,9 @@ def train(cfg: DictConfig):
         logger = None
 
     # callback options
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
+    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
+
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
 

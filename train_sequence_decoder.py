@@ -1,4 +1,5 @@
 import typing as T
+from pathlib import Path
 import os
 
 import hydra
@@ -147,6 +148,7 @@ def train(cfg: DictConfig):
     )
 
     job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
+    dirpath = Path(cfg.paths.checkpoint_dir) / "sequence_decoder" / job_id
 
     if not cfg.dryrun:
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
@@ -154,9 +156,8 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
-    # callbacks/home/amyxlu/plaid/plaid/denoisers
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
 
     trainer = hydra.utils.instantiate(
         cfg.trainer, logger=logger, callbacks=[lr_monitor, checkpoint_callback]

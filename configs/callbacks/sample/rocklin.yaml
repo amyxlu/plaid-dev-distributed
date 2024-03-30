@@ -1,5 +1,4 @@
 _target_: plaid.callbacks.SampleCallback
-outdir: ${paths.artifacts_dir}/samples/${timestamp} 
 
 fid_reference_dataset: ${fid_holdout_tensors}
 

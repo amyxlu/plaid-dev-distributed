@@ -1,5 +1,4 @@
 _target_: plaid.callbacks.SampleCallback
-outdir: ${paths.artifacts_dir}/samples/${timestamp} 
 num_recycles: 4
 
 fid_reference_dataset: holdout_esmfold_feats.st

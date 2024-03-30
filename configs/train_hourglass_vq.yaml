@@ -1,5 +1,3 @@
-timestamp: ${now:%Y-%m-%d}T${now:%H-%M-%S}
-
 defaults:
   - _self_
   - paths: pcluster 

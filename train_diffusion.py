@@ -1,6 +1,8 @@
 import typing as T
 import os
+from pathlib import Path
 
+import wandb
 import hydra
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
@@ -57,9 +59,8 @@ def train(cfg: DictConfig):
         structure_constructor=structure_constructor
     )
 
-    # job_id = os.environ.get("SLURM_JOB_ID")  # is None if not using SLURM
-    print("SLURM job id:", os.environ.get("SLURM_JOB_ID"))
-    job_id = None
+    job_id = wandb.util.generate_id()
+    dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
 
     if not cfg.dryrun:
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
@@ -67,12 +68,14 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
-    # callbacks/home/amyxlu/plaid/plaid/denoisers
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
+
     # todo: add a wasserstein distance callback
+    outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
     sample_callback = hydra.utils.instantiate(
         cfg.callbacks.sample,
+        outdir=outdir,
         diffusion=diffusion,
         model=denoiser,
         log_to_wandb=not cfg.dryrun,
