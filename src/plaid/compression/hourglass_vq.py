@@ -179,21 +179,17 @@ class HourglassVQLightningModule(L.LightningModule):
             vq_loss = quant_out['loss']
             log_dict["vq_loss"] = quant_out['loss']
             log_dict["vq_perplexity"] = quant_out['perplexity']
-            # codebook = quant_out['min_encoding_indices'].detach().cpu().numpy()
-            # n_bins = self.n_e
+            compressed_representation = quant_out['min_encoding_indices'].detach().cpu().numpy()
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
-            # n_bins = self.quantizer.codebook_size
             vq_loss = 0
-            codebook = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy()
-            quant_out = {"codebook": codebook}  # for inference use
-        
+            compressed_representation = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy()
+
         elif self.quantize_scheme == "tanh":
             z_e = z_e.to(torch.promote_types(z_e.dtype, torch.float32))
             z_q = torch.tanh(z_e)
-            # codebook = z_q.detach().cpu().numpy()
-            quant_out = {"bounded": z_q.detach().cpu().numpy()}
+            compressed_representation = z_q.detach().cpu().numpy() 
             vq_loss = 0
         else:
             raise NotImplementedError
@@ -213,7 +209,7 @@ class HourglassVQLightningModule(L.LightningModule):
         loss = vq_loss + recons_loss
         log_dict['recons_loss'] = recons_loss.item()
         log_dict['loss'] = loss.item()
-        return x_recons, loss, log_dict, quant_out
+        return x_recons, loss, log_dict, compressed_representation
 
     def configure_optimizers(self):
         parameters = list(self.enc.parameters()) + list(self.dec.parameters())
