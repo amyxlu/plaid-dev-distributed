@@ -17,8 +17,7 @@ from openfold.np import residue_constants
 
 from .utils._misc import npy, to_tensor, outputs_to_avg_metric
 from .decoder import FullyConnectedNetwork
-from .esmfold import ESMFOLD_Z_DIM, esmfold_v1
-from .esmfold.misc import output_to_pdb, batch_encode_sequences
+from .esmfold import ESMFOLD_Z_DIM, esmfold_v1, output_to_pdb, batch_encode_sequences
 from .transforms import trim_or_pad_batch_first
 
 
@@ -246,7 +245,6 @@ class LatentToStructure:
             print(f"ESMFold model created in {end-start:.2f} seconds.")
         
         self.esmfold = esmfold
-        # self.esmfold.to("cpu")
         self.esmfold.set_chunk_size(chunk_size)
         del self.esmfold.esm  # save some GPU space
         assert not self.esmfold.trunk is None
@@ -289,6 +287,13 @@ class LatentToStructure:
                 num_recycles=num_recycles,
             )
         pdb_str = output_to_pdb(output)
+
+        for k, v in output.items():
+            try:
+                output[k] = v.cpu()
+            except:
+                pass
+
         if return_metrics:
             metric = outputs_to_avg_metric(output)
             return pdb_str, output, metric
@@ -350,6 +355,7 @@ class LatentToStructure:
                 output_dicts_list.append(output_dict)
 
             # combine results at the end of the batches
+            import IPython;IPython.embed()
             # outputs = 
             # if return_metrics: 
             #     results = {k: v for D in results for k, v in D.items()}
@@ -372,6 +378,6 @@ if __name__ == "__main__":
     device = torch.device("cuda")
     sequence_constructor = LatentToSequence().to(device)
     structure_constructor = LatentToStructure().to(device)
-    latent = torch.randn(16, 128, 1024).to(device)
+    latent = torch.randn(64, 128, 1024)
     _, _, strs = sequence_constructor.to_sequence(latent)
-    output = structure_constructor.to_structure(latent, strs)
+    output = structure_constructor.to_structure(latent, strs, batch_size=4)
