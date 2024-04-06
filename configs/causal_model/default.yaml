@@ -1,0 +1,5 @@
+_target_: plaid.generation.causal.CausalLightningModule
+        
+n_heads: 8
+n_layers: 4
+vocab_size: 128
