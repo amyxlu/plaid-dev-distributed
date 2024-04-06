@@ -236,9 +236,9 @@ class TokenDataset(Dataset):
     def __init__(
         self,
         split,
-        compress_model_id = "2024-03-05T06-20-52",  # soft-violet
-        token_dir = "/homefs/home/lux70/storage/data/cath/tokens/",
-        max_seq_len = 128,
+        compress_model_id, # = "2024-03-05T06-20-52",  # soft-violet
+        token_dir, # = "/homefs/home/lux70/storage/data/cath/tokens/",
+        max_seq_len=512, # = 128,
     ):
         self.split = split
         self.compress_model_id = compress_model_id
