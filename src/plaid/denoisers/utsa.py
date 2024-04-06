@@ -88,7 +88,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         B, L, _ = x.shape
 
         if mask is None:
-            mask = x.new_ones((B, L).long())
+            mask = x.new_ones(B, L).long()
         
         if not x_self_cond is None:
             x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))

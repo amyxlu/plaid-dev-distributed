@@ -50,13 +50,9 @@ def train(cfg: DictConfig):
 
     # callback options
     dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
-
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
-
-    model_id = str(checkpoint_callback.dirpath).split("/")[-1]
-    log_cfg['model_id'] = model_id
 
     trainer = hydra.utils.instantiate(
         cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor, compression_callback]

@@ -1,6 +1,6 @@
 _target_: lightning.pytorch.loggers.WandbLogger
 
-project: plaid-hourglass-vq
+project: plaid-hourglass-2
 entity: ${paths.entity}
 name: null
 tags: null
