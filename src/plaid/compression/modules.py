@@ -302,7 +302,9 @@ class HourglassEncoder(nn.Module):
         compressed: at the start, should be None; if it's already populated, ignore further actions at the valley step
         """
         if x.shape[1] % self.shorten_factor != 0:
-            raise ValueError("Length of input `x` must be a multiple of `self.shorten_factor` for attention resampling")
+            from ..transforms import trim_or_pad_batch_first
+            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + x.shape[1] % self.shorten_factor, pad_idx=0)
+            # raise ValueError("Length of input `x` must be a multiple of `self.shorten_factor` for attention resampling")
 
         # b : batch, n : sequence length, d : feature dimension, s : shortening factor
         s, b, n = self.shorten_factor, *x.shape[:2]
@@ -629,9 +631,7 @@ class FiniteScalarQuantizer(nn.Module):
         return (zhat * basis).sum(axis=-1).to(dtype=torch.int32)
     
     def indexes_to_codes(self, indices):
-        # shape manipulations
-        if indices.ndim < 2: 
-            indices = indices.unsqueeze(-1)
+        indices = indices.unsqueeze(-1)
         
         # def _maybe_cast_shape(input_arr, target_arr):
         #     # both should have 2 dimensions
@@ -652,12 +652,11 @@ class FiniteScalarQuantizer(nn.Module):
     
 
 if __name__ == "__main__":
-    fsq = FiniteScalarQuantizer([8,8,8,8,8,8,8,8])
-    x = torch.randn(4, 128, 6)
+    fsq = FiniteScalarQuantizer([4,4,4,4])
+    x = torch.randn(4, 128, 4)
     device = torch.device("cuda")
     fsq.to(device)
-    x.to(device)
-    import IPython; IPython.embed()
+    x = x.to(device)
 
     codebook = fsq.quantize(x)
     indices = fsq.codes_to_indexes(codebook)
