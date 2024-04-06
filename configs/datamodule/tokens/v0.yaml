@@ -1,4 +1,4 @@
-_target_: plaid.datasets.TokenDataset
+_target_: plaid.datasets.TokenDataModule
 
 compress_model_id: "2024-03-05T06-20-52"  # soft-violet
 token_dir: /homefs/home/lux70/storage/data/cath/tokens/

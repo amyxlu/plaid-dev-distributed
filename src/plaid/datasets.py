@@ -632,6 +632,7 @@ class TokenDataModule(L.LightningDataModule):
         num_workers = 0,
         shuffle_val_dataset = False,
     ):
+        super().__init__()
         self.compress_model_id = compress_model_id
         self.token_dir = Path(token_dir)
         self.max_seq_len = max_seq_len
