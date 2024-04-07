@@ -161,7 +161,6 @@ class HourglassVQLightningModule(L.LightningModule):
         return x_recons, loss, log_dict, z_e_out
 
     def forward(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
-        # exit and call other function not using quantization
         if self.quantize_scheme is None:
             return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
 
@@ -246,6 +245,7 @@ class HourglassVQLightningModule(L.LightningModule):
             # in this form, the sequences *must* have the correct length (trimmed, no pad)
             x, sequences, gt_structures = batch
         elif len(batch) == 2:
+            # using a FastaLoader, sequence only
             assert not self.seq_emb_fn is None
             headers, sequences = batch
             x = self.seq_emb_fn(sequences, device=self.device)
@@ -254,6 +254,13 @@ class HourglassVQLightningModule(L.LightningModule):
 
         # get masks and ground truth tokens and move to device
         tokens, mask, _, _, _ = batch_encode_sequences(sequences)
+
+        # if shortened and using a Fasta loader, the latent might not be a multiple of 2
+        s = self.enc.shorten_factor 
+        if x.shape[1] % s != 0:
+            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + x.shape[1] % s, pad_idx=0)
+
+        # In any case where the mask and token generated from sequence strings don't match latent, make it match
         if mask.shape[1] != x.shape[1]:
             # pad with False
             mask = trim_or_pad_batch_first(mask, x.shape[1], pad_idx=0)

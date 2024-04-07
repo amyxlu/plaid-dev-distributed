@@ -301,10 +301,6 @@ class HourglassEncoder(nn.Module):
         mask: indicates if input has a padding (True if we should keep it, False if it's padding & we should discard it)
         compressed: at the start, should be None; if it's already populated, ignore further actions at the valley step
         """
-        if x.shape[1] % self.shorten_factor != 0:
-            from ..transforms import trim_or_pad_batch_first
-            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + x.shape[1] % self.shorten_factor, pad_idx=0)
-            # raise ValueError("Length of input `x` must be a multiple of `self.shorten_factor` for attention resampling")
 
         # b : batch, n : sequence length, d : feature dimension, s : shortening factor
         s, b, n = self.shorten_factor, *x.shape[:2]
