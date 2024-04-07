@@ -15,7 +15,7 @@ hourglass:
   n_e: 128 
   e_dim: 64
   use_quantizer: "tanh"
-  fsq_levels: [8,8,8,6,5]
+  fsq_levels: None
   downproj_factor: 32
   shorten_factor: 2
   lr: 4e-5

@@ -114,32 +114,10 @@ class CompressionReconstructionCallback(Callback):
             x_norm = x_norm[:max_samples, ...]
             mask = mask[:max_samples, ...]
 
-        recons_norm, loss, log_dict, quant_out = compression_model(
+        recons_norm, loss, log_dict, compressed_representation = compression_model(
             x_norm, mask, log_wandb=False
         )
         recons = self.latent_scaler.unscale(recons_norm)
-
-        if quantize_scheme == "vq":
-            N, L, _ = x_norm.shape
-            # compressed_representation = quant_out["min_encoding_indices"].reshape(
-            #     N, L, -1
-            # )
-
-        elif quantize_scheme == "fsq":
-            compressed_representation = quant_out["codebook"]
-            # print(codebook.max())
-            # compressed_representation = codebook.reshape(
-            #     -1, compression_model.quantizer.num_dimensions
-            # )
-        
-        elif quantize_scheme == "tanh":
-            compressed_representation = quant_out['bounded']
-
-        else:
-            # no quantization, quant_out is the output of the encoder
-            compressed_representation = quant_out
-
-        # TODO: analysis with the latents
         return recons, loss, log_dict, compressed_representation
 
     def _save_pdbs(self, struct_features, prefix=""):
