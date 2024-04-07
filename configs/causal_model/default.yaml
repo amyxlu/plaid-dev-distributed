@@ -1,5 +1,8 @@
 _target_: plaid.generation.causal.CausalLightningModule
         
-n_heads: 8
-n_layers: 4
 vocab_size: 128
+hidden_size: 256
+intermediate_size: 256
+num_hidden_layers: 4
+num_attention_heads: 8
+max_position_embeddings: 2048
