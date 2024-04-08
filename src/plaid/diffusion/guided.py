@@ -35,6 +35,8 @@ from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.transforms import trim_or_pad_batch_first
+from plaid.compression.uncompress import UncompressContinuousLatent
+
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
 
@@ -81,14 +83,14 @@ class GaussianDiffusion(L.LightningModule):
         objective="pred_v",
         min_snr_loss_weight=False,
         min_snr_gamma=5,
-        soft_clip_x_start_to: T.Optional[float] = 1.3,  # determines behavior during training, and value to use during sampling
+        soft_clip_x_start_to: T.Optional[float] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
         shorten_factor=1.0,
+        uncompressor: T.Optional[UncompressContinuousLatent] = None,
         # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
         sampling_timesteps=500,  # None,
         sampling_seq_len=64,
-        use_ddim=False,
         # optimization
         lr=1e-4,
         adam_betas=(0.9, 0.999),
@@ -111,6 +113,7 @@ class GaussianDiffusion(L.LightningModule):
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective
         self.shorten_factor = shorten_factor
+        self.uncompressor = uncompressor
         assert objective in {
             "pred_noise",
             "pred_x0",
@@ -118,12 +121,6 @@ class GaussianDiffusion(L.LightningModule):
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
 
         self.latent_recons_method = latent_reconstruction_method
-        assert latent_reconstruction_method in {
-            "model_out",
-            "x_recons",
-            "unnormalized_x_recons",
-            "unnormalized_upscale_x_recons",
-        }
 
         """
         If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
@@ -178,7 +175,6 @@ class GaussianDiffusion(L.LightningModule):
         )  # default num sampling timesteps to number of timesteps at training
         assert self.sampling_timesteps <= timesteps
         self.sampling_seq_len = sampling_seq_len
-        self.is_ddim_sampling = use_ddim
         self.ddim_sampling_eta = ddim_sampling_eta
 
         # loss weight
@@ -368,7 +364,7 @@ class GaussianDiffusion(L.LightningModule):
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
-        unscale=True
+        unscale=False
     ):
         batch, device = shape[0], self.device
 
@@ -388,11 +384,15 @@ class GaussianDiffusion(L.LightningModule):
             img, x_start = self.p_sample(
                 img, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised
             )
-            imgs.append(img)
+            if self.uncompressor is not None:
+               img = self.uncompressor.uncompress(img)
 
+            imgs.append(img)
+        
         ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
         if unscale:
             ret = self.latent_scaler.unscale(ret)
+
         return ret
 
     @torch.no_grad()
@@ -404,7 +404,7 @@ class GaussianDiffusion(L.LightningModule):
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
-        unscale=True,
+        unscale=False,
     ):
         batch, device, total_timesteps, sampling_timesteps, eta, objective = (
             shape[0],
@@ -435,6 +435,9 @@ class GaussianDiffusion(L.LightningModule):
             pred_noise, x_start, *_ = self.model_predictions(
                 img, time_cond, model_kwargs=model_kwargs
             )
+
+            if self.uncompressor is not None:
+               img = self.uncompressor.uncompress(img)
 
             imgs.append(img)
 
@@ -468,10 +471,11 @@ class GaussianDiffusion(L.LightningModule):
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
-        unscale=True,
+        unscale=False,
+        use_ddim_sampling=None,
     ):
         sample_fn = (
-            self.p_sample_loop if not self.is_ddim_sampling else self.ddim_sample
+            self.p_sample_loop if not use_ddim_sampling else self.ddim_sample
         )
         return sample_fn(
             shape,
@@ -530,10 +534,8 @@ class GaussianDiffusion(L.LightningModule):
         self,
         x_unnormalized,
         sequences,
-        gt_structures=None,
         model_kwargs={},
         noise=None,
-        clip_x_start=True,
     ):
         x_start = self.latent_scaler.scale(x_unnormalized).to(self.device)
         B, L, _ = x_start.shape
@@ -596,63 +598,12 @@ class GaussianDiffusion(L.LightningModule):
         x_recons = self.model_predictions(
             x, t, mask, model_kwargs
         ).pred_x_start
-        latent_forms = {
-            "model_out": model_out,
-            "x_recons": x_recons,
-            "unnormalized_x_recons": self.latent_scaler.unscale(x_recons),
-            "unnormalized_upscale_x_recons": self.latent_scaler.unscale(
-                x_recons / self.x_downscale_factor
-            ),
-        }
 
         log_dict = {
-            "means/model_out": model_out.mean(),
-            "means/x_recons": x_recons.mean(),
-            "means/unnormalized_x_recons": latent_forms["unnormalized_x_recons"].mean(),
-            "means/unnormalized_upscale_x_recons": latent_forms[
-                "unnormalized_upscale_x_recons"
-            ].mean(),
-            "stds/model_out": model_out.std(),
-            "stds/x_recons": x_recons.std(),
-            "stds/unnormalized_x_recons": latent_forms["unnormalized_x_recons"].std(),
-            "stds/unnormalized_upscale_x_recons": latent_forms[
-                "unnormalized_upscale_x_recons"
-            ].std(),
             "recons_loss": recons_loss,
         }
-        latent = latent_forms[self.latent_recons_method]
+        return recons_loss, x_recons, log_dict
 
-        # TODO: anneal losses
-        if self.sequence_decoder_weight > 0.0:
-            # mask has same length as sequence even if latent was shortened!
-            true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
-            seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
-                latent, true_aatype, seq_mask, cur_weight=None
-            )
-            log_dict = (
-                log_dict | seq_loss_dict
-            )  # shorthand for combining dictionaries, requires python >= 3.9
-            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
-            # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
-        else:
-            seq_loss = 0.0
-
-        if self.structure_decoder_weight > 0.0:
-            assert (
-                not gt_structures is None
-            ), "If using structure as an auxiliary loss, ground truth structures must be provided"
-            # structure loss implicitly calls tokenizer again
-            struct_loss, struct_loss_dict = self.structure_loss(
-                latent, gt_structures, sequences, cur_weight=None
-            )
-            log_dict = log_dict | struct_loss_dict
-        else:
-            struct_loss = 0.0
-
-        loss = recons_loss + seq_loss + struct_loss
-        log_dict["loss"] = loss
-        return loss, log_dict
 
     def sequence_loss(self, latent, aatype, mask, cur_weight=None):
         if self.need_to_setup_sequence_decoder:
@@ -688,25 +639,63 @@ class GaussianDiffusion(L.LightningModule):
         otherwise it's just pdb_ids which we don't need.
         2024/02/06 this is currently only for H5ShardDataset and CATHStructureDataset
         """
-        if isinstance(batch[-1], dict):
-            # dictionary of structure features
-            assert "backbone_rigid_tensor" in batch[-1].keys()
-            embs, sequences, gt_structures = batch
-            return self(embs, sequences, gt_structures)
-        elif isinstance(batch[-1][0], str):
-            embs, sequences, _ = batch
-            return self(embs, sequences)
-        else:
-            raise Exception(
-                f"Batch tuple not understood. Data type of last element of batch tuple is {type(batch[-1])}."
-            )
+        embs, sequences, _ = batch
+        recons_loss, x_recons, log_dict = self(embs, sequences)
+        return recons_loss, log_dict
+
+        # if isinstance(batch[-1], dict):
+        #     # dictionary of structure features
+        #     assert "backbone_rigid_tensor" in batch[-1].keys()
+        #     embs, sequences, gt_structures = batch
+        #     recons_loss, x_recons, log_dict = self(embs, sequences, gt_structures)
+        # elif isinstance(batch[-1][0], str):
+        #     embs, sequences, _ = batch
+        #     recons_loss, x_recons, log_dict = self(embs, sequences)
+        # else:
+        #     raise Exception(
+        #         f"Batch tuple not understood. Data type of last element of batch tuple is {type(batch[-1])}."
+        #     )
+        
+        # # TODO: anneal losses
+
+        # if self.sequence_decoder_weight > 0.0:
+        #     # mask has same length as sequence even if latent was shortened!
+        #     true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
+        #     seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
+        #         latent, true_aatype, seq_mask, cur_weight=None
+        #     )
+        #     log_dict = (
+        #         log_dict | seq_loss_dict
+        #     )  # shorthand for combining dictionaries, requires python >= 3.9
+        #     tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+        #     wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+        #     # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+        # else:
+        #     seq_loss = 0.0
+
+        # if self.structure_decoder_weight > 0.0:
+        #     assert (
+        #         not gt_structures is None
+        #     ), "If using structure as an auxiliary loss, ground truth structures must be provided"
+        #     # structure loss implicitly calls tokenizer again
+        #     struct_loss, struct_loss_dict = self.structure_loss(
+        #         latent, gt_structures, sequences, cur_weight=None
+        #     )
+        #     log_dict = log_dict | struct_loss_dict
+        # else:
+        #     struct_loss = 0.0
+
+        # loss = recons_loss + seq_loss + struct_loss
+        # log_dict["loss"] = loss
+        # return loss, log_dict
+
 
     def training_step(self, batch):
         loss, log_dict = self.compute_loss(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
         self.log_dict(
-            {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=False
+            {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=True
         )
         return loss
 
@@ -716,7 +705,7 @@ class GaussianDiffusion(L.LightningModule):
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
         self.log_dict(
-            {f"val/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=False
+            {f"val/{k}": v for k, v in log_dict.items()}, on_step=False, on_epoch=True
         )
         return loss
 
@@ -733,44 +722,3 @@ class GaussianDiffusion(L.LightningModule):
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
-
-
-if __name__ == "__main__":
-    from plaid.denoisers import UTriSelfAttnDenoiser
-    from plaid.datasets import CATHStructureDataModule, CATHShardedDataModule
-
-    # from plaid.denoisers import PreinitializedTriSelfAttnDenoiser
-
-    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
-    pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    # dm = CATHStructureDataModule(
-    #     shard_dir,
-    #     pdb_dir,
-    #     seq_len=64,
-    #     batch_size=2,
-    #     num_workers=0
-    # )
-    dm = CATHShardedDataModule(storage_type="hdf5", shard_dir=shard_dir)
-    dm.setup()
-    train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
-
-    device = torch.device("cuda:0")
-    model = UTriSelfAttnDenoiser(
-        num_blocks=3,
-        hid_dim=1024,
-        conditioning_strategy="hidden_concat",
-        use_self_conditioning=True,
-    )
-    model.to(device)
-
-    diffusion = GaussianDiffusion(
-        model,
-        sequence_decoder_weight=1.0,
-        # structure_decoder_weight=1.0
-    )
-    diffusion.to(device=device)
-    diffusion.training_step(batch)
-    import IPython
-
-    IPython.embed()

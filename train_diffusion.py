@@ -73,6 +73,34 @@ def train(cfg: DictConfig):
 
     # todo: add a wasserstein distance callback
     outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
+    import IPython;IPython.embed()
+
+
+
+    """
+    vvvv scratch vvvv
+    """
+
+    datamodule.setup("fit")
+    train_dataloader = datamodule.train_dataloader()
+    x, _, _ = next(iter(train_dataloader))
+    mask = torch.ones((x.shape[0], x.shape[1])).long()
+    loss, x_recons, _ = diffusion(x, mask)
+
+
+    from plaid.compression.uncompress import UncompressContinuousLatent
+    uncompressor = UncompressContinuousLatent("2024-03-30T18-24-23")
+    x_recons_uncompress = uncompressor.uncompress(x_recons)
+
+    sampled_compressed = diffusion.sample(x.shape, return_all_timesteps=False)
+
+    """
+    ^^^^ scratch ^^^^
+    """
+
+
+
+
     sample_callback = hydra.utils.instantiate(
         cfg.callbacks.sample,
         outdir=outdir,
