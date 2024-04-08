@@ -14,4 +14,4 @@ defaults:
 dryrun: False 
 run_test: null
 
-run_structure_eval: False
+resume_from_model_id: null

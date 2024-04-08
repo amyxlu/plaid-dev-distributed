@@ -18,7 +18,7 @@ hourglass:
   use_quantizer: "fsq"
   fsq_levels: [8,8,8,6,5]
   downproj_factor: 128 
-  lr: 4e-5
+  lr: 6e-5
   lr_num_warmup_steps: 3000
   lr_sched_type: "cosine_with_restarts"
   lr_num_training_steps: 800_000

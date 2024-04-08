@@ -40,9 +40,14 @@ def train(cfg: DictConfig):
         latent_scaler=latent_scaler,
         seq_emb_fn=seq_emb_fn
     )
-
-    job_id = wandb.util.generate_id() 
+    
+    if cfg.resume_from_model_id is not None:
+        job_id = cfg.resume_from_model_id 
+    else:
+        job_id = wandb.util.generate_id() 
+    
     if not cfg.dryrun:
+        # this will automatically log to the same wandb page
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
         # logger.watch(model, log="all", log_graph=False)
     else:
@@ -50,6 +55,12 @@ def train(cfg: DictConfig):
 
     # callback options
     dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
+    dirpath.mkdir(parents=False)
+    config_path = dirpath / "config.yaml"
+    
+    if not config_path.exists():
+        OmegaConf.save(cfg, config_path)
+
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
@@ -62,8 +73,11 @@ def train(cfg: DictConfig):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if not cfg.dryrun:
-        trainer.fit(model, datamodule=datamodule)
-
+        if cfg.resume_from_model_id is None:
+            trainer.fit(model, datamodule=datamodule)
+        else:
+            # job id / dirpath was already updated to match the to-be-resumed directory 
+            trainer.fit(model, datamodule=datamodule, ckpt_path=dirpath / "last.ckpt")
 
 if __name__ == "__main__":
     train()
