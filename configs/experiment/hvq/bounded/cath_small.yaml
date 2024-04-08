@@ -1,26 +1,27 @@
 # @package _global_
-
 defaults:
-  - override /datamodule: seqrep_cached/uniref_subset_sharded
-  # - override /datamodule: cath_h5
+  - override /datamodule: seqrep_cached/cath_h5
 
 datamodule:
   batch_size: 128 
   seq_len: 512 
-  num_workers: 8 
+  num_workers: 1 
 
 logger:
-  name: "tanh"
+  name: "cath-tanh"
 
 hourglass:
   n_e: 128 
   e_dim: 64
   use_quantizer: "tanh"
   fsq_levels: None
-  downproj_factor: 128 
-  lr: 3e-5
+  downproj_factor: 32
+  shorten_factor: 2
+  lr: 4e-5
   lr_num_warmup_steps: 3000
-  lr_sched_type: "constant_with_warmup"
+  lr_sched_type: "cosine_with_restarts"
+  lr_num_training_steps: 800_000
+  lr_num_cycles: 2
 
 trainer:
   precision: "bf16-mixed"

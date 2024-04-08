@@ -308,19 +308,3 @@ class HourglassVQLightningModule(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         return self.run_batch(batch, prefix="val")
-
-
-if __name__ == "__main__":
-    device = torch.device("cuda")
-    hvq = HourglassVQLightningModule(
-        dim=1024,
-        fsq_levels=[8] * 6,
-        downproj_factor=128,
-        use_quantizer="fsq"
-    ).to(device)
-
-    x = torch.randn(8, 128, 1024).to(device)
-    mask = torch.ones(8, 128).bool().to(device)
-
-    out = hvq(x, mask, verbose=True)
-    hvq.training_step((x, mask, None), 0)

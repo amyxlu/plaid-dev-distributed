@@ -438,8 +438,6 @@ class HourglassDecoder(nn.Module):
         maybe_shape_check(z_q, verbose, "Decoder z_q input:")
         s, b, n = self.elongate_factor, *z_q.shape[:2]
 
-        assert z_q.shape[1] % self.elongate_factor == 0, "input sequence length must be a multiple of the shortening factor."
-
         upsampled = self.upsample(z_q)
         maybe_shape_check(upsampled, verbose)
 

@@ -2,7 +2,7 @@
 
 # make sure that 1024 / downproj_factor = e_dim
 defaults:
-  - override /datamodule: uniref_subset_sharded
+  - override /datamodule: seqrep_cached/uniref_subset_sharded
   # - override /datamodule: cath_h5
 
 datamodule:

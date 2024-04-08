@@ -5,9 +5,6 @@ Handles different:
 * compression models
 * header parsing schemes (For CATH, will parse according to the pattern, otherwise saves the header as is)
 * sequence lengths
-
-note: loads model twice, once for training and once for loading. Is slow and can be trivially speeded up but
-retained inefficiency to minimize introducing new bugs.
 """
 import time
 import typing as T
