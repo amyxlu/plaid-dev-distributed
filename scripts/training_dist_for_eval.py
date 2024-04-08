@@ -1,37 +1,54 @@
 from evo.dataset import FastaDataset
+from tqdm import tqdm
 from torch.utils.data import random_split
 import torch
-import math
-
-fasta_file = "/shared/amyxlu/data/uniref90/uniref90.fasta"
-
-ds = FastaDataset(fasta_file, cache_indices=True)
-n_val = 50000 
-n_train = len(ds) - n_val  # 153,726,820
-train_set, val_set = random_split(
-    ds, [n_train, n_val], generator=torch.Generator().manual_seed(42)
-)
-batch_size=64
-dataloader = torch.utils.data.DataLoader(val_set, batch_size=batch_size)
-
-import safetensors
-import plaid as K
-from plaid.denoisers.esmfold import ESMFold
 import einops
+import safetensors
+import argparse
 
-esmfold = ESMFold()
-device = torch.device("cuda:5")
+from plaid.esmfold import esmfold_v1
+from plaid.transformers import get_random_sequence_crop_batch
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fasta_file", type=str, default="/shared/amyxlu/data/rocklin/rocklin_stable.fasta")
+    parser.add_argument("--n_val", type=int, default=50000)
+    parser.add_argument("--max_seq_len", type=int, default=64)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--outdir", type=int, default=64)
+    return parser.parse_args()
+
+args = parse_args()
+
+"""
+Dataset
+"""
+ds = FastaDataset(args.fasta_file, cache_indices=True)
+n_train = len(ds) - args.n_val  # 153,726,820
+train_set, val_set = random_split(
+    ds, [n_train, args.n_val], generator=torch.Generator().manual_seed(42)
+)
+dataloader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size)
+
+"""
+ESMFold latent maker
+"""
+esmfold = esmfold_v1 
+device = torch.device("cuda")
 esmfold.to(device)
 esmfold.eval()
-# esmfold.set_chunk_size(128)
+esmfold.set_chunk_size(128)
 
+"""
+Make features and save
+"""
 feats_all = []
-from tqdm import tqdm
+
 for batch in tqdm(dataloader): 
     sequences = batch[1]
     print(max([len(seq) for seq in sequences]))
     with torch.no_grad():
-        sequences = K.utils.get_random_sequence_crop_batch(sequences, 512, min_len=30) 
+        sequences = get_random_sequence_crop_batch(sequences, 512, min_len=30) 
         embed_results = esmfold.infer_embedding(sequences)
         feats = embed_results["s"].detach().cpu()  # (N, L, 1024)
         masks = embed_results["mask"].detach().cpu()  # (N, L)
