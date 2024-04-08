@@ -1,7 +1,7 @@
 defaults:
   - _self_
   - paths: pcluster 
-  - datamodule: cath_h5
+  - datamodule: compressed/rocklin
   - denoiser: utsa
   - beta_scheduler: adm_cosine 
   - latent_scaler: esmfold 
