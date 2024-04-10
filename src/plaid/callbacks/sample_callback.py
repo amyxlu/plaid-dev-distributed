@@ -12,6 +12,7 @@ from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.utilities import rank_zero_only
 import safetensors.torch as st
 import pandas as pd
+from tqdm import tqdm, trange
 
 from plaid.denoisers import BaseDenoiser
 from plaid.diffusion import GaussianDiffusion
@@ -19,6 +20,7 @@ from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.utils import LatentScaler, write_pdb_to_disk
 from plaid.constants import CACHED_TENSORS_DIR
+
 
 def maybe_print(msg):
     if rank_zero_only.rank == 0:
@@ -38,8 +40,8 @@ class SampleCallback(Callback):
         calc_structure: bool = True,
         calc_sequence: bool = True,
         calc_fid: bool = True,
-        latent_scaler: LatentScaler = LatentScaler(),
-        fid_reference_dataset: str = "holdout_esmfold_feats.st",
+        latent_scaler: T.Optional[LatentScaler] = LatentScaler(),
+        fid_holdout_tensor_fpath: str = "",
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
         num_recycles: int = 4,
@@ -65,7 +67,7 @@ class SampleCallback(Callback):
         if save_generated_structures:
             assert calc_structure
 
-        self.fid_reference_dataset = fid_reference_dataset
+        self.fid_holdout_tensor_fpath = fid_holdout_tensor_fpath
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
         self.sequence_decode_temperature = sequence_decode_temperature
@@ -75,7 +77,11 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = False
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
-        self.latent_scaler = latent_scaler
+
+        if latent_scaler is None:
+            self.latent_scaler = LatentScaler("identity")
+        else:
+            self.latent_scaler = latent_scaler
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -95,12 +101,19 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = True
 
     def _fid_setup(self, device):
-        fpath = Path(CACHED_TENSORS_DIR) / self.fid_reference_dataset
+
+        # safetensors version - deprecated
+        # def load_saved_features(location, device="cpu"):
+        #     return st.load_file(location)["features"].to(device)
 
         def load_saved_features(location, device="cpu"):
-            return st.load_file(location)["features"].to(device)
+            import h5py
+            with h5py.File(location, "r") as f:
+                tensor = f['embeddings'][()]
+            tensor = torch.from_numpy(tensor).to(device)
+            return tensor.mean(dim=1)
 
-        self.real_features = load_saved_features(fpath, device=device)
+        self.real_features = load_saved_features(self.fid_holdout_tensor_fpath, device=device)
         self.real_features = self.real_features[
             torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
@@ -110,7 +123,8 @@ class SampleCallback(Callback):
 
     def sample_latent(self, shape):
         all_samples, n_samples = [], 0
-        while n_samples < self.n_to_sample:
+        for _ in trange(0, self.n_to_sample, shape[0]):
+        # while n_samples < self.n_to_sample:
             # TODO: add a pbar
             # make sure to not unscale s.t. we can calculate KID/FID in the normalized space!
             sample = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
@@ -128,7 +142,7 @@ class SampleCallback(Callback):
             self._fid_setup(device)
         fake_features = sampled_latent.mean(dim=1)
 
-        # just to be consistent since 50,000 features were saved. Not necessary though
+        # just to be consistent, but not necessary
         indices = torch.randperm(self.real_features.size(0))[: fake_features.shape[0]]
         real_features = self.real_features[indices]
         assert real_features.ndim == fake_features.ndim == 2
@@ -185,12 +199,14 @@ class SampleCallback(Callback):
         x_0 = x_0.to(device=device)
 
         with torch.no_grad():
-            pdb_strs, metrics = self.structure_constructor.to_structure(
+            pdb_strs, outputs = self.structure_constructor.to_structure(
                 x_0,
                 sequences=seq_str,
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
             )
+            from plaid.utils import outputs_to_avg_metric
+            metrics = outputs_to_avg_metric(outputs)
 
         log_dict = {
             f"sampled/plddt_mean": metrics["plddt"].mean(),
@@ -255,7 +271,7 @@ class SampleCallback(Callback):
         pl_module.sampling_timesteps = 3
         self.n_to_sample, self.n_to_construct = 2, 2
         if rank_zero_only.rank == 0:
-            dummy_shape = (2, 16, self.diffusion.model.hid_dim)
+            dummy_shape = (2, 16, self.diffusion.model.input_dim)
             self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
         
         # restore
@@ -268,7 +284,7 @@ class SampleCallback(Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
-            shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.hid_dim)
+            shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
             self._run(pl_module, shape, log_to_wandb=True)
             torch.cuda.empty_cache()
         else:
@@ -278,17 +294,29 @@ class SampleCallback(Callback):
 if __name__ == "__main__":
     from plaid.diffusion import GaussianDiffusion
     from plaid.denoisers import UTriSelfAttnDenoiser
+    from plaid.compression.uncompress import UncompressContinuousLatent
 
-    denoiser = UTriSelfAttnDenoiser(1024, 3)
-    diffusion = GaussianDiffusion(denoiser, sampling_timesteps=5)
-    callback = SampleCallback(diffusion, denoiser)
+    uncompressor = UncompressContinuousLatent("2024-03-30T18-24-23")
+    denoiser = UTriSelfAttnDenoiser(
+        hid_dim=1024,
+        num_blocks=3,
+        input_dim_if_different=8
+    )
+    diffusion = GaussianDiffusion(denoiser, uncompressor=uncompressor, sampling_timesteps=5)
+    callback = SampleCallback(
+        diffusion,
+        denoiser,
+        fid_holdout_tensor_fpath="/homefs/home/lux70/storage/data/rocklin/shards/val/esmfold/seqlen_256/fp32/shard0000.h5")
     device = torch.device("cuda:0")
 
-    x, log_dict = callback.sample_latent()
-    log_dict = callback.calculate_fid(x, device)
-    x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
-    seq_str, log_dict = callback.construct_sequence(x, device)
-    pdb_strs, metrics, log_dict = callback.construct_structure(x, seq_str, device)
     import IPython
 
     IPython.embed()
+
+    x, log_dict = callback.sample_latent((4, 46, 8))
+    log_dict = callback.calculate_fid(x, device)
+
+    x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
+    seq_str, log_dict = callback.construct_sequence(x, device)
+    pdb_strs, outputs = callback.construct_structure(x, seq_str, device)
+
