@@ -23,6 +23,8 @@ class BaseDenoiser(nn.Module):
     ):
         super().__init__()
         self.hid_dim = hid_dim
+        self.input_dim = hid_dim if input_dim_if_different is None else input_dim_if_different
+        
         self.timestep_embedder = self.make_timestep_embedding(
             timestep_embedding_strategy, hid_dim
         )

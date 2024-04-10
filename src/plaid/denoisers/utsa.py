@@ -54,6 +54,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             pairwise_state_dim=pairwise_state_dim
         )
         self.chunk_size = None
+
         self.conditioning_strategy = conditioning_strategy
         self.paiwise_state_dim = pairwise_state_dim
         self.make_blocks()
