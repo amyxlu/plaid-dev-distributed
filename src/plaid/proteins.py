@@ -37,6 +37,11 @@ PROTEINMPNN_AACHAR_TO_AAIDX = {
 }
 
 
+def stack_tensor_dicts(dicts):
+    keys = set(k for d in dicts for k in d.keys())
+    return {key: torch.stack([d[key] for d in dicts if key in d], dim=0) for key in keys}
+
+
 class DecoderTokenizer:
     def __init__(self, vocab="openfold"):
         if vocab == "openfold":
@@ -260,7 +265,7 @@ class LatentToStructure:
 
     @torch.no_grad()
     def run_batch(
-        self, s_, aa_, mask_, residx_, num_recycles, return_metrics=False, *args, **kwargs
+        self, s_, aa_, mask_, residx_, num_recycles, *args, **kwargs
     ):
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
@@ -293,12 +298,7 @@ class LatentToStructure:
                 output[k] = v.cpu()
             except:
                 pass
-
-        if return_metrics:
-            metric = outputs_to_avg_metric(output)
-            return pdb_str, output, metric
-        else:
-            return pdb_str, output
+        return pdb_str, output
 
     def to_structure(
         self,
@@ -306,7 +306,7 @@ class LatentToStructure:
         sequences: T.List[str],
         num_recycles: int = 4,
         batch_size: T.Optional[int] = None,
-        return_metrics: bool = False, 
+        return_additional_info: str = "outputs",
         verbose: bool = False,
         *args,
         **kwargs
@@ -325,17 +325,15 @@ class LatentToStructure:
             if verbose:
                 print("Generating structure from latents")
             return self.run_batch(
-                latent, aatype, mask, residx, num_recycles, return_metrics 
+                latent, aatype, mask, residx, num_recycles, return_additional_info
             )
 
         else:
-            metric_dfs = []
-            output_dicts_list = []
+            all_output_dicts = []
             all_pdb_strs = []
             for start in trange(
                 0, len(latent), batch_size, desc="(Generating structure)"
             ):
-                
                 # Process current batch
                 s_, aa_, mask_, residx_ = tuple(
                     map(
@@ -345,29 +343,12 @@ class LatentToStructure:
                 )
                 
                 # Collect outputs
-                outputs = self.run_batch(s_, aa_, mask_, residx_, num_recycles, return_metrics)
-                if return_metrics:
-                   pdb_str, output_dict, metric_df = outputs 
-                   metric_dfs.append(metric_df)
-                else:
-                   pdb_str, output_dict = outputs 
+                pdb_str, outputs = self.run_batch(s_, aa_, mask_, residx_, num_recycles, return_additional_info)
                 all_pdb_strs.extend(pdb_str)
-                output_dicts_list.append(output_dict)
+                all_output_dicts.append(outputs)
 
-            # combine results at the end of the batches
-            # outputs = 
-            # if return_metrics: 
-            #     results = {k: v for D in results for k, v in D.items()}
-            # else:
-            #     results = [pd.DataFrame.from_dict(d) for d in results]
-            #     results = pd.concat(results)
-            # return all_pdb_strs, results
-            if return_metrics:
-                return all_pdb_strs, output_dicts_list, metric_dfs
-            else:
-                return all_pdb_strs, output_dicts_list
-
-
+            all_output_dicts = stack_tensor_dicts(all_output_dicts)
+            return all_pdb_strs, all_output_dicts
 
 
 if __name__ == "__main__":
