@@ -1,0 +1,21 @@
+# @package _global_
+
+compression_model_id: 2024-03-30T18-24-23
+compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
+input_dim: 8
+
+defaults:
+  - override /denoiser: utsa.yaml
+  - override /latent_scaler: identity
+
+datamodule:
+  compression_model_id: ${compression_model_id}
+  num_workers: 0
+
+denoiser:
+  num_blocks: 3
+  input_dim_if_different: ${input_dim}
+
+callbacks/sample:
+  n_to_sample: 640 
+  batch_size: 64

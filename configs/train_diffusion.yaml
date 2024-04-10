@@ -9,9 +9,13 @@ defaults:
   - trainer: default
   - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
-  - callbacks/sample: default
+  - callbacks/sample: rocklin 
   - logger: diffusion
   - experiment: null
 
 dryrun: False 
 run_test: null
+
+resume_from_model_id: null
+compression_model_id: null
+compression_ckpt_dir: null

@@ -1,1 +1,1 @@
-sbatch train_diffusion.slrm experiment=hdif/d128_s1
+sbatch train_diffusion.slrm experiment=hdif/dual_track/rocklin_tanh_512_8 
