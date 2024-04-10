@@ -368,9 +368,9 @@ class GaussianDiffusion(L.LightningModule):
     ):
         batch, device = shape[0], self.device
 
-        img = torch.randn(shape, device=device)
-        imgs = [img]
-
+        xt = torch.randn(shape, device=device)
+        xts = [xt]
+        uncompressed_xts = []
         x_start = None
 
         for t in tqdm(
@@ -379,17 +379,28 @@ class GaussianDiffusion(L.LightningModule):
             total=self.sampling_timesteps,
             leave=False
         ):
+            # maybe add self conditioning to model input
             self_cond = x_start if self.self_condition else None
             model_kwargs["x_self_cond"] = self_cond
-            img, x_start = self.p_sample(
-                img, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised
-            )
-            if self.uncompressor is not None:
-               img = self.uncompressor.uncompress(img)
 
-            imgs.append(img)
-        
-        ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
+            # sample
+            xt, x_start = self.p_sample(
+                xt, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised
+            )
+            xts.append(xt)
+
+            # if diffusing in compressed space, also return an uncompressed version of the latent
+            if self.uncompressor is not None:
+                uncompressed_xt = self.uncompressor.uncompress(xt) 
+                uncompressed_xts.append(uncompressed_xt)
+
+        # return either compressed or uncompressed 
+        ret_list = xts if self.uncompressor is None else uncompressed_xts
+
+        # return either all timesteps or final only
+        ret = ret_list[-1] if not return_all_timesteps else torch.stack(ret, dim=1)
+
+        # maybe unscale, if working with a normalized pre-compression space
         if unscale:
             ret = self.latent_scaler.unscale(ret)
 
@@ -694,8 +705,9 @@ class GaussianDiffusion(L.LightningModule):
         loss, log_dict = self.compute_loss(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
+        N = len(batch[0])
         self.log_dict(
-            {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=True
+            {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=True, batch_size=N
         )
         return loss
 
@@ -704,8 +716,9 @@ class GaussianDiffusion(L.LightningModule):
         loss, log_dict = self.compute_loss(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
+        N = len(batch[0])
         self.log_dict(
-            {f"val/{k}": v for k, v in log_dict.items()}, on_step=False, on_epoch=True
+            {f"val/{k}": v for k, v in log_dict.items()}, on_step=False, on_epoch=True, batch_size=N
         )
         return loss
 
