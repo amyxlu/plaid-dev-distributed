@@ -75,7 +75,6 @@ class GaussianDiffusion(L.LightningModule):
     def __init__(
         self,
         model: BaseDenoiser,
-        latent_scaler: LatentScaler = LatentScaler(),
         beta_scheduler: BetaScheduler = ADMCosineBetaScheduler(),
         *,
         x_downscale_factor: float = 1.0,
@@ -86,6 +85,7 @@ class GaussianDiffusion(L.LightningModule):
         soft_clip_x_start_to: T.Optional[float] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
         shorten_factor=1.0,
+        unscaler: LatentScaler = LatentScaler("identity"),
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
         # sampling
         ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
@@ -127,7 +127,7 @@ class GaussianDiffusion(L.LightningModule):
         roughly between (-1, 1). If self.soft_clip_x_start_to is not None, at each p_sample loop, the value will
         be clipped so that we can get a cleaner range when doing the final calculation.
         """
-        self.latent_scaler = latent_scaler
+        self.unscaler = unscaler
         self.soft_clip_x_start_to = soft_clip_x_start_to
 
         # Use float64 for accuracy.
@@ -403,10 +403,7 @@ class GaussianDiffusion(L.LightningModule):
         # return either all timesteps or final only
         ret = ret_list[-1] if not return_all_timesteps else torch.stack(ret, dim=1)
 
-        # maybe unscale, if working with a normalized pre-compression space
-        if unscale:
-            ret = self.latent_scaler.unscale(ret)
-
+        # returns a compressed and bounded tensor
         return ret
 
     @torch.no_grad()
@@ -473,7 +470,7 @@ class GaussianDiffusion(L.LightningModule):
 
         ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
         if unscale:
-            ret = self.latent_scaler.unscale(ret)
+            ret = self.unscaler.unscale(ret)
         return ret
 
     @torch.no_grad()
@@ -546,12 +543,12 @@ class GaussianDiffusion(L.LightningModule):
 
     def forward(
         self,
-        x_unnormalized,
+        x_start,
         sequences,
         model_kwargs={},
         noise=None,
     ):
-        x_start = self.latent_scaler.scale(x_unnormalized).to(self.device)
+        # x_start was already compressed and bounded to -1 and 1 during dataloader preprocessing
         B, L, _ = x_start.shape
         t = (
             torch.randint(0, self.num_timesteps, (B,))
