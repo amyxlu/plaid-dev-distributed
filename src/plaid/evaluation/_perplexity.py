@@ -27,7 +27,7 @@ class RITAPerplexity:
         loss, logits = outputs[:2]
         return math.exp(loss)
 
-    def batch_eval(self, all_sequences, batch_size: int = None):
+    def batch_eval(self, all_sequences, batch_size: int = None, return_mean=True):
         """Calculates the average perplexity under RITA for a batch of strings"""
         if not len(set([len(s) for s in all_sequences])) == 1:
             raise NotImplementedError(
@@ -45,7 +45,10 @@ class RITAPerplexity:
             loss, logits = outputs[:2]
             all_perplexities.append(torch.exp(loss).item())
 
-        return np.mean(all_perplexities)
+        if return_mean:
+            return np.mean(all_perplexities)
+        else:
+            return all_perplexities
 
 
 class ESMPseudoPerplexity:

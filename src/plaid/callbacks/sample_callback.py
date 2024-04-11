@@ -6,12 +6,14 @@ import typing as T
 import os
 import json
 from pathlib import Path
+
 import wandb
 import torch
 from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.utilities import rank_zero_only
 import safetensors.torch as st
 import pandas as pd
+import numpy as np
 from tqdm import tqdm, trange
 
 from plaid.denoisers import BaseDenoiser
@@ -184,9 +186,13 @@ class SampleCallback(Callback):
         if self.calc_perplexity:
             if not self.is_perplexity_setup:
                 self._perplexity_setup(device)
-            perplexity = self.perplexity_calc.batch_eval(strs)
-            print(f"Perplexity: {perplexity:.3f}")
-            log_dict[f"sampled/perplexity"] = perplexity
+            perplexities = self.perplexity_calc.batch_eval(strs, return_mean=False)
+            print(f"Mean perplexity: {np.mean(perplexities):.3f}")
+            log_dict[f"sampled/perplexity_mean"] = np.mean(perplexities)
+            log_dict[f"sampled/perplexity_hist"] = wandb.Histogram(
+                np.array(perplexities).flatten(),
+                num_bins=max(len(perplexities), 50)
+            )
 
         return strs, log_dict
 
@@ -208,11 +214,13 @@ class SampleCallback(Callback):
             from plaid.utils import outputs_to_avg_metric
             metrics = outputs_to_avg_metric(outputs)
 
+        plddt = metrics['plddt'].cpu().numpy().flatten(),
         log_dict = {
-            f"sampled/plddt_mean": metrics["plddt"].mean(),
-            f"sampled/plddt_std": metrics["plddt"].std(),
-            f"sampled/plddt_min": metrics["plddt"].min(),
-            f"sampled/plddt_max": metrics["plddt"].max(),
+            f"sampled/plddt_mean": np.mean(plddt),
+            f"sampled/plddt_std": np.std(plddt),
+            f"sampled/plddt_min": np.min(plddt),
+            f"sampled/plddt_max": np.max(plddt),
+            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=max(len(plddt), 50))
         }
         return pdb_strs, metrics, log_dict
 
@@ -296,7 +304,7 @@ if __name__ == "__main__":
     from plaid.denoisers import UTriSelfAttnDenoiser
     from plaid.compression.uncompress import UncompressContinuousLatent
 
-    uncompressor = UncompressContinuousLatent("2024-03-30T18-24-23")
+    uncompressor = UncompressContinuousLatent("tk3g5edg")
     denoiser = UTriSelfAttnDenoiser(
         hid_dim=1024,
         num_blocks=3,
