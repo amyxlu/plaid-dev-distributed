@@ -4,8 +4,8 @@ import torch.nn as nn
 import abc
 import einops
 
-from .modules import GaussianFourierProjection, RotaryEmbedding, LabelEmbedder
-from .. import utils
+from . import GaussianFourierProjection, RotaryEmbedding, LabelEmbedder
+from ... import utils
 
 
 class BaseDenoiser(nn.Module):
@@ -52,7 +52,6 @@ class BaseDenoiser(nn.Module):
             self.input_projection = None
             self.output_projection = None
 
-
     @abc.abstractmethod
     def make_denoising_blocks(self, *args, **kwargs):
         raise NotImplementedError
@@ -95,5 +94,5 @@ class BaseDenoiser(nn.Module):
                     torch.nn.init.xavier_normal_(p)
 
     @abc.abstractmethod
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         raise NotImplementedError

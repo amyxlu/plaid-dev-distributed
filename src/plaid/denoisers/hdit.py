@@ -382,15 +382,15 @@ class TokenMerge(nn.Module):
         return self.proj(x)
 
 
-class TokenSplitWithoutSkip(nn.Module):
-    def __init__(self, in_features, out_features, patch_len=2):
-        super().__init__()
-        self.l = patch_len
-        self.proj = apply_wd(Linear(in_features, out_features * self.l, bias=False))
+# class TokenSplitWithoutSkip(nn.Module):
+#     def __init__(self, in_features, out_features, patch_len=2):
+#         super().__init__()
+#         self.l = patch_len
+#         self.proj = apply_wd(Linear(in_features, out_features * self.l, bias=False))
 
-    def forward(self, x):
-        x = self.proj(x)
-        return rearrange(x, "... l (nl e) -> ... (l nl) e", nl=self.l)
+#     def forward(self, x):
+#         x = self.proj(x)
+#         return rearrange(x, "... l (nl e) -> ... (l nl) e", nl=self.l)
 
 
 class TokenSplit(nn.Module):

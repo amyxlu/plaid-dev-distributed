@@ -17,7 +17,7 @@ datamodule:
   num_workers: 0
 
 denoiser:
-  num_blocks: 3
+  num_blocks: 6 
   input_dim_if_different: ${input_dim}
 
 callbacks/sample:

@@ -1,16 +1,11 @@
-from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampler
 import einops
+import torch
 import typing as T
-from ...engine import utils
 from transformers import BertConfig
 from transformers.models.bert.modeling_bert import BertEncoder
-import numpy as np
-import pandas as pd
-from sklearn import metrics
-import transformers
-import torch
-from ... import layers
 import torch.nn as nn
+
+from plaid.denoisers import BaseDenoiser
 
 
 def maybe_unsqueeze(x):
@@ -26,9 +21,7 @@ def xavier_init(module):
     return module
 
 
-class ProteinBertDenoiser(nn.Module):
-    def __init__(
-        self,
+def make_bert_encoder(
         attention_probs_dropout_prob=0.1,
         hidden_act="gelu",
         hidden_dropout_prob=0.1,
@@ -40,10 +33,9 @@ class ProteinBertDenoiser(nn.Module):
         num_hidden_layers=12,
         pad_token_id=0,
         position_embedding_type="absolute",
-        use_cache=True,
+        use_cache=True
     ):
-        super().__init__()
-        self.bert_config = BertConfig(
+        bert_config = BertConfig(
             attention_probs_dropout_prob=attention_probs_dropout_prob,
             hidden_act=hidden_act,
             hidden_dropout_prob=hidden_dropout_prob,
@@ -58,33 +50,63 @@ class ProteinBertDenoiser(nn.Module):
             position_embedding_type=position_embedding_type,
             use_cache=use_cache,
         )
-        self.encoder = BertEncoder(self.bert_config)
-        self.time_emb = layers.FourierFeatures(1, hidden_size)
-        xavier_init(self.encoder)
-    
-    def concat_time_embedding(self, x_noised, sigma, mask):
-        time_emb = einops.rearrange(self.time_emb(maybe_unsqueeze(sigma)), "b c -> b 1 c")
-        x = torch.cat([x_noised, time_emb], dim=1)
-        mask = torch.cat([mask, torch.zeros((mask.shape[0], 1), dtype=mask.dtype, device=mask.device)], dim=1)
-        return x, mask
+        return BertEncoder(bert_config)
 
-    def embed_from_sequences(self, sequences: T.List[str], max_seq_len: int, min_seq_len: int):
-        sequences = utils.get_random_sequence_crop_batch(
-            sequences, max_seq_len=max_seq_len, min_seq_len=min_seq_len
-        )
-        with torch.no_grad():
-            embeddings_dict = self.esmfold_embedder.infer_embedding(sequences)
-            return embeddings_dict["s"], embeddings_dict["mask"]
-    
-    def forward(
+
+class ProteinBertDenoiser(BaseDenoiser):
+    def __init__(
         self,
-        x_noised: torch.Tensor,
-        sigma: torch.Tensor,
-        mask: torch.Tensor,
+        # denoiser settings
+        hid_dim,
+        timestep_embedding_strategy: str = "fourier",
+        pos_embedding_strategy: str = "rotary",
+        use_self_conditioning: bool = False,
+        label_num_classes: T.Optional[int] = None,
+        cfg_dropout: float = 0.0,
+        input_dim_if_different: T.Optional[int] = None,
+        # BERT huggingface architecture
+        intermediate_size=3072,
+        num_attention_heads=16,
+        num_hidden_layers=12,
     ):
-        assert (
-            x_noised.shape[-1] == self.bert_config.hidden_size
-        ), "x must have the same dim as d_model."
+        super().__init__(
+            hid_dim=hid_dim,
+            timestep_embedding_strategy=timestep_embedding_strategy,
+            pos_embedding_strategy=pos_embedding_strategy,
+            use_self_conditioning=use_self_conditioning,
+            label_num_classes=label_num_classes, 
+            cfg_dropout=cfg_dropout,
+            input_dim_if_different=input_dim_if_different,
+        )
+        self.bert_encoder =make_bert_encoder(
+            hidden_size=hid_dim,
+            intermediate_size=intermediate_size,
+            max_position_embeddings=1024,
+            num_attention_heads=num_attention_heads,
+            num_hidden_layers=num_hidden_layers,
+        )
+
+    def forward(self, x, t, mask=None, y=None, x_self_cond=None):
+        # implicitly expands x dimension if necessary
+        if self.input_projection is not None:
+            x = self.input_projection(x)
+
+        B, L, _ = x.shape
+
+        if mask is None:
+            mask = x.new_ones(B, L).long()
+        
+        if not x_self_cond is None:
+            x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
+
+        t = self.timestep_embedder(t)
+
+        # TODO: this might have multiple labels?
+        if not y is None:
+            y = self.label_embedder(y)
+            c = t + y
+        else:
+            c = t
         x, mask = self.concat_time_embedding(x_noised, sigma, mask)  # (B, L+1, C), (B, L+1)
         mask = einops.rearrange(mask, "b l -> b 1 1 l")  # add dimension to allow for broadcasting by heads
         output = self.encoder(

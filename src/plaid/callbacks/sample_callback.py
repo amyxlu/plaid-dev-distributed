@@ -214,7 +214,7 @@ class SampleCallback(Callback):
             from plaid.utils import outputs_to_avg_metric
             metrics = outputs_to_avg_metric(outputs)
 
-        plddt = metrics['plddt'].cpu().numpy().flatten(),
+        plddt = metrics['plddt'].flatten(),
         log_dict = {
             f"sampled/plddt_mean": np.mean(plddt),
             f"sampled/plddt_std": np.std(plddt),

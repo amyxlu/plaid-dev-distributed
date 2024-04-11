@@ -1,3 +1,3 @@
-from ._base_denoiser import BaseDenoiser
+from .modules import BaseDenoiser, BaseBlock
 from .utsa import PreinitializedTriSelfAttnDenoiser, UTriSelfAttnDenoiser
 from .uipa import UIPA
