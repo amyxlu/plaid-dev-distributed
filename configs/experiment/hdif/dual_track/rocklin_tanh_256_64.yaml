@@ -1,14 +1,16 @@
-
-
 # @package _global_
 
-compression_model_id: tk3g5edg
+compression_model_id: 3e9k1838
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
-input_dim: 8 
+input_dim: 64 
+shorten_factor: 2
 
 defaults:
   - override /denoiser: utsa.yaml
   - override /latent_scaler: identity
+
+diffusion:
+  shorten_factor: ${shorten_factor} 
 
 datamodule:
   compression_model_id: ${compression_model_id}
