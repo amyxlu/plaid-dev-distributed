@@ -104,7 +104,7 @@ class GaussianDiffusion(L.LightningModule):
         structure_constructor: T.Optional[LatentToStructure] = None,
         sequence_decoder_weight: float = 0.0,
         structure_decoder_weight: float = 0.0,
-        latent_reconstruction_method: str = "unnormalized_x_recons",
+        # latent_reconstruction_method: str = "unnormalized_x_recons",
     ):
         super().__init__()
         self.model = model
@@ -120,7 +120,7 @@ class GaussianDiffusion(L.LightningModule):
             "pred_v",
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
 
-        self.latent_recons_method = latent_reconstruction_method
+        # self.latent_recons_method = latent_reconstruction_method
 
         """
         If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
@@ -302,6 +302,9 @@ class GaussianDiffusion(L.LightningModule):
             x_start = self.predict_start_from_v(x, t, v)
             x_start = self.maybe_clip(x_start)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
+        
+        if self.uncompressor is not None:
+            x_start = self.uncompressor.uncompress(x_start)
 
         return ModelPrediction(pred_noise, x_start)
 
@@ -614,7 +617,6 @@ class GaussianDiffusion(L.LightningModule):
             "recons_loss": recons_loss,
         }
         return recons_loss, x_recons, log_dict
-
 
     def sequence_loss(self, latent, aatype, mask, cur_weight=None):
         if self.need_to_setup_sequence_decoder:
