@@ -34,6 +34,8 @@ class SampleCallback(Callback):
         self,
         diffusion: GaussianDiffusion,  # most sampling logic is here
         model: BaseDenoiser,
+        unscaler: T.Optional[LatentScaler] = None,
+        uncompressor: T.Optional[UncompressContinuousLatent] = None, 
         n_to_sample: int = 16,
         n_to_construct: int = 4,
         gen_seq_len: int = 64,
@@ -42,7 +44,6 @@ class SampleCallback(Callback):
         calc_structure: bool = True,
         calc_sequence: bool = True,
         calc_fid: bool = True,
-        latent_scaler: T.Optional[LatentScaler] = LatentScaler(),
         fid_holdout_tensor_fpath: str = "",
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
@@ -80,10 +81,9 @@ class SampleCallback(Callback):
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
 
-        if latent_scaler is None:
-            self.latent_scaler = LatentScaler("identity")
-        else:
-            self.latent_scaler = latent_scaler
+        # after sampling the compressed and boudned latent, reconstruct
+        self.unscaler = unscaler
+        self.uncompressor = uncompressor
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -115,34 +115,39 @@ class SampleCallback(Callback):
             tensor = torch.from_numpy(tensor).to(device)
             return tensor.mean(dim=1)
 
+        # load saved features (unnormalized)
         self.real_features = load_saved_features(self.fid_holdout_tensor_fpath, device=device)
+
+        # take a subset to make the n more comparable between reference and sampled
         self.real_features = self.real_features[
             torch.randperm(self.real_features.size(0))[: self.n_to_sample]
         ]
 
         # calculate FID/KID in the normalized space
         self.real_features = self.latent_scaler.scale(self.real_features)
+        print("FID reference tensor mean/std:", self.real_features.mean().item(), self.real_features.std().item())
 
     def sample_latent(self, shape):
         all_samples, n_samples = [], 0
         for _ in trange(0, self.n_to_sample, shape[0]):
-        # while n_samples < self.n_to_sample:
-            # TODO: add a pbar
-            # make sure to not unscale s.t. we can calculate KID/FID in the normalized space!
-            sample = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
-            all_samples.append(sample.detach().cpu())
-            n_samples += sample.shape[0]
-        x_0 = torch.cat(all_samples, dim=0)
+            x_sampled = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
+            all_samples.append(x_sampled.detach().cpu())
+            n_samples += x_sampled.shape[0]
         log_dict = {
-            "sampled/latent_mean": x_0.mean(),
-            "sampled/latent_std": x_0.std(),
+            "sampled/unscaled_latent_hist": wandb.Histogram(x_sampled.numpy().flatten())
         }
-        return x_0, log_dict
+        x_processed = self.process_sampled(x_sampled)
+        return x_processed, log_dict
+    
+    def process_sampled(self, x_sampled):
+        x_uncompressed = self.uncompressor.uncompress(x_sampled)
+        return self.unscaler.unscale(x_uncompressed), log_dict
 
-    def calculate_fid(self, sampled_latent, device):
+    def calculate_fid(self, x_processed, device):
         if not self.is_fid_setup:
             self._fid_setup(device)
-        fake_features = sampled_latent.mean(dim=1)
+        
+        fake_features = x_processed.mean(dim=1)
 
         # just to be consistent, but not necessary
         indices = torch.randperm(self.real_features.size(0))[: fake_features.shape[0]]
@@ -160,7 +165,7 @@ class SampleCallback(Callback):
 
     def construct_sequence(
         self,
-        x_0,
+        x_processed,
         device,
     ):
         if self.sequence_constructor is None:
@@ -168,10 +173,10 @@ class SampleCallback(Callback):
 
         # forward pass
         self.sequence_constructor.to(device)
-        x_0 = x_0.to(device=device)
+        x_processed = x_processed.to(device)
         with torch.no_grad():
-            probs, idxs, strs = self.sequence_constructor.to_sequence(
-                x_0, return_logits=False
+            probs, _, strs = self.sequence_constructor.to_sequence(
+                x_processed, return_logits=False
             )
 
         # organize results for logging
@@ -191,22 +196,21 @@ class SampleCallback(Callback):
             log_dict[f"sampled/perplexity_mean"] = np.mean(perplexities)
             log_dict[f"sampled/perplexity_hist"] = wandb.Histogram(
                 np.array(perplexities).flatten(),
-                num_bins=max(len(perplexities), 50)
+                num_bins=min(len(perplexities), 50)
             )
-
         return strs, log_dict
 
-    def construct_structure(self, x_0, seq_str, device):
+    def construct_structure(self, x_processed, seq_str, device):
         if self.structure_constructor is None:
             # warning: this implicitly creates an ESMFold inference model, can be very memory consuming
             self.structure_constructor = LatentToStructure()
 
         self.structure_constructor.to(device)
-        x_0 = x_0.to(device=device)
+        x_processed = x_processed.to(device=device)
 
         with torch.no_grad():
             pdb_strs, outputs = self.structure_constructor.to_structure(
-                x_0,
+                x_processed,
                 sequences=seq_str,
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
@@ -217,10 +221,10 @@ class SampleCallback(Callback):
         plddt = metrics['plddt'].flatten(),
         log_dict = {
             f"sampled/plddt_mean": np.mean(plddt),
-            f"sampled/plddt_std": np.std(plddt),
-            f"sampled/plddt_min": np.min(plddt),
+            # f"sampled/plddt_std": np.std(plddt),
+            # f"sampled/plddt_min": np.min(plddt),
             f"sampled/plddt_max": np.max(plddt),
-            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=max(len(plddt), 50))
+            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(plddt.shape[0], 50))
         }
         return pdb_strs, metrics, log_dict
 
@@ -228,22 +232,27 @@ class SampleCallback(Callback):
         print("val epoch start")
 
     def _run(self, pl_module, shape, log_to_wandb=True):
+        # set up
         torch.cuda.empty_cache()
         log_to_wandb = self.log_to_wandb and log_to_wandb
 
         device = pl_module.device
         logger = pl_module.logger.experiment
 
+        # sample latent (implicitly uncompresses and unnormalizes)
         maybe_print("sampling latent...")
         x, log_dict = self.sample_latent(shape)
         if log_to_wandb:
             logger.log(log_dict)
+
+        # calculate FID 
         if self.calc_fid:
             maybe_print("calculating FID...")
             log_dict = self.calculate_fid(x, device)
             if log_to_wandb:
                 logger.log(log_dict)
 
+        # subset, and perhaps calculate sequence and structure
         if not self.n_to_construct == -1:
             maybe_print(
                 f"subsampling to only reconstruct {self.n_to_construct} samples..."
