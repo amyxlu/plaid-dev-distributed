@@ -7,7 +7,7 @@ shorten_factor: 2
 
 defaults:
   - override /denoiser: utsa.yaml
-  - override /latent_scaler: identity
+  - override /callbacks/sample: rocklin
 
 diffusion:
   shorten_factor: ${shorten_factor} 
@@ -17,10 +17,8 @@ datamodule:
   num_workers: 0
 
 denoiser:
-  num_blocks: 3
   input_dim_if_different: ${input_dim}
 
 callbacks/sample:
   n_to_sample: 640 
   batch_size: 64
-  run_every_n_epoch: 15

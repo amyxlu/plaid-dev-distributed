@@ -17,6 +17,7 @@ import numpy as np
 from tqdm import tqdm, trange
 
 from plaid.denoisers import BaseDenoiser
+from plaid.compression.uncompress import UncompressContinuousLatent
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid 
 from plaid.proteins import LatentToSequence, LatentToStructure
@@ -131,13 +132,13 @@ class SampleCallback(Callback):
         all_samples, n_samples = [], 0
         for _ in trange(0, self.n_to_sample, shape[0]):
             x_sampled = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
-            all_samples.append(x_sampled.detach().cpu())
+            sampled_latent = self.process_sampled(x_sampled)
+            all_samples.append(sampled_latent.detach().cpu())
             n_samples += x_sampled.shape[0]
         log_dict = {
             "sampled/unscaled_latent_hist": wandb.Histogram(x_sampled.numpy().flatten())
         }
-        x_processed = self.process_sampled(x_sampled)
-        return x_processed, log_dict
+        return sampled_latent, log_dict
     
     def process_sampled(self, x_sampled):
         x_uncompressed = self.uncompressor.uncompress(x_sampled)
@@ -326,14 +327,14 @@ if __name__ == "__main__":
         fid_holdout_tensor_fpath="/homefs/home/lux70/storage/data/rocklin/shards/val/esmfold/seqlen_256/fp32/shard0000.h5")
     device = torch.device("cuda:0")
 
-    import IPython
-
-    IPython.embed()
-
     x, log_dict = callback.sample_latent((4, 46, 8))
     log_dict = callback.calculate_fid(x, device)
+    print(log_dict)
 
     x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
     seq_str, log_dict = callback.construct_sequence(x, device)
+    print(seq_str)
     pdb_strs, outputs = callback.construct_structure(x, seq_str, device)
+
+    print(outputs)
 

@@ -1,7 +1,7 @@
 _target_: plaid.denoisers.UTriSelfAttnDenoiser
 
 hid_dim: 1024
-num_blocks: 5 
+num_blocks: 7
 pairwise_state_dim: 128
 sequence_head_width: 32
 pairwise_head_width:  32

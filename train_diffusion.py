@@ -55,20 +55,22 @@ def train(cfg: DictConfig):
     structure_constructor = to_load_structure_constructor(cfg)
     uncompressor = to_load_uncompressor(cfg)
 
+    latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
+
     # lightning data and model modules
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
 
     denoiser = hydra.utils.instantiate(cfg.denoiser)
     beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
-    latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
+
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
         model=denoiser,
         beta_scheduler=beta_scheduler,
-        latent_scaler=latent_scaler,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
+        unscaler=latent_scaler,
         uncompressor=uncompressor
     )
 
@@ -106,7 +108,8 @@ def train(cfg: DictConfig):
         log_to_wandb=not cfg.dryrun,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
-        latent_scaler=latent_scaler
+        unscaler=latent_scaler,
+        uncompressor=uncompressor
     )
 
     # run training

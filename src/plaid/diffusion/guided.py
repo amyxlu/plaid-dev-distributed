@@ -104,7 +104,6 @@ class GaussianDiffusion(L.LightningModule):
         structure_constructor: T.Optional[LatentToStructure] = None,
         sequence_decoder_weight: float = 0.0,
         structure_decoder_weight: float = 0.0,
-        # latent_reconstruction_method: str = "unnormalized_x_recons",
     ):
         super().__init__()
         self.model = model
@@ -120,7 +119,6 @@ class GaussianDiffusion(L.LightningModule):
             "pred_v",
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
 
-        # self.latent_recons_method = latent_reconstruction_method
 
         """
         If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
@@ -283,42 +281,32 @@ class GaussianDiffusion(L.LightningModule):
         else:
             return torch.clamp(x, min=-1 * self.soft_clip_x_start_to, max=self.soft_clip_x_start_to)
 
-    def model_predictions(self, x, t, mask=None, model_kwargs={}):
-        model_output = self.model(x, t, mask, **model_kwargs)
-        # do a soft clip since we're in latent space and min/max stats are not global
-
-        if self.objective == "pred_noise":
+    def model_output_to_predictions(self, model_output, x_t, t):
+        if self.objective == "pred_x0":
+            pred_x_start = model_output
+            pred_x_start = self.maybe_clip(pred_x_start)
+            pred_noise = self.predict_noise_from_start(x_t, t, pred_x_start)
+        
+        elif self.objective == "pred_noise":
             pred_noise = model_output
-            x_start = self.predict_start_from_noise(x, t, pred_noise)
-            x_start = self.maybe_clip(x_start)
-
-        elif self.objective == "pred_x0":
-            x_start = model_output
-            x_start = self.maybe_clip(x_start)
-            pred_noise = self.predict_noise_from_start(x, t, x_start)
+            pred_x_start = self.predict_start_from_noise(x_t, t, pred_noise)
+            pred_x_start = self.maybe_clip(pred_x_start)
 
         elif self.objective == "pred_v":
             v = model_output
-            x_start = self.predict_start_from_v(x, t, v)
-            x_start = self.maybe_clip(x_start)
-            pred_noise = self.predict_noise_from_start(x, t, x_start)
-        
-        if self.uncompressor is not None:
-            x_start = self.uncompressor.uncompress(x_start)
-
-        return ModelPrediction(pred_noise, x_start)
-
-    def p_mean_variance(self, x, t, model_kwargs={}, clip_denoised=True):
-        preds = self.model_predictions(x, t, model_kwargs=model_kwargs)
-        x_start = preds.pred_x_start
+            pred_x_start = self.predict_start_from_v(x_t, t, v)
+            pred_x_start = self.maybe_clip(pred_x_start)
+            pred_noise = self.predict_noise_from_start(x_t, t, pred_x_start)
+        return ModelPrediction(pred_noise, pred_x_start)       
+ 
+    def p_mean_variance(self, model_output, x_t, t, model_kwargs={}, clip_denoised=True):
+        x_start = self.model_output_to_predictions(model_output, x_t, t).pred_x_start
 
         if clip_denoised:
             assert not self.soft_clip_x_start_to is None
             x_start = self.maybe_clip(x_start)
 
-        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(
-            x_start=x_start, x_t=x, t=t
-        )
+        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start, x_t, t)
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     def condition_mean(self, cond_fn, mean, variance, x, t, guidance_kwargs=None):
@@ -337,26 +325,26 @@ class GaussianDiffusion(L.LightningModule):
     @torch.no_grad()
     def p_sample(
         self,
-        x,
+        x_tm1,
         t: int,
         model_kwargs={},
         cond_fn=None,
         guidance_kwargs=None,
         clip_denoised=True,
     ):
-        B, L, C = x.shape
-        batched_times = torch.full((B,), t, device=x.device, dtype=torch.long)
-        model_mean, variance, model_log_variance, x_start = self.p_mean_variance(
-            x=x, t=batched_times, model_kwargs=model_kwargs, clip_denoised=clip_denoised
+        B, L, C = x_tm1.shape
+        batched_times = torch.full((B,), t, device=x_tm1.device, dtype=torch.long)
+        model_mean, variance, model_log_variance, _ = self.p_mean_variance(
+            x_t=x_tm1, t=batched_times, model_kwargs=model_kwargs, clip_denoised=clip_denoised
         )
         if exists(cond_fn) and exists(guidance_kwargs):
             model_mean = self.condition_mean(
-                cond_fn, model_mean, variance, x, batched_times, guidance_kwargs
+                cond_fn, model_mean, variance, x_tm1, batched_times, guidance_kwargs
             )
 
-        noise = torch.randn_like(x) if t > 0 else 0.0  # no noise if t == 0
-        pred_img = model_mean + (0.5 * model_log_variance).exp() * noise
-        return pred_img, x_start
+        noise = torch.randn_like(x_tm1) if t > 0 else 0.0  # no noise if t == 0
+        x_sampled = model_mean + (0.5 * model_log_variance).exp() * noise
+        return x_sampled
 
     @torch.no_grad()
     def p_sample_loop(
@@ -369,11 +357,8 @@ class GaussianDiffusion(L.LightningModule):
         clip_denoised=True,
         unscale=False
     ):
-        batch, device = shape[0], self.device
-
-        xt = torch.randn(shape, device=device)
+        xt = torch.randn(shape, device=self.device)
         xts = [xt]
-        uncompressed_xts = []
         x_start = None
 
         for t in tqdm(
@@ -387,24 +372,12 @@ class GaussianDiffusion(L.LightningModule):
             model_kwargs["x_self_cond"] = self_cond
 
             # sample
-            xt, x_start = self.p_sample(
+            xt = self.p_sample(
                 xt, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised
             )
             xts.append(xt)
 
-            # if diffusing in compressed space, also return an uncompressed version of the latent
-            if self.uncompressor is not None:
-                uncompressed_xt = self.uncompressor.uncompress(xt) 
-                uncompressed_xts.append(uncompressed_xt)
-
-        # return either compressed or uncompressed 
-        ret_list = xts if self.uncompressor is None else uncompressed_xts
-
-        # return either all timesteps or final only
-        ret = ret_list[-1] if not return_all_timesteps else torch.stack(ret, dim=1)
-
-        # returns a compressed and bounded tensor
-        return ret
+        return xt if not return_all_timesteps else torch.stack(xts, dim=1)
 
     @torch.no_grad()
     def ddim_sample(
@@ -446,9 +419,6 @@ class GaussianDiffusion(L.LightningModule):
             pred_noise, x_start, *_ = self.model_predictions(
                 img, time_cond, model_kwargs=model_kwargs
             )
-
-            if self.uncompressor is not None:
-               img = self.uncompressor.uncompress(img)
 
             imgs.append(img)
 
@@ -569,13 +539,14 @@ class GaussianDiffusion(L.LightningModule):
         # noise sample
         B, L, C = x_start.shape
         noise = default(noise, lambda: torch.randn_like(x_start))
-        x = self.q_sample(x_start=x_start, t=t, noise=noise)
+        x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self.model_predictions(x, t, mask).pred_x_start
+                model_output = self.model(x_t, t, mask)
+                x_self_cond = self.model_output_to_predictions(model_output, x_t, t).pred_x_start
                 x_self_cond.detach_()
         model_kwargs["x_self_cond"] = x_self_cond
 
@@ -586,8 +557,8 @@ class GaussianDiffusion(L.LightningModule):
             )
 
         # main inner model forward pass
-        model_out = self.model(x, t, mask=mask, **model_kwargs)
-
+        model_out = self.model(x_t, t, mask=mask, **model_kwargs)
+        
         # reconstruction / "main diffusion loss"
         if self.objective == "pred_noise":
             target = noise
@@ -599,21 +570,11 @@ class GaussianDiffusion(L.LightningModule):
         else:
             raise ValueError(f"unknown objective {self.objective}")
 
-        recons_loss = masked_mse_loss(model_out, target, mask, reduce="batch")
-        recons_loss = recons_loss * extract_into_tensor(
-            self.loss_weight, t, recons_loss.shape
+        diffusion_loss = masked_mse_loss(model_out, target, mask, reduce="batch")
+        diffusion_loss = diffusion_loss * extract_into_tensor(
+            self.loss_weight, t, diffusion_loss.shape
         )
-        recons_loss = recons_loss.mean()
-
-        # auxiliary losses
-        x_recons = self.model_predictions(
-            x, t, mask, model_kwargs
-        ).pred_x_start
-
-        log_dict = {
-            "recons_loss": recons_loss,
-        }
-        return recons_loss, x_recons, log_dict
+        return model_output, x_t, t, diffusion_loss.mean() 
 
     def sequence_loss(self, latent, aatype, mask, cur_weight=None):
         if self.need_to_setup_sequence_decoder:
@@ -640,48 +601,36 @@ class GaussianDiffusion(L.LightningModule):
         cond_dict = {"secondary_structure": sec_struct_fracs}
         return cond_dict
 
-    def compute_loss(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
-        """
-        loss logic is in the forward function, make wrapper for pytorch lightning
-        sequence must be the same length as the embs (ie. saved during emb caching)
-        -------
-        small hack: if using a structure wrapper, the last batch element is a structure feature dict
-        otherwise it's just pdb_ids which we don't need.
-        2024/02/06 this is currently only for H5ShardDataset and CATHStructureDataset
-        """
+    def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
         embs, sequences, _ = batch
-        recons_loss, x_recons, log_dict = self(embs, sequences)
-        return recons_loss, log_dict
+        model_output, x_t, t, diffusion_loss = self(embs, sequences)
+        log_dict = {"diffusion_loss": diffusion_loss}
 
-        # if isinstance(batch[-1], dict):
-        #     # dictionary of structure features
-        #     assert "backbone_rigid_tensor" in batch[-1].keys()
-        #     embs, sequences, gt_structures = batch
-        #     recons_loss, x_recons, log_dict = self(embs, sequences, gt_structures)
-        # elif isinstance(batch[-1][0], str):
-        #     embs, sequences, _ = batch
-        #     recons_loss, x_recons, log_dict = self(embs, sequences)
-        # else:
-        #     raise Exception(
-        #         f"Batch tuple not understood. Data type of last element of batch tuple is {type(batch[-1])}."
-        #     )
+        using_seq_loss = self.sequence_decoder_weight > 0.0 
+        using_struct_loss = self.structure_decoder_weight > 0.0
+
+        # Compressor and unscaler are only used if using sequence or structure loss
+        if using_seq_loss or using_struct_loss:
+            pred_x_start = self.model_output_to_predictions(
+                model_output, x_t, t
+            ).pred_x_start
+            pred_uncompressed = self.uncompressor.uncompress(pred_x_start)
+            pred_latent = self.unscaler.unscale(pred_uncompressed)
         
-        # # TODO: anneal losses
-
-        # if self.sequence_decoder_weight > 0.0:
-        #     # mask has same length as sequence even if latent was shortened!
-        #     true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
-        #     seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
-        #         latent, true_aatype, seq_mask, cur_weight=None
-        #     )
-        #     log_dict = (
-        #         log_dict | seq_loss_dict
-        #     )  # shorthand for combining dictionaries, requires python >= 3.9
-        #     tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-        #     wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
-        #     # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
-        # else:
-        #     seq_loss = 0.0
+        if self.sequence_decoder_weight > 0.0:
+            # mask has same length as sequence even if latent was shortened!
+            true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
+            seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
+                pred_latent, true_aatype, seq_mask, cur_weight=None
+            )
+            log_dict = (
+                log_dict | seq_loss_dict
+            )  # shorthand for combining dictionaries, requires python >= 3.9
+            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
+        else:
+            seq_loss = 0.0
 
         # if self.structure_decoder_weight > 0.0:
         #     assert (
@@ -694,14 +643,14 @@ class GaussianDiffusion(L.LightningModule):
         #     log_dict = log_dict | struct_loss_dict
         # else:
         #     struct_loss = 0.0
-
-        # loss = recons_loss + seq_loss + struct_loss
-        # log_dict["loss"] = loss
-        # return loss, log_dict
+        struct_loss = 0.0
+        loss = diffusion_loss + seq_loss + struct_loss
+        log_dict["loss"] = loss
+        return loss, log_dict
 
 
     def training_step(self, batch):
-        loss, log_dict = self.compute_loss(
+        loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
         N = len(batch[0])
@@ -712,7 +661,7 @@ class GaussianDiffusion(L.LightningModule):
 
     def validation_step(self, batch):
         # Extract the starting images from data batch
-        loss, log_dict = self.compute_loss(
+        loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
         N = len(batch[0])

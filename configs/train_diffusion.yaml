@@ -9,7 +9,7 @@ defaults:
   - trainer: default
   - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
-  - callbacks/sample: rocklin 
+  - callbacks/sample: default
   - logger: diffusion
   - experiment: null
 
