@@ -35,8 +35,8 @@ class SampleCallback(Callback):
         self,
         diffusion: GaussianDiffusion,  # most sampling logic is here
         model: BaseDenoiser,
-        unscaler: T.Optional[LatentScaler] = None,
-        uncompressor: T.Optional[UncompressContinuousLatent] = None, 
+        uncompressor: T.Optional[UncompressContinuousLatent] = None,
+        normalize_real_features: bool = True,
         n_to_sample: int = 16,
         n_to_construct: int = 4,
         gen_seq_len: int = 64,
@@ -60,6 +60,7 @@ class SampleCallback(Callback):
         self.diffusion = diffusion
         self.model = model
         self.log_to_wandb = log_to_wandb
+        self.normalize_real_features = normalize_real_features
 
         self.calc_fid = calc_fid
         self.calc_structure = calc_structure
@@ -81,10 +82,11 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = False
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
-
-        # after sampling the compressed and boudned latent, reconstruct
-        self.unscaler = unscaler
         self.uncompressor = uncompressor
+        if self.normalize_real_features:
+            self.scaler = LatentScaler()
+        else:
+            self.scaler = LatentScaler('identity')
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -125,14 +127,16 @@ class SampleCallback(Callback):
         ]
 
         # calculate FID/KID in the normalized space
-        self.real_features = self.latent_scaler.scale(self.real_features)
+        if self.normalize_real_features:
+            self.real_features = self.scaler.scale(self.real_features)
+        
         print("FID reference tensor mean/std:", self.real_features.mean().item(), self.real_features.std().item())
 
-    def sample_latent(self, shape):
+    def sample_latent(self, shape, model_kwargs={}):
         all_samples, n_samples = [], 0
         for _ in trange(0, self.n_to_sample, shape[0]):
-            x_sampled = self.diffusion.sample(shape, clip_denoised=True, unscale=False)
-            sampled_latent = self.process_sampled(x_sampled)
+            x_sampled = self.diffusion.p_sample_loop(shape, clip_denoised=True, progress=True)
+            sampled_latent = self.diffusion.process_x_to_latent(x_sampled)
             all_samples.append(sampled_latent.detach().cpu())
             n_samples += x_sampled.shape[0]
         log_dict = {
@@ -140,10 +144,6 @@ class SampleCallback(Callback):
         }
         return sampled_latent, log_dict
     
-    def process_sampled(self, x_sampled):
-        x_uncompressed = self.uncompressor.uncompress(x_sampled)
-        return self.unscaler.unscale(x_uncompressed), log_dict
-
     def calculate_fid(self, x_processed, device):
         if not self.is_fid_setup:
             self._fid_setup(device)
@@ -219,13 +219,20 @@ class SampleCallback(Callback):
             from plaid.utils import outputs_to_avg_metric
             metrics = outputs_to_avg_metric(outputs)
 
-        plddt = metrics['plddt'].flatten(),
+        plddt = outputs['plddt'].flatten()
+        pae = outputs['predicted_aligned_error'].flatten()
+        ptm = outputs['ptm'].flatten()
+
         log_dict = {
             f"sampled/plddt_mean": np.mean(plddt),
-            # f"sampled/plddt_std": np.std(plddt),
-            # f"sampled/plddt_min": np.min(plddt),
             f"sampled/plddt_max": np.max(plddt),
-            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(plddt.shape[0], 50))
+            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(plddt.shape[0], 50)),
+            f"sampled/pae_mean": np.mean(pae),
+            f"sampled/pae_max": np.max(pae),
+            f"sampled/pae_hist": wandb.Histogram(pae, num_bins=min(pae.shape[0], 50)),
+            f"sampled/ptm_mean": np.mean(ptm),
+            f"sampled/ptm_max": np.max(ptm),
+            f"sampled/ptm_hist": wandb.Histogram(ptm, num_bins=min(ptm.shape[0], 50))
         }
         return pdb_strs, metrics, log_dict
 
@@ -280,25 +287,25 @@ class SampleCallback(Callback):
             outpath = self.outdir / f"generated_structures_{epoch_or_step}" / f"sample{i}.pdb"
             write_pdb_to_disk(pdbstr, outpath)
 
-    def on_sanity_check_start(self, trainer, pl_module):
-        _sampling_timesteps = pl_module.sampling_timesteps
-        _n_to_sample = self.n_to_sample
-        _n_to_construct = self.n_to_construct
+    # def on_sanity_check_start(self, trainer, pl_module):
+    #     _sampling_timesteps = pl_module.sampling_timesteps
+    #     _n_to_sample = self.n_to_sample
+    #     _n_to_construct = self.n_to_construct
 
-        # hack
-        pl_module.sampling_timesteps = 3
-        self.n_to_sample, self.n_to_construct = 2, 2
-        if rank_zero_only.rank == 0:
-            dummy_shape = (2, 16, self.diffusion.model.input_dim)
-            self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
+    #     # hack
+    #     pl_module.sampling_timesteps = 3
+    #     self.n_to_sample, self.n_to_construct = 2, 2
+    #     if rank_zero_only.rank == 0:
+    #         dummy_shape = (2, 16, self.diffusion.model.input_dim)
+    #         self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
         
-        # restore
-        pl_module.sampling_timesteps = _sampling_timesteps
-        self.n_to_sample = _n_to_sample
-        self.n_to_construct = _n_to_construct
-        print("done sampling sanity check")
+    #     # restore
+    #     pl_module.sampling_timesteps = _sampling_timesteps
+    #     self.n_to_sample = _n_to_sample
+    #     self.n_to_construct = _n_to_construct
+    #     print("done sampling sanity check")
 
-        torch.cuda.empty_cache()
+    #     torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):
         if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
@@ -320,11 +327,14 @@ if __name__ == "__main__":
         num_blocks=3,
         input_dim_if_different=8
     )
-    diffusion = GaussianDiffusion(denoiser, uncompressor=uncompressor, sampling_timesteps=5)
+    unscaler = LatentScaler()
+
+    diffusion = GaussianDiffusion(denoiser, uncompressor=uncompressor, unscaler=unscaler, sampling_timesteps=5)
     callback = SampleCallback(
         diffusion,
         denoiser,
-        fid_holdout_tensor_fpath="/homefs/home/lux70/storage/data/rocklin/shards/val/esmfold/seqlen_256/fp32/shard0000.h5")
+        fid_holdout_tensor_fpath="/homefs/home/lux70/storage/data/rocklin/shards/val/esmfold/seqlen_256/fp32/shard0000.h5",
+        n_to_sample=4)
     device = torch.device("cuda:0")
 
     x, log_dict = callback.sample_latent((4, 46, 8))

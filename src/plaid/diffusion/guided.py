@@ -28,6 +28,7 @@ from plaid.utils import (
     LatentScaler,
     get_lr_scheduler,
     sequences_to_secondary_structure_fracs,
+    to_tensor
 )
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
 from plaid.losses.functions import masked_mse_loss, masked_huber_loss
@@ -55,7 +56,14 @@ def identity(t, *args, **kwargs):
     return t
 
 
-def extract_into_tensor(arr, timesteps, broadcast_shape):
+def maybe_clip(x, clip_val):
+    if clip_val is None:
+        return x
+    else:
+        return torch.clamp(x, min=-1 * clip_val, max=clip_val)
+
+
+def extract(arr, timesteps, broadcast_shape):
     """
     Extract values from a 1-D numpy array for a batch of indices.
 
@@ -72,6 +80,20 @@ def extract_into_tensor(arr, timesteps, broadcast_shape):
 
 
 class GaussianDiffusion(L.LightningModule):
+    """
+    Adapted from OpenAI ADM implementation, restructured as a lightning module.
+
+    Additional considerations specific to our architecture:
+    * shorten factor
+    * uncompressor (on the normalized x; for auxiliary losses only)
+    * unscaler (to undo the normalization; for auxiliary losses only)
+
+    The sampling loop returns x_sampled, where x is the normalized-and-compressed
+    version of the input.
+
+    Additional features, adapted from Lucidrains and elsewhere:
+    * loss weighting by SNR
+    """
     def __init__(
         self,
         model: BaseDenoiser,
@@ -82,13 +104,12 @@ class GaussianDiffusion(L.LightningModule):
         objective="pred_v",
         min_snr_loss_weight=False,
         min_snr_gamma=5,
-        soft_clip_x_start_to: T.Optional[float] = 1.0,  # determines behavior during training, and value to use during sampling
+        x_clip_val: T.Optional[float] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
         shorten_factor=1.0,
         unscaler: LatentScaler = LatentScaler("identity"),
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
         # sampling
-        ddim_sampling_eta=0.0,  # 0 is DDIM and 1 is DDPM
         sampling_timesteps=500,  # None,
         sampling_seq_len=64,
         # optimization
@@ -122,11 +143,11 @@ class GaussianDiffusion(L.LightningModule):
 
         """
         If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
-        roughly between (-1, 1). If self.soft_clip_x_start_to is not None, at each p_sample loop, the value will
+        roughly between (-1, 1). If self.x_clip_val is not None, at each p_sample loop, the value will
         be clipped so that we can get a cleaner range when doing the final calculation.
         """
         self.unscaler = unscaler
-        self.soft_clip_x_start_to = soft_clip_x_start_to
+        self.x_clip_val = x_clip_val
 
         # Use float64 for accuracy.
         betas = self.beta_scheduler(timesteps)
@@ -168,19 +189,20 @@ class GaussianDiffusion(L.LightningModule):
             / (1.0 - self.alphas_cumprod)
         )
 
+        # sampling specific specifications
         self.sampling_timesteps = default(
             sampling_timesteps, timesteps
-        )  # default num sampling timesteps to number of timesteps at training
+        )
         assert self.sampling_timesteps <= timesteps
         self.sampling_seq_len = sampling_seq_len
-        self.ddim_sampling_eta = ddim_sampling_eta
 
-        # loss weight
+        # loss weight by SNR
         self.snr = self.alphas_cumprod / (1 - self.alphas_cumprod)
         maybe_clipped_snr = self.snr.copy()
         if min_snr_loss_weight:
             maybe_clipped_snr = maybe_clipped_snr.clip(max=min_snr_gamma)
 
+        # model prediction 
         if objective == "pred_noise":
             self.loss_weight = maybe_clipped_snr / self.snr
         elif objective == "pred_x0":
@@ -207,10 +229,317 @@ class GaussianDiffusion(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        # other hyperparameteres
+        # other hyperparameters
         self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
         self.save_hyperparameters(ignore=["model"])
+    
+    """
+    Converting between model output, x_start, and eps
+    """
+    def predict_start_from_noise(self, x_t, t, noise):
+        return (
+            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+        )
 
+    def predict_noise_from_start(self, x_t, t, x0):
+        return (
+            (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0) / \
+            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
+        )
+
+    def predict_v(self, x_start, t, noise):
+        return (
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * noise -
+            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * x_start
+        )
+
+    def predict_start_from_v(self, x_t, t, v):
+        return (
+            extract(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t -
+            extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
+        )
+
+    def model_output_conversion_wrapper(self, model_output, x, t):
+        """Based on the objective, converts model outputs to noise or start"""        
+        if self.objective == 'pred_noise':
+            pred_noise = model_output
+            x_start = self.predict_start_from_noise(x, t, pred_noise)
+            x_start = maybe_clip(x_start, self.x_clip_val)
+
+        elif self.objective == 'pred_x0':
+            x_start = model_output
+            x_start = maybe_clip(x_start, self.x_clip_val)
+            pred_noise = self.predict_noise_from_start(x, t, x_start)
+
+        elif self.objective == 'pred_v':
+            v = model_output
+            x_start = self.predict_start_from_v(x, t, v)
+            x_start = maybe_clip(x_start, self.x_clip_val)
+            pred_noise = self.predict_noise_from_start(x, t, x_start)
+        return ModelPrediction(pred_noise=pred_noise, pred_x_start=x_start)
+    
+    def model_predictions(self, x, t, mask = None, x_self_cond = None, model_kwargs = {}):
+        """Based on a noised sample and self-conditioning, denoise as x_start and eps."""
+        if model_kwargs is None:
+            model_kwargs = {}
+        model_output = self.model(x, t, mask, x_self_cond, **model_kwargs)
+        return self.model_output_conversion_wrapper(model_output, x, t)
+    
+    """
+    Forward process functions
+    """
+    def q_mean_variance(self, x_start, t):
+        """
+        Get the distribution q(x_t | x_0).
+
+        :param x_start: the [N x C x ...] tensor of noiseless inputs.
+        :param t: the number of diffusion steps (minus 1). Here, 0 means one step.
+        :return: A tuple (mean, variance, log_variance), all of x_start's shape.
+        """
+        mean = (
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
+        )
+        variance = extract(1.0 - self.alphas_cumprod, t, x_start.shape)
+        log_variance = extract(
+            self.log_one_minus_alphas_cumprod, t, x_start.shape
+        )
+        return mean, variance, log_variance
+
+    def q_sample(self, x_start, t, noise=None):
+        """
+        Diffuse the data for a given number of diffusion steps.
+
+        In other words, sample from q(x_t | x_0).
+
+        :param x_start: the initial data batch.
+        :param t: the number of diffusion steps (minus 1). Here, 0 means one step.
+        :param noise: if specified, the split-out normal noise.
+        :return: A noisy version of x_start.
+        """
+        if noise is None:
+            noise = torch.randn_like(x_start)
+        assert noise.shape == x_start.shape
+        return (
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
+            + extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
+            * noise
+        )
+
+    def q_posterior_mean_variance(self, x_start, x_t, t):
+        """
+        Compute the mean and variance of the diffusion posterior:
+
+            q(x_{t-1} | x_t, x_0)
+
+        """
+        assert x_start.shape == x_t.shape
+        posterior_mean = (
+            extract(self.posterior_mean_coef1, t, x_t.shape) * x_start
+            + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
+        )
+        posterior_variance = extract(self.posterior_variance, t, x_t.shape)
+        posterior_log_variance_clipped = extract(
+            self.posterior_log_variance_clipped, t, x_t.shape
+        )
+        return posterior_mean, posterior_variance, posterior_log_variance_clipped
+
+
+    """Backward process functions
+    """
+    def p_mean_variance(
+        self, x, t, x_self_cond=None, clip_denoised=True, model_kwargs={}
+    ):
+        """
+        Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
+        the initial x, x_0.
+
+        :param model: the model, which takes a signal and a batch of timesteps
+                      as input.
+        :param x: the [N x C x ...] tensor at time t.
+        :param t: a 1-D Tensor of timesteps.
+        :param clip_denoised: if True, clip the denoised signal into [-1, 1].
+        :param denoised_fn: if not None, a function which applies to the
+            x_start prediction before it is used to sample. Applies before
+            clip_denoised.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :return: a dict with the following keys:
+                 - 'mean': the model mean output.
+                 - 'variance': the model variance output.
+                 - 'log_variance': the log of 'variance'.
+                 - 'pred_xstart': the prediction for x_0.
+        """
+        predictions = self.model_predictions(x, t, x_self_cond, model_kwargs)
+        pred_xstart = predictions.pred_x_start
+
+        if clip_denoised:
+            pred_xstart = maybe_clip(pred_xstart, self.x_clip_val)
+
+        # FIXED_LARGE:
+        model_variance = np.append(self.posterior_variance[1], self.betas[1:])
+        model_log_variance = np.log(np.append(self.posterior_variance[1], self.betas[1:]))
+
+        model_variance = extract(model_variance, t, x.shape)
+        model_log_variance = extract(model_log_variance, t, x.shape)
+
+        model_mean, _, _ = self.q_posterior_mean_variance(
+            x_start=pred_xstart, x_t=x, t=t
+        )
+
+        return {
+            "mean": to_tensor(model_mean, self.device),
+            "variance": to_tensor(model_variance, self.device),
+            "log_variance": to_tensor(model_log_variance, self.device),
+            "pred_xstart": to_tensor(pred_xstart, self.device),
+        }
+
+    def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
+        """
+        Compute the mean for the previous step, given a function cond_fn that
+        computes the gradient of a conditional log probability with respect to
+        x. In particular, cond_fn computes grad(log(p(y|x))), and we want to
+        condition on y.
+
+        This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
+
+        Note: original implementation had a bug, see
+        https://github.com/openai/guided-diffusion/issues/51
+        """
+        gradient = cond_fn(x, t, **model_kwargs)
+        
+        new_mean = (
+            p_mean_var["mean"].float() + p_mean_var["variance"] * gradient.float()
+        )
+        return new_mean
+
+    def p_sample(
+        self,
+        x,
+        t,
+        x_self_cond = None,
+        clip_denoised = True,
+        cond_fn=None,
+        model_kwargs=None,
+    ):
+        """
+        Sample x_{t-1} from the model at the given timestep.
+
+        :param model: the model to sample from.
+        :param x: the current tensor at x_{t-1}.
+        :param t: the value of t, starting at 0 for the first diffusion step.
+        :param clip_denoised: if True, clip the x_start prediction to [-1, 1].
+        :param denoised_fn: if not None, a function which applies to the
+            x_start prediction before it is used to sample.
+        :param cond_fn: if not None, this is a gradient function that acts
+                        similarly to the model.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :return: a dict containing the following keys:
+                 - 'sample': a random sample from the model.
+                 - 'pred_xstart': a prediction of x_0.
+        """
+        out = self.p_mean_variance(
+            x,
+            t,
+            x_self_cond=x_self_cond,
+            clip_denoised=clip_denoised,
+            model_kwargs=model_kwargs
+        )
+        noise = torch.randn_like(x)
+        nonzero_mask = (
+            (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
+        )  # no noise when t == 0
+        if cond_fn is not None:
+            out["mean"] = self.condition_mean(
+                cond_fn, out, x, t, model_kwargs=model_kwargs
+            )
+        sample = out["mean"] + nonzero_mask * torch.exp(0.5 * out["log_variance"]) * noise
+        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
+
+    def p_sample_loop(
+        self,
+        shape,
+        noise=None,
+        clip_denoised=True,
+        cond_fn=None,
+        model_kwargs=None,
+        progress=False,
+    ):
+        """
+        Generate samples from the model.
+
+        :param model: the model module.
+        :param shape: the shape of the samples, (N, C, H, W).
+        :param noise: if specified, the noise from the encoder to sample.
+                      Should be of the same shape as `shape`.
+        :param clip_denoised: if True, clip x_start predictions to [-1, 1].
+        :param denoised_fn: if not None, a function which applies to the
+            x_start prediction before it is used to sample.
+        :param cond_fn: if not None, this is a gradient function that acts
+                        similarly to the model.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :param progress: if True, show a tqdm progress bar.
+        :return: a non-differentiable batch of samples.
+        """
+        final = None
+        for sample in self.p_sample_loop_progressive(
+            shape,
+            noise=noise,
+            clip_denoised=clip_denoised,
+            cond_fn=cond_fn,
+            model_kwargs=model_kwargs,
+            progress=progress,
+        ):
+            final = sample
+        return final["sample"]
+
+    def p_sample_loop_progressive(
+        self,
+        shape,
+        noise=None,
+        clip_denoised=True,
+        cond_fn=None,
+        model_kwargs=None,
+        progress=False,
+    ):
+        """
+        Generate samples from the model and yield intermediate samples from
+        each timestep of diffusion.
+
+        Arguments are the same as p_sample_loop().
+        Returns a generator over dicts, where each dict is the return value of
+        p_sample().
+        """
+        if noise is not None:
+            img = noise
+        else:
+            img = torch.randn(*shape, device=self.device)
+        indices = list(range(self.sampling_timesteps))[::-1]
+
+        if progress:
+            # Lazy import so that we don't depend on tqdm.
+            from tqdm.auto import tqdm
+
+            indices = tqdm(indices)
+
+        for i in indices:
+            t = torch.tensor([i] * shape[0], device=self.device)
+            with torch.no_grad():
+                out = self.p_sample(
+                    img,
+                    t,
+                    clip_denoised=clip_denoised,
+                    cond_fn=cond_fn,
+                    model_kwargs=model_kwargs,
+                )
+                yield out
+                img = out["sample"]
+
+    """
+    Lightning set up
+    """
     def setup_sequence_decoder(self):
         """If a reference pointer to the auxiliary sequence decoder wasn't already passed in
         at the construction of the class, load the sequence decoder onto the GPU now.
@@ -234,419 +563,6 @@ class GaussianDiffusion(L.LightningModule):
             self.structure_constructor, weight=self.structure_decoder_weight
         )
         self.need_to_setup_structure_decoder = False
-
-    def predict_start_from_noise(self, x_t, t, noise):
-        return (
-            extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
-            - extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
-            * noise
-        )
-
-    def predict_noise_from_start(self, x_t, t, x0):
-        return (
-            extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0
-        ) / extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
-
-    def predict_v(self, x_start, t, noise):
-        return (
-            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * noise
-            - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
-            * x_start
-        )
-
-    def predict_start_from_v(self, x_t, t, v):
-        return (
-            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t
-            - extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
-        )
-
-    def q_posterior(self, x_start, x_t, t):
-        """
-        Compute the mean and variance of the diffusion posterior:
-            q(x_{t-1} | x_t, x_0)
-        """
-        posterior_mean = (
-            extract_into_tensor(self.posterior_mean_coef1, t, x_t.shape) * x_start
-            + extract_into_tensor(self.posterior_mean_coef2, t, x_t.shape) * x_t
-        )
-        posterior_variance = extract_into_tensor(self.posterior_variance, t, x_t.shape)
-        posterior_log_variance_clipped = extract_into_tensor(
-            self.posterior_log_variance_clipped, t, x_t.shape
-        )
-        return posterior_mean, posterior_variance, posterior_log_variance_clipped
-    
-    def maybe_clip(self, x):
-        if self.soft_clip_x_start_to is None:
-            return x
-        else:
-            return torch.clamp(x, min=-1 * self.soft_clip_x_start_to, max=self.soft_clip_x_start_to)
-
-    def model_output_to_predictions(self, model_output, x_t, t):
-        if self.objective == "pred_x0":
-            pred_x_start = model_output
-            pred_x_start = self.maybe_clip(pred_x_start)
-            pred_noise = self.predict_noise_from_start(x_t, t, pred_x_start)
-        
-        elif self.objective == "pred_noise":
-            pred_noise = model_output
-            pred_x_start = self.predict_start_from_noise(x_t, t, pred_noise)
-            pred_x_start = self.maybe_clip(pred_x_start)
-
-        elif self.objective == "pred_v":
-            v = model_output
-            pred_x_start = self.predict_start_from_v(x_t, t, v)
-            pred_x_start = self.maybe_clip(pred_x_start)
-            pred_noise = self.predict_noise_from_start(x_t, t, pred_x_start)
-        return ModelPrediction(pred_noise, pred_x_start)       
- 
-    def p_mean_variance(self, model_output, x_t, t, model_kwargs={}, clip_denoised=True):
-        x_start = self.model_output_to_predictions(model_output, x_t, t).pred_x_start
-
-        if clip_denoised:
-            assert not self.soft_clip_x_start_to is None
-            x_start = self.maybe_clip(x_start)
-
-        model_mean, posterior_variance, posterior_log_variance = self.q_posterior(x_start, x_t, t)
-        return model_mean, posterior_variance, posterior_log_variance, x_start
-
-    def condition_mean(self, cond_fn, mean, variance, x, t, guidance_kwargs=None):
-        """
-        Compute the mean for the previous step, given a function cond_fn that
-        computes the gradient of a conditional log probability with respect to
-        x. In particular, cond_fn computes grad(log(p(y|x))), and we want to
-        condition on y.
-        This uses the conditioning strategy from Sohl-Dickstein et al. (2015).
-        """
-        gradient = cond_fn(x, t, **guidance_kwargs)
-        new_mean = mean + variance * gradient
-        # print("gradient: ", (variance * gradient).mean())
-        return new_mean
-
-    @torch.no_grad()
-    def p_sample(
-        self,
-        x_tm1,
-        t: int,
-        model_kwargs={},
-        cond_fn=None,
-        guidance_kwargs=None,
-        clip_denoised=True,
-    ):
-        B, L, C = x_tm1.shape
-        batched_times = torch.full((B,), t, device=x_tm1.device, dtype=torch.long)
-        model_mean, variance, model_log_variance, _ = self.p_mean_variance(
-            x_t=x_tm1, t=batched_times, model_kwargs=model_kwargs, clip_denoised=clip_denoised
-        )
-        if exists(cond_fn) and exists(guidance_kwargs):
-            model_mean = self.condition_mean(
-                cond_fn, model_mean, variance, x_tm1, batched_times, guidance_kwargs
-            )
-
-        noise = torch.randn_like(x_tm1) if t > 0 else 0.0  # no noise if t == 0
-        x_sampled = model_mean + (0.5 * model_log_variance).exp() * noise
-        return x_sampled
-
-    @torch.no_grad()
-    def p_sample_loop(
-        self,
-        shape,
-        return_all_timesteps=False,
-        model_kwargs={},
-        cond_fn=None,
-        guidance_kwargs=None,
-        clip_denoised=True,
-        unscale=False
-    ):
-        xt = torch.randn(shape, device=self.device)
-        xts = [xt]
-        x_start = None
-
-        for t in tqdm(
-            reversed(range(0, self.sampling_timesteps)),
-            desc="sampling loop time step",
-            total=self.sampling_timesteps,
-            leave=False
-        ):
-            # maybe add self conditioning to model input
-            self_cond = x_start if self.self_condition else None
-            model_kwargs["x_self_cond"] = self_cond
-
-            # sample
-            xt = self.p_sample(
-                xt, t, model_kwargs, cond_fn, guidance_kwargs, clip_denoised
-            )
-            xts.append(xt)
-
-        return xt if not return_all_timesteps else torch.stack(xts, dim=1)
-
-    @torch.no_grad()
-    def ddim_sample(
-        self,
-        shape,
-        return_all_timesteps=False,
-        model_kwargs={},
-        cond_fn=None,
-        guidance_kwargs=None,
-        clip_denoised=True,
-        unscale=False,
-    ):
-        batch, device, total_timesteps, sampling_timesteps, eta, objective = (
-            shape[0],
-            self.device,
-            self.sampling_timesteps,
-            self.sampling_timesteps,
-            self.ddim_sampling_eta,
-            self.objective,
-        )
-
-        times = torch.linspace(
-            -1, total_timesteps - 1, steps=sampling_timesteps + 1
-        )  # [-1, 0, 1, 2, ..., T-1] when sampling_timesteps == total_timesteps
-        times = list(reversed(times.int().tolist()))
-        time_pairs = list(
-            zip(times[:-1], times[1:])
-        )  # [(T-1, T-2), (T-2, T-3), ..., (1, 0), (0, -1)]
-
-        img = torch.randn(shape, device=device)
-        imgs = [img]
-
-        x_start = None
-
-        for time, time_next in tqdm(time_pairs, desc="sampling loop time step"):
-            time_cond = torch.full((batch,), time, device=device, dtype=torch.long)
-            self_cond = x_start if self.self_condition else None
-            model_kwargs["x_self_cond"] = self_cond
-            pred_noise, x_start, *_ = self.model_predictions(
-                img, time_cond, model_kwargs=model_kwargs
-            )
-
-            imgs.append(img)
-
-            if time_next < 0:
-                img = x_start
-                continue
-
-            alpha = self.alphas_cumprod[time]
-            alpha_next = self.alphas_cumprod[time_next]
-
-            sigma = (
-                eta * ((1 - alpha / alpha_next) * (1 - alpha_next) / (1 - alpha)).sqrt()
-            )
-            c = (1 - alpha_next - sigma**2).sqrt()
-
-            noise = torch.randn_like(img)
-
-            img = x_start * alpha_next.sqrt() + c * pred_noise + sigma * noise
-
-        ret = img if not return_all_timesteps else torch.stack(imgs, dim=1)
-        if unscale:
-            ret = self.unscaler.unscale(ret)
-        return ret
-
-    @torch.no_grad()
-    def sample(
-        self,
-        shape,
-        return_all_timesteps=False,
-        model_kwargs={},
-        cond_fn=None,
-        guidance_kwargs=None,
-        clip_denoised=True,
-        unscale=False,
-        use_ddim_sampling=None,
-    ):
-        sample_fn = (
-            self.p_sample_loop if not use_ddim_sampling else self.ddim_sample
-        )
-        return sample_fn(
-            shape,
-            return_all_timesteps=return_all_timesteps,
-            model_kwargs=model_kwargs,
-            cond_fn=cond_fn,
-            guidance_kwargs=guidance_kwargs,
-            clip_denoised=clip_denoised,
-            unscale=unscale
-        )
-
-    @torch.no_grad()
-    def interpolate(self, x1, x2, t=None, lam=0.5):
-        b, *_, device = *x1.shape, x1.device
-        t = default(t, self.num_timesteps - 1)
-
-        assert x1.shape == x2.shape
-
-        t_batched = torch.full((b,), t, device=device)
-        xt1, xt2 = map(lambda x: self.q_sample(x, t=t_batched), (x1, x2))
-
-        img = (1 - lam) * xt1 + lam * xt2
-
-        x_start = None
-
-        for i in tqdm(
-            reversed(range(0, t)), desc="interpolation sample time step", total=t
-        ):
-            self_cond = x_start if self.self_condition else None
-            img, x_start = self.p_sample(img, i, self_cond)
-
-        return img
-
-    @autocast(enabled=False)
-    def q_sample(self, x_start, t, noise=None):
-        noise = default(noise, lambda: torch.randn_like(x_start))
-
-        return (
-            extract_into_tensor(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-            + extract_into_tensor(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
-            * noise
-        )
-
-    def _make_mask(self, latent: torch.Tensor, sequences: T.List[str]) -> torch.Tensor:
-        """Make the mask from the input latent and the string of original sequences.
-        The latent might have been shortened, so the mask always takes the same length as the latent,
-        but we use the string of original sequences to compute which positions should be masked.
-        This requires the shortening factor used in the dataloader to be provided a priori."""
-        B, L, _ = latent.shape
-        sequence_lengths = torch.tensor([len(s) for s in sequences], device=latent.device)[:, None]
-        idxs = torch.tile(torch.arange(L, device=latent.device), (B, 1))
-        fractional_lengths = torch.tile(sequence_lengths / self.shorten_factor, (1, L))
-        return (idxs < fractional_lengths).long()
-
-    def forward(
-        self,
-        x_start,
-        sequences,
-        model_kwargs={},
-        noise=None,
-    ):
-        # x_start was already compressed and bounded to -1 and 1 during dataloader preprocessing
-        B, L, _ = x_start.shape
-        t = (
-            torch.randint(0, self.num_timesteps, (B,))
-            .long()
-            .to(self.device)
-        )
-
-        """
-        sequence strings must be the trimmed version that matches latent
-        if the length of the structure doesn't match, we prioritize choosing a sequence string that
-        matches the latent 
-        """
-        mask = self._make_mask(x_start, sequences)
-
-        # potentially unscale
-        x_start *= self.x_downscale_factor
-
-        # noise sample
-        B, L, C = x_start.shape
-        noise = default(noise, lambda: torch.randn_like(x_start))
-        x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
-
-        # if doing self-conditioning, 50% of the time, predict x_start from current set of times
-        x_self_cond = None
-        if self.self_condition and random() < 0.5:
-            with torch.no_grad():
-                model_output = self.model(x_t, t, mask)
-                x_self_cond = self.model_output_to_predictions(model_output, x_t, t).pred_x_start
-                x_self_cond.detach_()
-        model_kwargs["x_self_cond"] = x_self_cond
-
-        # add conditioning information here
-        if self.add_secondary_structure_conditioning:
-            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(
-                sequences
-            )
-
-        # main inner model forward pass
-        model_out = self.model(x_t, t, mask=mask, **model_kwargs)
-        
-        # reconstruction / "main diffusion loss"
-        if self.objective == "pred_noise":
-            target = noise
-        elif self.objective == "pred_x0":
-            target = x_start
-        elif self.objective == "pred_v":
-            v = self.predict_v(x_start, t, noise)
-            target = v
-        else:
-            raise ValueError(f"unknown objective {self.objective}")
-
-        diffusion_loss = masked_mse_loss(model_out, target, mask, reduce="batch")
-        diffusion_loss = diffusion_loss * extract_into_tensor(
-            self.loss_weight, t, diffusion_loss.shape
-        )
-        return model_output, x_t, t, diffusion_loss.mean() 
-
-    def sequence_loss(self, latent, aatype, mask, cur_weight=None):
-        if self.need_to_setup_sequence_decoder:
-            self.setup_sequence_decoder()
-        # sequence should be the one generated when saving the latents,
-        # i.e. lengths are already trimmed to self.max_seq_len
-        # if cur_weight is None, no annealing is done except for the weighting
-        # specified when specifying the class
-        return self.sequence_loss_fn(latent, aatype, mask, return_reconstructed_sequences=True)
-
-    def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
-        if self.need_to_setup_structure_decoder:
-            self.setup_structure_decoder()
-        return self.structure_loss_fn(latent, gt_structures, sequences, cur_weight)
-
-    def get_secondary_structure_fractions(
-        self, sequences: T.List[str], origin_dataset: str = "uniref"
-    ):
-        # currently only does secondary structure
-        sec_struct_fracs = sequences_to_secondary_structure_fracs(
-            sequences, quantized=True, origin_dataset=origin_dataset
-        )
-        sec_struct_fracs = torch.tensor(sec_struct_fracs).to(self.device)
-        cond_dict = {"secondary_structure": sec_struct_fracs}
-        return cond_dict
-
-    def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
-        embs, sequences, _ = batch
-        model_output, x_t, t, diffusion_loss = self(embs, sequences)
-        log_dict = {"diffusion_loss": diffusion_loss}
-
-        using_seq_loss = self.sequence_decoder_weight > 0.0 
-        using_struct_loss = self.structure_decoder_weight > 0.0
-
-        # Compressor and unscaler are only used if using sequence or structure loss
-        if using_seq_loss or using_struct_loss:
-            pred_x_start = self.model_output_to_predictions(
-                model_output, x_t, t
-            ).pred_x_start
-            pred_uncompressed = self.uncompressor.uncompress(pred_x_start)
-            pred_latent = self.unscaler.unscale(pred_uncompressed)
-        
-        if self.sequence_decoder_weight > 0.0:
-            # mask has same length as sequence even if latent was shortened!
-            true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
-            seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
-                pred_latent, true_aatype, seq_mask, cur_weight=None
-            )
-            log_dict = (
-                log_dict | seq_loss_dict
-            )  # shorthand for combining dictionaries, requires python >= 3.9
-            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
-            # wandb.log({f"{prefix}/recons_strs_tbl": wandb.Table(dataframe=tbl)})
-        else:
-            seq_loss = 0.0
-
-        # if self.structure_decoder_weight > 0.0:
-        #     assert (
-        #         not gt_structures is None
-        #     ), "If using structure as an auxiliary loss, ground truth structures must be provided"
-        #     # structure loss implicitly calls tokenizer again
-        #     struct_loss, struct_loss_dict = self.structure_loss(
-        #         latent, gt_structures, sequences, cur_weight=None
-        #     )
-        #     log_dict = log_dict | struct_loss_dict
-        # else:
-        #     struct_loss = 0.0
-        struct_loss = 0.0
-        loss = diffusion_loss + seq_loss + struct_loss
-        log_dict["loss"] = loss
-        return loss, log_dict
 
 
     def training_step(self, batch):
@@ -683,3 +599,161 @@ class GaussianDiffusion(L.LightningModule):
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
+    """
+    Forward pass with loss calculations
+    """
+
+    def _make_mask(self, latent: torch.Tensor, sequences: T.List[str]) -> torch.Tensor:
+        """Make the mask from the input latent and the string of original sequences.
+        The latent might have been shortened, so the mask always takes the same length as the latent,
+        but we use the string of original sequences to compute which positions should be masked.
+        This requires the shortening factor used in the dataloader to be provided a priori."""
+        B, L, _ = latent.shape
+        sequence_lengths = torch.tensor([len(s) for s in sequences], device=self.device)[:, None]
+        idxs = torch.tile(torch.arange(L, device=self.device), (B, 1))
+        fractional_lengths = torch.tile(sequence_lengths / self.shorten_factor, (1, L))
+        return (idxs < fractional_lengths).long()
+    
+    def forward(
+        self,
+        x_start,
+        sequences,
+        model_kwargs={},
+        noise=None,
+    ):
+        # x_start was already compressed and bounded to -1 and 1 during dataloader preprocessing
+        B, L, _ = x_start.shape
+        t = (
+            torch.randint(0, self.num_timesteps, (B,))
+            .long()
+            .to(self.device)
+        )
+
+        """
+        sequence strings must be the trimmed version that matches latent
+        if the length of the structure doesn't match, we prioritize choosing a sequence string that
+        matches the latent 
+        """
+        mask = self._make_mask(x_start, sequences)
+
+        # potentially unscale
+        x_start *= self.x_downscale_factor
+
+        # noise sample
+        B, L, C = x_start.shape
+        noise = default(noise, lambda: torch.randn_like(x_start))
+        x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
+
+        # if doing self-conditioning, 50% of the time, predict x_start from current set of times
+        x_self_cond = None
+        if self.self_condition and random() < 0.5:
+            with torch.no_grad():
+                x_self_cond = self.model_predictions(x_t, t, mask, x_self_cond, model_kwargs).pred_x_start
+                x_self_cond.detach_()
+        model_kwargs["x_self_cond"] = x_self_cond
+
+        # add conditioning information here
+        if self.add_secondary_structure_conditioning:
+            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(
+                sequences
+            )
+
+        # main inner model forward pass
+        model_out = self.model(x_t, t, mask=mask, **model_kwargs)
+        
+        # reconstruction / "main diffusion loss"
+        if self.objective == "pred_noise":
+            target = noise
+        elif self.objective == "pred_x0":
+            target = x_start
+        elif self.objective == "pred_v":
+            v = self.predict_v(x_start, t, noise)
+            target = v
+        else:
+            raise ValueError(f"unknown objective {self.objective}")
+
+        diffusion_loss = masked_mse_loss(model_out, target, mask, reduce="batch")
+        diffusion_loss = diffusion_loss * extract(
+            self.loss_weight, t, diffusion_loss.shape
+        )
+        return model_out, x_t, t, diffusion_loss.mean() 
+
+    def sequence_loss(self, latent, aatype, mask, cur_weight=None):
+        if self.need_to_setup_sequence_decoder:
+            self.setup_sequence_decoder()
+        # sequence should be the one generated when saving the latents,
+        # i.e. lengths are already trimmed to self.max_seq_len
+        # if cur_weight is None, no annealing is done except for the weighting
+        # specified when specifying the class
+        return self.sequence_loss_fn(latent, aatype, mask, return_reconstructed_sequences=True)
+
+    def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
+        if self.need_to_setup_structure_decoder:
+            self.setup_structure_decoder()
+        return self.structure_loss_fn(latent, gt_structures, sequences, cur_weight)
+
+    # def get_secondary_structure_fractions(
+    #     self, sequences: T.List[str], origin_dataset: str = "uniref"
+    # ):
+    #     # currently only does secondary structure
+    #     sec_struct_fracs = sequences_to_secondary_structure_fracs(
+    #         sequences, quantized=True, origin_dataset=origin_dataset
+    #     )
+    #     sec_struct_fracs = torch.tensor(sec_struct_fracs).to(self.device)
+    #     cond_dict = {"secondary_structure": sec_struct_fracs}
+    #     return cond_dict
+
+    def process_x_to_latent(self, x):
+        """Decompress and undo channel-wise scaling"""
+        if self.uncompressor is not None:
+            x = self.uncompressor.uncompress(x)
+        return self.unscaler.unscale(x)
+
+    def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
+        embs, sequences, _ = batch
+        model_output, x_t, t, diffusion_loss = self(
+            x_start=embs,
+            sequences=sequences,
+            model_kwargs=model_kwargs,
+            noise=noise
+        )
+        log_dict = {"diffusion_loss": diffusion_loss}
+
+        using_seq_loss = self.sequence_decoder_weight > 0.0 
+        using_struct_loss = self.structure_decoder_weight > 0.0
+
+        # Compressor and unscaler are only used if using sequence or structure loss
+        if using_seq_loss or using_struct_loss:
+            pred_x_start = self.model_output_conversion_wrapper(model_output, x_t, t).pred_x_start
+            pred_latent = self.process_x_to_latent(pred_x_start)
+        
+        if self.sequence_decoder_weight > 0.0:
+            true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
+            seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
+                pred_latent, true_aatype, seq_mask, cur_weight=None
+            )
+            log_dict = (
+                log_dict | seq_loss_dict
+            )  # shorthand for combining dictionaries, requires python >= 3.9
+            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+        else:
+            seq_loss = 0.0
+
+        # if self.structure_decoder_weight > 0.0:
+        #     assert (
+        #         not gt_structures is None
+        #     ), "If using structure as an auxiliary loss, ground truth structures must be provided"
+        #     # structure loss implicitly calls tokenizer again
+        #     struct_loss, struct_loss_dict = self.structure_loss(
+        #         latent, gt_structures, sequences, cur_weight=None
+        #     )
+        #     log_dict = log_dict | struct_loss_dict
+        # else:
+        #     struct_loss = 0.0
+        struct_loss = 0.0
+        loss = diffusion_loss + seq_loss + struct_loss
+        log_dict["loss"] = loss
+        return loss, log_dict
+
