@@ -17,3 +17,4 @@ artifacts
 *.out
 *outputs
 *wandb*
+sampled/*
