@@ -727,9 +727,9 @@ class StructureModule(nn.Module):
                 "positions": pred_xyz,
                 "states": s,
                 # #### ADDED ####
-                "s_initial": s_initial,
-                "s_after_layernorm": s_,
-                "z_after_layernorm": z_,
+                # "s_initial": s_initial,
+                # "s_after_layernorm": s_,
+                # "z_after_layernorm": z_,
                 ###############
             }
 
