@@ -37,9 +37,10 @@ PROTEINMPNN_AACHAR_TO_AAIDX = {
 }
 
 
-def stack_tensor_dicts(dicts):
+def stack_tensor_dicts(dicts: T.List[T.Dict[str, torch.Tensor]], list_of_igored_keys: T.List[str]):
     keys = set(k for d in dicts for k in d.keys())
-    return {key: torch.stack([d[key] for d in dicts if key in d], dim=0) for key in keys}
+    keys = keys - set(list_of_igored_keys) 
+    return {key: torch.cat([d[key] for d in dicts if key in d], dim=0) for key in keys}
 
 
 class DecoderTokenizer:
@@ -347,7 +348,7 @@ class LatentToStructure:
                 all_pdb_strs.extend(pdb_str)
                 all_output_dicts.append(outputs)
 
-            all_output_dicts = stack_tensor_dicts(all_output_dicts)
+            all_output_dicts = stack_tensor_dicts(all_output_dicts, list_of_igored_keys=["max_predicted_aligned_error"])
             return all_pdb_strs, all_output_dicts
 
 
