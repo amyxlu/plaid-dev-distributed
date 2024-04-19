@@ -1,7 +1,7 @@
 # @package _global_
 
 defaults:
-  - override /datamodule: pfam_fasta
+  - override /datamodule: uniref_fasta
 
 datamodule:
   batch_size: 64 
@@ -9,7 +9,7 @@ datamodule:
   num_workers: 2
 
 logger:
-  name: "pfam-tanh"
+  name: "uniref-tanh"
 
 hourglass:
   n_e: 128 
@@ -17,7 +17,7 @@ hourglass:
   use_quantizer: "tanh"
   fsq_levels: None
   downproj_factor: 32
-  shorten_factor: 1 
+  shorten_factor: 1
   lr: 8e-5
   lr_num_warmup_steps: 10000
   lr_sched_type: "cosine_with_restarts"

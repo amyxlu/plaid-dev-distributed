@@ -15,4 +15,7 @@ calc_perplexity: True
 calc_fid: True
 
 log_to_wandb: True
-run_every_n_epoch: 1 
+run_every_n_epoch: 10 
+
+outdir: ${paths.project_dir}/sampled
+save_generated_structures: True

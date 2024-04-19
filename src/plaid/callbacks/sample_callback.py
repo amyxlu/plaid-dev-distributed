@@ -31,11 +31,16 @@ def maybe_print(msg):
 
 
 class SampleCallback(Callback):
+    """
+    Calls the `p_sample_loop` functions in the diffusion module,
+    which samples `x` (i.e. normalized and compressed). Then, using the
+    `process_x_to_latent` method in the diffusion module, process x back into
+    the unnormalized and uncompressed version of the latent and construct the sequence
+    and structure.
+    """
     def __init__(
         self,
         diffusion: GaussianDiffusion,  # most sampling logic is here
-        model: BaseDenoiser,
-        uncompressor: T.Optional[UncompressContinuousLatent] = None,
         normalize_real_features: bool = True,
         n_to_sample: int = 16,
         n_to_construct: int = 4,
@@ -58,7 +63,6 @@ class SampleCallback(Callback):
         super().__init__()
         self.outdir = Path(outdir)
         self.diffusion = diffusion
-        self.model = model
         self.log_to_wandb = log_to_wandb
         self.normalize_real_features = normalize_real_features
 
@@ -82,7 +86,6 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = False
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
-        self.uncompressor = uncompressor
         if self.normalize_real_features:
             self.scaler = LatentScaler()
         else:
@@ -129,26 +132,32 @@ class SampleCallback(Callback):
         # calculate FID/KID in the normalized space
         if self.normalize_real_features:
             self.real_features = self.scaler.scale(self.real_features)
-        
+    
         print("FID reference tensor mean/std:", self.real_features.mean().item(), self.real_features.std().item())
+        self.is_fid_setup = True
 
     def sample_latent(self, shape, model_kwargs={}):
         all_samples, n_samples = [], 0
         for _ in trange(0, self.n_to_sample, shape[0]):
             x_sampled = self.diffusion.p_sample_loop(shape, clip_denoised=True, progress=True)
-            sampled_latent = self.diffusion.process_x_to_latent(x_sampled)
-            all_samples.append(sampled_latent.detach().cpu())
+            x_sampled = x_sampled.detach().cpu()
+            all_samples.append(x_sampled)
             n_samples += x_sampled.shape[0]
+
         log_dict = {
             "sampled/unscaled_latent_hist": wandb.Histogram(x_sampled.numpy().flatten())
         }
-        return sampled_latent, log_dict
+        all_samples = torch.cat(all_samples)
+        return all_samples, log_dict
     
-    def calculate_fid(self, x_processed, device):
+    def calculate_fid(self, x_uncompressed, device):
+        """
+        Calculate FID in the uncompressed but still normalized space, with mean across feature dim.
+        """
         if not self.is_fid_setup:
             self._fid_setup(device)
         
-        fake_features = x_processed.mean(dim=1)
+        fake_features = x_uncompressed.mean(dim=1)
 
         # just to be consistent, but not necessary
         indices = torch.randperm(self.real_features.size(0))[: fake_features.shape[0]]
@@ -216,22 +225,31 @@ class SampleCallback(Callback):
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
             )
-            from plaid.utils import outputs_to_avg_metric
-            metrics = outputs_to_avg_metric(outputs)
 
-        plddt = outputs['plddt'].flatten()
-        pae = outputs['predicted_aligned_error'].flatten()
-        ptm = outputs['ptm'].flatten()
+        from plaid.utils import outputs_to_avg_metric
+        metrics = outputs_to_avg_metric(outputs)
+
+        # `outputs` values are numpy arrays on CPU
+        plddt_per_position = outputs['plddt'].flatten()
+        pae_per_position = outputs['predicted_aligned_erro'].flatten()
+
+        plddt = metrics['plddt'].flatten()
+        pae = metrics['predicted_aligned_error'].flatten()
+        ptm = metrics['ptm'].flatten()
+
+        N = x_processed.shape[0]
 
         log_dict = {
-            f"sampled/plddt_mean": np.mean(plddt),
-            f"sampled/plddt_max": np.max(plddt),
-            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(plddt.shape[0], 50)),
-            f"sampled/pae_mean": np.mean(pae),
-            f"sampled/pae_max": np.max(pae),
+            f"sampled/plddt_mean": plddt.mean().item(),
+            f"sampled/plddt_median": plddt.median().item(),
+            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(N, 50)),
+            f"sampled/plddt_per_position_hist": wandb.Histogram(plddt_per_position, num_bins=min(N, 50)),
+            f"sampled/pae_mean": pae.mean().item(),
+            f"sampled/pae_median": pae.median().item(),
             f"sampled/pae_hist": wandb.Histogram(pae, num_bins=min(pae.shape[0], 50)),
-            f"sampled/ptm_mean": np.mean(ptm),
-            f"sampled/ptm_max": np.max(ptm),
+            f"sampled/pae_per_position_hist": wandb.Histogram(pae_per_position, num_bins=min(N, 50)),
+            f"sampled/ptm_mean": pae.mean().item(),
+            f"sampled/ptm_median": pae.median().item(),
             f"sampled/ptm_hist": wandb.Histogram(ptm, num_bins=min(ptm.shape[0], 50))
         }
         return pdb_strs, metrics, log_dict
@@ -253,10 +271,13 @@ class SampleCallback(Callback):
         if log_to_wandb:
             logger.log(log_dict)
 
+        # uncompress and unnormalize the sampled x
+        latent = self.diffusion.process_x_to_latent(x)
+
         # calculate FID 
         if self.calc_fid:
             maybe_print("calculating FID...")
-            log_dict = self.calculate_fid(x, device)
+            log_dict = self.calculate_fid(latent, device)
             if log_to_wandb:
                 logger.log(log_dict)
 
@@ -269,23 +290,26 @@ class SampleCallback(Callback):
 
         if self.calc_sequence:
             maybe_print("constructing sequence...")
-            seq_str, log_dict = self.construct_sequence(x, device)
+            seq_str, log_dict = self.construct_sequence(latent, device)
             if log_to_wandb:
                 logger.log(log_dict)
 
         if self.calc_structure:
             maybe_print("constructing structure...")
-            pdb_strs, metrics, log_dict = self.construct_structure(x, seq_str, device)
+            pdb_strs, metrics, log_dict = self.construct_structure(latent, seq_str, device)
             if log_to_wandb:
                 logger.log(log_dict)
 
             if self.save_generated_structures:
                 self.save_structures_to_disk(pdb_strs, pl_module.current_epoch)
-    
+
     def save_structures_to_disk(self, pdb_strs, epoch_or_step: int):
+        paths = []
         for i, pdbstr in enumerate(pdb_strs):
             outpath = self.outdir / f"generated_structures_{epoch_or_step}" / f"sample{i}.pdb"
-            write_pdb_to_disk(pdbstr, outpath)
+            outpath = write_pdb_to_disk(pdbstr, outpath)
+            paths.append(outpath)
+        return paths
 
     # def on_sanity_check_start(self, trainer, pl_module):
     #     _sampling_timesteps = pl_module.sampling_timesteps
@@ -337,14 +361,23 @@ if __name__ == "__main__":
         n_to_sample=4)
     device = torch.device("cuda:0")
 
-    x, log_dict = callback.sample_latent((4, 46, 8))
-    log_dict = callback.calculate_fid(x, device)
-    print(log_dict)
-
-    x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
+    x = torch.randn((16, 46, 1024)).to(device)
     seq_str, log_dict = callback.construct_sequence(x, device)
     print(seq_str)
-    pdb_strs, outputs = callback.construct_structure(x, seq_str, device)
 
-    print(outputs)
+    cons = LatentToStructure()
+    outputs = cons.to_structure(x, seq_str, batch_size=4)
+    import IPython;IPython.embed()
+
+    # x, log_dict = callback.sample_latent((4, 46, 8))
+    # latent = diffusion.process_x_to_latent(x)
+    # log_dict = callback.calculate_fid(latent, device)
+    # print(log_dict)
+
+    # x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
+    # seq_str, log_dict = callback.construct_sequence(x, device)
+    # print(seq_str)
+
+    # pdb_strs, outputs = callback.construct_structure(latent, seq_str, device)
+    # print(outputs)
 

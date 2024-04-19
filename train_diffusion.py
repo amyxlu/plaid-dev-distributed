@@ -104,12 +104,9 @@ def train(cfg: DictConfig):
         cfg.callbacks.sample,
         outdir=outdir,
         diffusion=diffusion,
-        model=denoiser,
         log_to_wandb=not cfg.dryrun,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
-        unscaler=latent_scaler,
-        uncompressor=uncompressor
     )
 
     # run training
