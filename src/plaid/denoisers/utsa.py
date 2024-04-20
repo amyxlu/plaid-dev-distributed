@@ -86,13 +86,16 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         if self.input_projection is not None:
             x = self.input_projection(x)
 
+        if not x_self_cond is None:
+            if self.input_projection is not None:
+                x_self_cond = self.input_projection(x_self_cond)
+            x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
+
         B, L, _ = x.shape
 
         if mask is None:
             mask = x.new_ones(B, L).long()
         
-        if not x_self_cond is None:
-            x = self.self_conditioning_mlp(torch.cat((x, x_self_cond), dim=-1))
 
         if z is None:
             z = x.new_zeros(B, L, L, self.pairwise_state_dim)

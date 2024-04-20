@@ -36,7 +36,9 @@ class BaseDenoiser(nn.Module):
         self.label_embedder = None
         self.use_self_conditioning = use_self_conditioning
         if use_self_conditioning:
-            self.self_conditioning_mlp = self.make_projection_mlp(hid_dim * 2, hid_dim)
+            # use hid_dim instead of self.input_dim because we do self-conditioning after the initial projection
+            self.self_conditioning_mlp = self.make_projection_mlp(self.hid_dim * 2, self.hid_dim)
+        
         if label_num_classes:
             self.label_embedder = self.make_label_embedding(
                 num_classes=label_num_classes,
