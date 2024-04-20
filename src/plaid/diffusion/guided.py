@@ -79,6 +79,13 @@ def extract(arr, timesteps, broadcast_shape):
     return res.expand(broadcast_shape)
 
 
+def maybe_pad(tensor, length):
+    if tensor.shape[1] != length:
+        return trim_or_pad_batch_first(tensor, length, pad_idx=0)
+    else:
+        return tensor
+
+
 class GaussianDiffusion(L.LightningModule):
     """
     Adapted from OpenAI ADM implementation, restructured as a lightning module.
@@ -686,9 +693,13 @@ class GaussianDiffusion(L.LightningModule):
         # i.e. lengths are already trimmed to self.max_seq_len
         # if cur_weight is None, no annealing is done except for the weighting
         # specified when specifying the class
+        _, L, _ = latent.shape
+        aatype = maybe_pad(aatype, L)
+        mask = maybe_pad(mask, L)
         return self.sequence_loss_fn(latent, aatype, mask, return_reconstructed_sequences=True)
 
     def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
+        # TODO: does this work for the rocklin mini-proteins dataset?
         if self.need_to_setup_structure_decoder:
             self.setup_structure_decoder()
         return self.structure_loss_fn(latent, gt_structures, sequences, cur_weight)
