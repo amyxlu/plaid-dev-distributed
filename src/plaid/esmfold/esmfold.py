@@ -6,6 +6,7 @@ import typing as T
 from dataclasses import dataclass, field
 from functools import partial
 import pathlib as Path
+import time
 
 import torch
 import torch.nn as nn
@@ -56,6 +57,8 @@ esm_registry = {
 class ESMFold(nn.Module):
     def __init__(self, esmfold_config=None, **kwargs):
         super().__init__()
+
+        start = time.time()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
         cfg = self.cfg
@@ -109,6 +112,9 @@ class ESMFold(nn.Module):
             nn.Linear(cfg.lddt_head_hid_dim, cfg.lddt_head_hid_dim),
             nn.Linear(cfg.lddt_head_hid_dim, 37 * self.lddt_bins),
         )
+
+        end = time.time()
+        print(f"ESMFold model loaded in {(end - start) / 60:.2} minutes.")
 
     @staticmethod
     def _af2_to_esm(d: Alphabet):
