@@ -4,16 +4,17 @@ Uses LMDB to embed with ESMFold, then compress.
 import random
 import typing as T
 from pathlib import Path
+import pickle
 
+import lmdb
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 import numpy as np
-import gzip
 from evo.dataset import FastaDataset
 
-from plaid.utils import embed_batch_esmfold, LatentScaler, get_model_device, npy
-from plaid.esmfold import esmfold_v1, ESMFold
+from plaid.utils import embed_batch_esmfold, LatentScaler, npy
+from plaid.esmfold import esmfold_v1
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
@@ -38,6 +39,7 @@ class FastaToLMDB:
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
         split_header: bool = False,
         device_mode: str = "cuda",
+        lmdb_map_size: int = int(1e9)
     ):
         # basic attributes
         self.hourglass_model_id = hourglass_model_id
@@ -52,6 +54,10 @@ class FastaToLMDB:
         self.split_header = split_header
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
+        self.lmdb_map_size = int(lmdb_map_size)
+
+        self.latent_scaler = LatentScaler(latent_scaler_mode)
+        self.train_dataloader, self.val_dataloader = self._make_fasta_dataloaders()
 
         # set up esmfold
         if esmfold is None:
@@ -63,9 +69,6 @@ class FastaToLMDB:
         self.hourglass_model = self._make_hourglass()
         self.hourglass_model.to(self.device)
 
-        self.latent_scaler = LatentScaler(latent_scaler_mode)
-        self.train_dataloader, self.val_dataloader = self._make_fasta_dataloaders()
-        
         # set up output path
         dirname = f"hourglass_{hourglass_model_id}"
         outdir = Path(output_dir) / dirname / f"seqlen_{max_seq_len}"
@@ -94,7 +97,7 @@ class FastaToLMDB:
         # potentially subset dataset
         ds = FastaDataset(self.fasta_file, cache_indices=True)
         if self.max_dataset_size is not None:
-            indices = random.sample(len(ds), self.max_dataset_size)
+            indices = random.sample(range(len(ds)), self.max_dataset_size)
             ds = torch.utils.data.Subset(ds, indices)
             print(f"Subsetting dataset to {len(ds)} data points.")
         
@@ -122,7 +125,8 @@ class FastaToLMDB:
 
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
-        _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
+        with torch.no_grad():
+            _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
     
     def run_batch(self, env, batch) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
@@ -136,52 +140,47 @@ class FastaToLMDB:
         1. make LM embeddings
         """    
         feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
-        sequence_lengths = [len(s) for s in sequences]
         
         """
         2. make hourglass compression
         """
         compressed = self.process_and_compress(feats, mask)
+        sequence_lengths = mask.sum(dim=1).squeeze().detach().cpu().numpy()
         assert compressed.shape[-1] == self.hid_dim
+
+        compressed = npy(compressed)
+        del feats, mask, sequences
 
         """
         2. Write to LMDB transaction
         """
-        assert feats.shape[0] == len(sequences) == len(headers)
         with env.begin(write=True) as txn:
-            for i in range(feats.shape[0]):
+            for i in range(compressed.shape[0]):
+                # save each key/value pair for each sample, trimming only to the actual sequence length
                 key = headers[i].encode("utf-8")
-                value = feats[i, ...].detach().cpu().numpy().tobytes()
-                # trim only to the actual sequence length
-                value = value[:, :sequence_lengths[i], :]
-
+                value = compressed[i, :sequence_lengths[i], :].tobytes()
                 self.all_headers.append(key)
                 txn.put(key, value)
         
-    def make_lmdb_database(self, lmdb_path, dataloader, map_size=int(1e9)):
-        env = lmdb.open(lmdb_path, map_size=map_size, create=True)
-        try:
-            print("Making LMDB database at", lmdb_path)
-            for batch in tqdm(dataloader, desc=f"Making LMDB database for {len(dataloader.dataset):,} samples"):
-                self.run_batch(env, batch)
+    def make_lmdb_database(self, lmdb_path, dataloader):
+        env = lmdb.open(str(lmdb_path), map_size=self.lmdb_map_size, create=True)
+        print("Making LMDB database at", lmdb_path)
+        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
+            self.run_batch(env, batch)
 
-            # add some metadata
-            print("Adding final metadata to LMDB database...")
-            with env.begin(write=True) as txn:
-                txn.put("max_seq_len".encode("utf-8"), self.max_seq_len.to_bytes(length=2, signed=False))
-                txn.put("shorten_factor".encode("utf-8"), self.shorten_factor.to_bytes(length=1, signed=False))
-                txn.put("hid_dim".encode("utf-8"), self.hid_dim.to_bytes(length=2, signed=False))
-                txn.put("all_headers".encode("utf-8"), np.array(self.all_headers).tobytes())
-            print('Finished making dataset at', lmdb_path)
-            env.close()
-
-        except Exception as e:
-            print("Closing environment due to error:", e)
-            env.close()
+        # add some metadata
+        print("Adding final metadata to LMDB database...")
+        with env.begin(write=True) as txn:
+            txn.put(b"max_seq_len", self.max_seq_len.to_bytes(length=2, signed=False))
+            txn.put(b"shorten_factor", self.shorten_factor.to_bytes(length=1, signed=False))
+            txn.put(b"hid_dim", self.hid_dim.to_bytes(length=2, signed=False))
+            txn.put(b"all_headers", pickle.dumps(self.all_headers))
+        print('Finished making dataset at', lmdb_path)
+        env.close()
     
     def run(self):
-        self.make_lmdb_database(self.train_output_dir, self.train_dataloader)
-        self.make_lmdb_database(self.val_output_dir, self.train_dataloader)
+        self.make_lmdb_database(self.val_lmdb_path, self.val_dataloader)
+        self.make_lmdb_database(self.train_lmdb_path, self.train_dataloader)
     
 """
 When grabbing the actual embedding, the length of the tensor g
@@ -200,7 +199,7 @@ When grabbing the actual embedding, the length of the tensor g
 if __name__ == "__main__":
     max_dataset_size = 5000
 
-    processor = FastaToLMDB(
+    fasta_to_lmdb = FastaToLMDB(
         hourglass_model_id="jzlv54wl",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
@@ -208,6 +207,4 @@ if __name__ == "__main__":
         batch_size=128,
         max_dataset_size=max_dataset_size
     )
-    import IPython;IPython.embed()
-
-    import lmdb 
+    fasta_to_lmdb.run()
