@@ -6,6 +6,7 @@ from torch.utils.data import IterableDataset, DataLoader, Dataset
 import numpy as np
 from typing import List, Tuple
 import h5py
+import lmdb
 
 from evo.dataset import FastaDataset
 
@@ -685,67 +686,33 @@ class TokenDataModule(L.LightningDataModule):
     
     def predict_dataloader(self):
         return self.val_dataloader()
-    
-# class EmbedFastaDataModule(FastaDataModule):
-#     """Overrides the dataloader functions to embed with ESMFold instead."""
 
-#     def __init__(
-#         self,
-#         fasta_file: str,
-#         batch_size: int,
-#         esmfold: torch.nn.Module = None,
-#         seq_len: int = 512,
-#         train_frac: float = 0.8,
-#         num_workers: int = 0,
-#     ):
-#         super().__init__(fasta_file, batch_size, train_frac, num_workers)
-#         if esmfold is None:
-#             from plaid.esmfold import esmfold_v1
-#             self.esmfold = esmfold_v1()
-#         self.esmfold = self.esmfold.eval().requires_grad_(False).cuda()
-#         self.max_seq_len = seq_len
 
-#     def embed_fn(self, list_of_tuples) -> Tuple[torch.Tensor, List[str]]:
-#         sequence = get_random_sequence_crop_batch(sequence, self.max_seq_len)
-#         with torch.no_grad():
-#             output = self.esmfold.infer_embedding(sequence)
-#         return output["s"], header, sequence
+class CompressedLMDBDataset(torch.utils.data.Dataset):
+    def __init__(
+            self,
+            lmdb_path,
+        ):
+        self.env = lmdb.open(lmdb_path, readonly=True, lock=False)
+        with self.env.begin(write=False) as txn:
+            self.all_headers = pickle.loads(txn.get(b"all_headers"))
+            self.max_seq_len = int.from_bytes(txn.get(b"max_seq_len"))
+            self.shorten_factor = int.from_bytes(txn.get(b"shorten_factor"))
+            self.hid_dim = int.from_bytes(txn.get(b"hid_dim"))
 
-#     def train_dataloader(self):
-#         """Dataloader will load the embedding and the original sequence (truncated to max length)"""
-#         return DataLoader(
-#             self.train_dataset,
-#             batch_size=self.batch_size,
-#             num_workers=self.num_workers,
-#             pin_memory=True,
-#             shuffle=True,
-#             collate_fn=self.embed_fn,
-#         )
+    def __len__(self):
+        return len(self.all_headers)
 
-#     def val_dataloader(self):
-#         return DataLoader(
-#             self.val_dataset,
-#             batch_size=self.batch_size,
-#             num_workers=self.num_workers,
-#             pin_memory=True,
-#             shuffle=False,
-#             collate_fn=self.embed_fn,
-#         )
-
-#     def test_dataloader(self):
-#         return self.val_dataloader()
+    def __getitem__(self, idx):
+        header = self.all_headers[idx]
+        with self.env.begin(write=False) as txn:
+            emb = np.frombuffer(txn.get(header), dtype=np.float32)
+        emb = torch.from_numpy(emb.reshape(-1, self.hid_dim))
+        return emb
 
 
 if __name__ == "__main__":
-    dm = CompressedContinuousDataModule(
-        "2024-03-17T23-21-19",
-        seq_len=512,
-        base_data_dir="/homefs/home/lux70/storage/data/rocklin/compressed/",
-        batch_size=64,
-        num_workers=4
-    )
-    dm.setup()
-    train_dataloader = dm.train_dataloader()
-    batch = next(iter(train_dataloader))
-    print(batch)
-    import pdb; pdb.set_trace()
+    lmdb_path = "/homefs/home/lux70/storage/data/pfam/compressed/subset_5000/hourglass_jzlv54wl/seqlen_512/val.lmdb"
+    ds = CompressedLMDBDataset(lmdb_path)
+    emb = ds[0]
+    import IPython;IPython.embed()

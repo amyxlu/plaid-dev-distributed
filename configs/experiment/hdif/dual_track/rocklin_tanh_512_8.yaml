@@ -1,6 +1,6 @@
 # @package _global_
 
-compression_model_id: tk3g5edg
+compression_model_id: jzlv54wl
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 8 
 

@@ -85,6 +85,21 @@ class ProteinBertDenoiser(BaseDenoiser):
             num_attention_heads=num_attention_heads,
             num_hidden_layers=num_hidden_layers,
         )
+        self.conditioning_mlp = self.make_projection_mlp(hid_dim * 2, hid_dim)
+    
+    def make_projection_mlp(self, in_dim, hid_dim):
+        return nn.Sequential(
+            nn.Linear(in_dim, hid_dim, bias=True),
+            nn.SiLU(),
+            nn.Linear(hid_dim, hid_dim, bias=True),
+        )
+
+    def hidden_concat(self, x, c):
+        # x: (B, L, C)
+        # c: (B, C)
+        c = einops.repeat(c, "b c -> b l c", l=x.shape[1])
+        x = torch.concat((x, c), dim=-1)
+        return x
 
     def forward(self, x, t, mask=None, y=None, x_self_cond=None):
         # implicitly expands x dimension if necessary
@@ -107,7 +122,10 @@ class ProteinBertDenoiser(BaseDenoiser):
             c = t + y
         else:
             c = t
-        x, mask = self.concat_time_embedding(x_noised, sigma, mask)  # (B, L+1, C), (B, L+1)
+
+        x = self.hidden_concat(x, c) 
+        x = self.conditioning_mlp(x)
+        
         mask = einops.rearrange(mask, "b l -> b 1 1 l")  # add dimension to allow for broadcasting by heads
         output = self.encoder(
             hidden_states=x,

@@ -213,6 +213,8 @@ def main(cfg):
     """
     train_output_dir = Path(cfg.base_output_dir) / "train"
     val_output_dir = Path(cfg.base_output_dir) / "val"
+
+    import IPython;IPython.embed()
     print("compressing val dataset")
     run(esmfold, compression_model, val_dataloader, val_output_dir, cfg)
 

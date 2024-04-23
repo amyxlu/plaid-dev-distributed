@@ -5,7 +5,7 @@ defaults:
   - hourglass: vq
   - latent_scaler: esmfold 
   - trainer: default
-  - callbacks/checkpoint: hourglass_vq 
+  - callbacks/checkpoint: hourglass_best 
   - callbacks/lr_monitor: default
   - callbacks/compression: default
   - logger: hourglass_vq

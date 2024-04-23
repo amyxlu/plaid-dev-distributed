@@ -243,7 +243,6 @@ class CompressionReconstructionCallback(Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if (trainer.global_step % self.run_every_n_steps == 0) and not (trainer.global_step == 0):
             device = pl_module.device
-            logger = pl_module.logger.experiment
             max_samples = min(trainer.datamodule.batch_size, self.num_samples)
 
             # move the structure decoder onto GPU only when using validation
@@ -251,12 +250,15 @@ class CompressionReconstructionCallback(Callback):
 
             log_dict = self.validate(pl_module, max_samples=max_samples)
             log_dict = {f"structure_reconstruction/{k}": v for k, v in log_dict.items()}
-            logger.log(log_dict)
+            for k, v in log_dict.items():
+                if "hist" in k:
+                    pl_module.logger.experiment.log({k: v})  # cannot log histograms with pl_module.log
+                else:
+                    pl_module.log(k, v)
             
             # clear up GPU
             self.structure_constructor.to(torch.device("cpu"))
             torch.cuda.empty_cache()
-        
         else:
             pass
 

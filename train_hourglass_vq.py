@@ -16,6 +16,15 @@ from plaid.datasets import FastaDataModule
 def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
+
+    if cfg.resume_from_model_id is not None:
+        job_id = cfg.resume_from_model_id
+        config_yaml = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id / "config.yaml"
+        cfg = OmegaConf.load(config_yaml)
+        print("*" * 10, "\n", "Resuming from job ID", job_id,  "\n", "*" * 10)
+    else:
+        job_id = wandb.utils.generate_id()
+
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -41,11 +50,6 @@ def train(cfg: DictConfig):
         seq_emb_fn=seq_emb_fn
     )
     
-    if cfg.resume_from_model_id is not None:
-        job_id = cfg.resume_from_model_id 
-    else:
-        job_id = wandb.util.generate_id() 
-    
     if not cfg.dryrun:
         # this will automatically log to the same wandb page
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
@@ -66,7 +70,7 @@ def train(cfg: DictConfig):
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
 
     trainer = hydra.utils.instantiate(
-        cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor, compression_callback]
+        cfg.trainer, logger=logger, callbacks=[compression_callback, checkpoint_callback, lr_monitor]
     )
 
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
