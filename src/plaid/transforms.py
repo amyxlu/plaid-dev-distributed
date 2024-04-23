@@ -81,7 +81,7 @@ def trim_or_pad_length_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0
 
 
 def trim_or_pad_batch_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0):
-    """Trim or pad a tensor with shape (L, ...) to a given length."""
+    """Trim or pad a tensor with shape (B, L, ...) to a given length."""
     N, L = tensor.shape[0], tensor.shape[1]
     if L >= pad_to:
         tensor = tensor[:, :pad_to, ...]
