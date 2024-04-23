@@ -21,6 +21,7 @@ from plaid.transforms import (
     mask_from_seq_lens,
     get_random_sequence_crop_batch,
     get_random_sequence_crop,
+    trim_or_pad_length_first
 )
 from plaid.constants import ACCEPTED_LM_EMBEDDER_TYPES
 
@@ -700,6 +701,10 @@ class CompressedLMDBDataset(torch.utils.data.Dataset):
             self.shorten_factor = int.from_bytes(txn.get(b"shorten_factor"))
             self.hid_dim = int.from_bytes(txn.get(b"hid_dim"))
 
+        self.pad_idx = 0 
+        # TODO: parse sequences into dictionary to also load sequences
+        # only needed if using sequence auxiliary loss for diffusion
+
     def __len__(self):
         return len(self.all_headers)
 
@@ -707,8 +712,13 @@ class CompressedLMDBDataset(torch.utils.data.Dataset):
         header = self.all_headers[idx]
         with self.env.begin(write=False) as txn:
             emb = np.frombuffer(txn.get(header), dtype=np.float32)
-        emb = torch.from_numpy(emb.reshape(-1, self.hid_dim))
-        return emb
+        emb = torch.tensor(emb.reshape(-1, self.hid_dim))
+        L, C = emb.shape
+        emb = trim_or_pad_length_first(emb, self.max_seq_len, self.pad_idx) 
+        mask = torch.arange(self.max_seq_len) < L
+        sequence = ""  # TODO: once sequences are parsed, can return this properly
+        return emb, mask, header, sequence
+
 
 
 if __name__ == "__main__":
@@ -716,3 +726,6 @@ if __name__ == "__main__":
     ds = CompressedLMDBDataset(lmdb_path)
     emb = ds[0]
     import IPython;IPython.embed()
+
+    dl = torch.utils.data.DataLoader(ds, batch_size=4)
+    batch = next(iter(dl))
