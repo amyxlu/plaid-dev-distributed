@@ -690,11 +690,9 @@ class TokenDataModule(L.LightningDataModule):
 
 
 class CompressedLMDBDataset(torch.utils.data.Dataset):
-    def __init__(
-            self,
-            lmdb_path,
-        ):
-        self.env = lmdb.open(lmdb_path, readonly=True, lock=False)
+    def __init__(self, lmdb_path):
+        self.lmdb_path = lmdb_path
+        self.env = lmdb.open(str(lmdb_path), readonly=True, lock=False)
         with self.env.begin(write=False) as txn:
             self.all_headers = pickle.loads(txn.get(b"all_headers"))
             self.max_seq_len = int.from_bytes(txn.get(b"max_seq_len"))
@@ -709,23 +707,168 @@ class CompressedLMDBDataset(torch.utils.data.Dataset):
         return len(self.all_headers)
 
     def __getitem__(self, idx):
-        header = self.all_headers[idx]
+        header_bytes = self.all_headers[idx]
+        header = header_bytes.decode()
         with self.env.begin(write=False) as txn:
-            emb = np.frombuffer(txn.get(header), dtype=np.float32)
+            if txn.get(header_bytes) is None:
+                print(f"Key {header_bytes} not found.")
+            else:
+                print(f"Key {header_bytes} found.")
+                emb = np.frombuffer(txn.get(header_bytes), dtype=np.float32)
         emb = torch.tensor(emb.reshape(-1, self.hid_dim))
         L, C = emb.shape
         emb = trim_or_pad_length_first(emb, self.max_seq_len, self.pad_idx) 
         mask = torch.arange(self.max_seq_len) < L
         sequence = ""  # TODO: once sequences are parsed, can return this properly
         return emb, mask, header, sequence
+    
+    def __del__(self):
+        self.env.close()
 
+
+class CompressedLMDBDataModule(L.LightningDataModule):
+    def __init__(
+            self,
+            hourglass_model_id="jzlv54wl",
+            lmdb_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
+            max_seq_len=512,
+            batch_size=128,
+            num_workers=8,
+            shuffle_val_dataset=False
+        ):
+        super().__init__()
+        self.hourglass_model_id = hourglass_model_id
+        self.lmdb_root_dir = lmdb_root_dir
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.shuffle_val_dataset = shuffle_val_dataset
+
+        base_dir = Path(lmdb_root_dir) / f"hourglass_{hourglass_model_id}" / f"seqlen_{max_seq_len}"
+        self.train_lmdb_path = base_dir / "train.lmdb"
+        self.val_lmdb_path = base_dir / "val.lmdb"
+        
+    def setup(self, stage: str = "fit"):
+        if stage == "fit":
+            self.train_dataset = CompressedLMDBDataset(self.train_lmdb_path) 
+            self.val_dataset = CompressedLMDBDataset(self.val_lmdb_path)
+        elif stage == "predict":
+            self.test_dataset = CompressedLMDBDataset(self.val_lmdb_path)
+        else:
+            return ValueError(f"Stage must be 'fit' or 'predict', got {stage}.")
+    
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=self.shuffle_val_dataset,
+        )
+
+    def test_dataloader(self):
+        return self.val_dataloader()
+
+    def predict_dataloader(self):
+        return self.val_dataloader()
+
+
+class CompressedH5Dataset(torch.utils.data.Dataset):
+    def __init__(self, h5_path):
+        fh = h5py.File(h5_path, "r")
+        self.max_seq_len = fh.attrs['max_seq_len']
+        self.shorten_factor = fh.attrs['shorten_factor']
+        self.compressed_hid_dim = fh.attrs['compressed_hid_dim'] 
+        self.dataset_size = fh.attrs['dataset_size']
+        self.fh = fh
+
+    def __del__(self):
+        self.fh.close()
+
+    def __len__(self):
+        return self.dataset_size
+
+    def __getitem__(self, idx):
+        ds = self.fh[str(idx)]
+        emb, seq = ds[:], ds.attrs["sequence"]
+        emb = torch.tensor(emb.reshape(-1, self.compressed_hid_dim))
+        L, C = emb.shape
+        emb = trim_or_pad_length_first(emb, self.max_seq_len, self.pad_idx) 
+        mask = torch.arange(self.max_seq_len) < L
+        return emb, mask, seq
+
+
+class CompressedH5DataModule(L.LightningDataModule):
+    def __init__(
+        self,
+        hourglass_model_id="jzlv54wl",
+        h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
+        max_seq_len=512,
+        batch_size=128,
+        num_workers=8,
+        shuffle_val_dataset=False
+    ):
+        
+        super().__init__()
+        self.hourglass_model_id = hourglass_model_id
+        self.h5_root_dir = h5_root_dir
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        self.shuffle_val_dataset = shuffle_val_dataset
+
+        base_dir = Path(h5_root_dir) / f"hourglass_{hourglass_model_id}" / f"seqlen_{max_seq_len}"
+        self.train_h5_path = base_dir / "train.h5"
+        self.val_h5_path = base_dir / "val.h5"
+        
+    def setup(self, stage: str = "fit"):
+        if stage == "fit":
+            self.train_dataset = CompressedH5Dataset(self.train_h5_path) 
+            self.val_dataset = CompressedH5Dataset(self.val_h5_path)
+        elif stage == "predict":
+            self.test_dataset = CompressedH5Dataset(self.val_h5_path)
+        else:
+            return ValueError(f"Stage must be 'fit' or 'predict', got {stage}.")
+    
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=True,
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            shuffle=self.shuffle_val_dataset,
+        )
+
+    def test_dataloader(self):
+        return self.val_dataloader()
+
+    def predict_dataloader(self):
+        return self.val_dataloader()
 
 
 if __name__ == "__main__":
-    lmdb_path = "/homefs/home/lux70/storage/data/pfam/compressed/subset_5000/hourglass_jzlv54wl/seqlen_512/val.lmdb"
-    ds = CompressedLMDBDataset(lmdb_path)
-    emb = ds[0]
+    dm = CompressedH5DataModule(batch_size=16)
+    dm.setup("fit")
+    dl = dm.train_dataloader()
+    print(len(dl.dataset))
+    print(dl.dataset.lmdb_path)
+    # batch = next(iter(dl))
     import IPython;IPython.embed()
-
-    dl = torch.utils.data.DataLoader(ds, batch_size=4)
-    batch = next(iter(dl))
