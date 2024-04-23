@@ -16,8 +16,8 @@ import numpy as np
 import math
 from functools import partial
 
-from .helpers import to_2tuple
-from .embedders import TimestepEmbedder, get_1d_sincos_pos_embed
+from .modules.helpers import to_2tuple
+from .modules.embedders import TimestepEmbedder, get_1d_sincos_pos_embed
 
 
 def modulate(x, shift, scale):
@@ -193,7 +193,7 @@ class SimpleDiT(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.x_embedder.num_patches ** 0.5))
+        pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], self.max_seq_len)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
         # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
@@ -222,18 +222,25 @@ class SimpleDiT(nn.Module):
     def forward(self, x, t, y=None):
         """
         Forward pass of DiT.
-        x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
+        x: (N, C, L) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
         y: (N,) tensor of class labels
         """
-        x = self.x_embedder(x) + self.pos_embed  # (N, T, D), where T = H * W / patch_size ** 2
+        x += self.pos_emb
         t = self.t_embedder(t)                   # (N, D)
-        # y = self.y_embedder(y, self.training)    # (N, D)
-        # c = t + y                                # (N, D)
-        c = t
+        if not y is None:
+            # TODO
+            y = self.y_embedder(y, self.training)    # (N, D)
+            c = t + y                                # (N, D)
+        else:
+            c = t
 
         for block in self.blocks:
             x = block(x, c)                      # (N, T, D)
         x = self.final_layer(x, c)                # (N, T, patch_size ** 2 * out_channels)
         return x
 
+
+if __name__ == "__main__":
+    denoiser = SimpleDiT()
+    import IPython;IPython.embed()

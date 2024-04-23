@@ -802,7 +802,7 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
         emb, seq = ds[:], ds.attrs["sequence"]
         emb = torch.tensor(emb.reshape(-1, self.compressed_hid_dim))
         L, C = emb.shape
-        emb = trim_or_pad_length_first(emb, self.max_seq_len, self.pad_idx) 
+        emb = trim_or_pad_length_first(emb, self.max_seq_len)
         mask = torch.arange(self.max_seq_len) < L
         return emb, mask, seq
 
@@ -825,6 +825,7 @@ class CompressedH5DataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
+
 
         base_dir = Path(h5_root_dir) / f"hourglass_{hourglass_model_id}" / f"seqlen_{max_seq_len}"
         self.train_h5_path = base_dir / "train.h5"
@@ -868,7 +869,5 @@ if __name__ == "__main__":
     dm = CompressedH5DataModule(batch_size=16)
     dm.setup("fit")
     dl = dm.train_dataloader()
-    print(len(dl.dataset))
-    print(dl.dataset.lmdb_path)
-    # batch = next(iter(dl))
-    import IPython;IPython.embed()
+    batch = next(iter(dl))
+    import pdb;pdb.set_trace()
