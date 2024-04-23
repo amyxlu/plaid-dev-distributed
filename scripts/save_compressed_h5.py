@@ -154,7 +154,9 @@ class FastaToH5:
         for i in range(compressed.shape[0]):
             sequence = sequences[i] 
             data = compressed[i, :len(sequence), :].astype(np.float32)
-            ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
+            # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
+            # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="lzf")
+            ds = fh.create_dataset(str(cur_idx), data=data, dtype="f")
             ds.attrs['sequence'] = sequence
             cur_idx += 1
         
