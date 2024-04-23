@@ -1,12 +1,12 @@
 """
-Uses LMDB to embed with ESMFold, then compress.
+Embed with ESMFold, compress, and save to h5py with each header getting its own index
 """
 import random
 import typing as T
 from pathlib import Path
-import pickle
 
-import lmdb
+import pickle
+import h5py
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
@@ -22,7 +22,8 @@ from plaid.compression.hourglass_vq import HourglassVQLightningModule
 PathLike = T.Union[Path, str]
 
 
-class FastaToLMDB:
+class FastaToH5:
+    """Class that deals with writeable H5 file creation."""
     def __init__(
         self,
         hourglass_model_id: str,
@@ -39,7 +40,6 @@ class FastaToLMDB:
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
         split_header: bool = False,
         device_mode: str = "cuda",
-        lmdb_map_size: int = int(1e9)
     ):
         # basic attributes
         self.hourglass_model_id = hourglass_model_id
@@ -54,7 +54,6 @@ class FastaToLMDB:
         self.split_header = split_header
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
-        self.lmdb_map_size = int(lmdb_map_size)
 
         self.latent_scaler = LatentScaler(latent_scaler_mode)
         self.train_dataloader, self.val_dataloader = self._make_fasta_dataloaders()
@@ -72,13 +71,12 @@ class FastaToLMDB:
         # set up output path
         dirname = f"hourglass_{hourglass_model_id}"
         outdir = Path(output_dir) / dirname / f"seqlen_{max_seq_len}"
-        self.train_lmdb_path = outdir / "train.lmdb"
-        self.val_lmdb_path = outdir / "val.lmdb"
-        self._maybe_make_dir(self.train_lmdb_path)
-        self._maybe_make_dir(self.val_lmdb_path)
+        self.train_h5_path = outdir / "train.h5"
+        self.val_h5_path = outdir / "val.h5"
+        self._maybe_make_dir(self.train_h5_path)
+        self._maybe_make_dir(self.val_h5_path)
 
         # metadata to be saved
-        self.all_headers = []
         self.hid_dim = 1024 // self.hourglass_model.enc.downproj_factor
         self.shorten_factor = self.hourglass_model.enc.shorten_factor
 
@@ -129,7 +127,7 @@ class FastaToLMDB:
             _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
     
-    def run_batch(self, env, batch) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
+    def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
         headers, sequences = batch
 
         if self.split_header:
@@ -145,54 +143,60 @@ class FastaToLMDB:
         2. make hourglass compression
         """
         compressed = self.process_and_compress(feats, mask)
-        sequence_lengths = mask.sum(dim=1).squeeze().detach().cpu().numpy()
         assert compressed.shape[-1] == self.hid_dim
 
         compressed = npy(compressed)
-        del feats, mask, sequences
+        del feats, mask
 
         """
-        2. Write to LMDB transaction
+        3. Write to h5 
         """
-        with env.begin(write=True) as txn:
-            for i in range(compressed.shape[0]):
-                # save each key/value pair for each sample, trimming only to the actual sequence length
-                key = headers[i].encode("utf-8")
-                value = compressed[i, :sequence_lengths[i], :].tobytes()
-                self.all_headers.append(key)
-                txn.put(key, value)
+        for i in range(compressed.shape[0]):
+            sequence = sequences[i] 
+            data = compressed[i, :len(sequence), :].astype(np.float32)
+            ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
+            ds.attrs['sequence'] = sequence
+            cur_idx += 1
         
-    def make_lmdb_database(self, lmdb_path, dataloader):
-        env = lmdb.open(str(lmdb_path), map_size=self.lmdb_map_size, create=True)
-        print("Making LMDB database at", lmdb_path)
-        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
-            self.run_batch(env, batch)
+        return cur_idx
 
-        # add some metadata
-        print("Adding final metadata to LMDB database...")
-        with env.begin(write=True) as txn:
-            txn.put(b"max_seq_len", self.max_seq_len.to_bytes(length=2, signed=False))
-            txn.put(b"shorten_factor", self.shorten_factor.to_bytes(length=1, signed=False))
-            txn.put(b"hid_dim", self.hid_dim.to_bytes(length=2, signed=False))
-            txn.put(b"all_headers", pickle.dumps(self.all_headers))
-        print('Finished making dataset at', lmdb_path)
-        env.close()
+        
+    def make_h5_database(self, h5_path, dataloader):
+        # set global index per database
+        cur_idx = 0
+        print("Making h5 database at", h5_path)
+
+        # open handle
+        fh = h5py.File(h5_path, "w")
+
+        # store metadata
+        fh.attrs['max_seq_len'] = self.max_seq_len
+        fh.attrs['shorten_factor'] = self.shorten_factor
+        fh.attrs['compressed_hid_dim'] = self.hid_dim
+        fh.attrs['dataset_size'] = len(dataloader.dataset)
+
+        # writes each data point as its own dataset within the run batch method
+        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
+            cur_idx = self.run_batch(fh, batch, cur_idx)
+
+        # close handle
+        fh.close()
     
     def run(self):
-        self.make_lmdb_database(self.val_lmdb_path, self.val_dataloader)
-        self.make_lmdb_database(self.train_lmdb_path, self.train_dataloader)
+        self.make_h5_database(self.val_h5_path, self.val_dataloader)
+        self.make_h5_database(self.train_h5_path, self.train_dataloader)
     
 
 def main():
-    fasta_to_lmdb = FastaToLMDB(
+    fasta_to_h5 = FastaToH5(
         hourglass_model_id="jzlv54wl",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_2M",
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
         batch_size=128,
-        max_dataset_size=2_000_000,
+        max_dataset_size=5000,
     )
-    fasta_to_lmdb.run()
+    fasta_to_h5.run()
 
 
 if __name__ == "__main__":

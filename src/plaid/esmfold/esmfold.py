@@ -57,7 +57,8 @@ esm_registry = {
 class ESMFold(nn.Module):
     def __init__(self, esmfold_config=None, **kwargs):
         super().__init__()
-
+        
+        print("Creating ESMFold...")
         start = time.time()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
