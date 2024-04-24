@@ -100,20 +100,20 @@ def train(cfg: DictConfig):
     # todo: add a wasserstein distance callback
     outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
 
-    sample_callback = hydra.utils.instantiate(
-        cfg.callbacks.sample,
-        outdir=outdir,
-        diffusion=diffusion,
-        log_to_wandb=not cfg.dryrun,
-        sequence_constructor=sequence_constructor,
-        structure_constructor=structure_constructor,
-    )
+    # sample_callback = hydra.utils.instantiate(
+    #     cfg.callbacks.sample,
+    #     outdir=outdir,
+    #     diffusion=diffusion,
+    #     log_to_wandb=not cfg.dryrun,
+    #     sequence_constructor=sequence_constructor,
+    #     structure_constructor=structure_constructor,
+    # )
 
     # run training
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
-        callbacks=[lr_monitor, checkpoint_callback, sample_callback],
+        callbacks=[lr_monitor, checkpoint_callback], #, sample_callback],
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)

@@ -103,7 +103,7 @@ class GaussianDiffusion(L.LightningModule):
     """
     def __init__(
         self,
-        model: BaseDenoiser,
+        model: torch.nn.Module,  # denoiser
         beta_scheduler: BetaScheduler = ADMCosineBetaScheduler(),
         *,
         x_downscale_factor: float = 1.0,
@@ -611,38 +611,18 @@ class GaussianDiffusion(L.LightningModule):
     Forward pass with loss calculations
     """
 
-    def _make_mask(self, latent: torch.Tensor, sequences: T.List[str]) -> torch.Tensor:
-        """Make the mask from the input latent and the string of original sequences.
-        The latent might have been shortened, so the mask always takes the same length as the latent,
-        but we use the string of original sequences to compute which positions should be masked.
-        This requires the shortening factor used in the dataloader to be provided a priori."""
-        B, L, _ = latent.shape
-        sequence_lengths = torch.tensor([len(s) for s in sequences], device=self.device)[:, None]
-        idxs = torch.tile(torch.arange(L, device=self.device), (B, 1))
-        fractional_lengths = torch.tile(sequence_lengths / self.shorten_factor, (1, L))
-        return (idxs < fractional_lengths).long()
-    
     def forward(
         self,
         x_start,
-        sequences,
+        mask,
+        sequences=None,
         model_kwargs={},
         noise=None,
     ):
         # x_start was already compressed and bounded to -1 and 1 during dataloader preprocessing
         B, L, _ = x_start.shape
-        t = (
-            torch.randint(0, self.num_timesteps, (B,))
-            .long()
-            .to(self.device)
-        )
-
-        """
-        sequence strings must be the trimmed version that matches latent
-        if the length of the structure doesn't match, we prioritize choosing a sequence string that
-        matches the latent 
-        """
-        mask = self._make_mask(x_start, sequences)
+        t = torch.randint(0, self.num_timesteps, (B,))
+        t = t.long().to(self.device)
 
         # potentially unscale
         x_start *= self.x_downscale_factor
@@ -662,6 +642,7 @@ class GaussianDiffusion(L.LightningModule):
 
         # add conditioning information here
         if self.add_secondary_structure_conditioning:
+            assert not sequences is None
             model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(
                 sequences
             )
@@ -722,9 +703,10 @@ class GaussianDiffusion(L.LightningModule):
         return self.unscaler.unscale(x)
 
     def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
-        embs, sequences, _ = batch
+        embs, mask, sequences = batch
         model_output, x_t, t, diffusion_loss = self(
             x_start=embs,
+            mask=mask,
             sequences=sequences,
             model_kwargs=model_kwargs,
             noise=noise

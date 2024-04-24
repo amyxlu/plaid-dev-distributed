@@ -70,47 +70,6 @@ class Attention(nn.Module):
         out = rearrange(out, 'b h l d -> b l (h d)', h = h)
         return self.to_out(out)
 
-# class Attention(nn.Module):
-#     def __init__(
-#             self,
-#             dim: int,
-#             num_heads: int = 8,
-#             qkv_bias: bool = False,
-#             qk_norm: bool = False,
-#             attn_drop: float = 0.,
-#             proj_drop: float = 0.,
-#             norm_layer: nn.Module = nn.LayerNorm,
-#     ) -> None:
-#         super().__init__()
-#         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
-#         self.num_heads = num_heads
-#         self.head_dim = dim // num_heads
-#         self.scale = self.head_dim ** -0.5
-
-#         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-#         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-#         self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-#         self.attn_drop = nn.Dropout(attn_drop)
-#         self.proj = nn.Linear(dim, dim)
-#         self.proj_drop = nn.Dropout(proj_drop)
-
-#     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-#         B, N, C = x.shape
-#         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-#         q, k, v = qkv.unbind(0)
-#         q, k = self.q_norm(q), self.k_norm(k)
-
-#         x = F.scaled_dot_product_attention(
-#             q, k, v, attn_mask=mask,
-#             dropout_p=self.attn_drop.p if self.training else 0.,
-#         )
-
-#         x = x.transpose(1, 2).reshape(B, N, C)
-#         x = self.proj(x)
-#         x = self.proj_drop(x)
-#         return x
-    
-
 
 class Mlp(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
@@ -225,17 +184,19 @@ class SimpleDiT(nn.Module):
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
-        learn_sigma=True,
+        use_self_conditioning=False
     ):
         super().__init__()
         self.max_seq_len = max_seq_len
         self.input_dim = input_dim
-        self.learn_sigma = learn_sigma
         self.num_heads = num_heads
+        self.use_self_conditioning = use_self_conditioning
 
         self.x_proj = InputProj(input_dim, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
+        if self.use_self_conditioning:
+            self.self_conditioning_mlp = Mlp(input_dim, input_dim * 2)
 
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
@@ -271,12 +232,14 @@ class SimpleDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, x, t, mask=None):
+    def forward(self, x, t, mask=None, x_self_cond=None):
         """
         Forward pass of DiT.
         x: (N, C, L) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
         """
+        if x_self_cond is not None:
+            x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
         x = self.x_proj(x)
         x += self.pos_embed
         t = self.t_embedder(t)                   # (N, D)

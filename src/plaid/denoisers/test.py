@@ -1,16 +1,19 @@
 from plaid.denoisers.dit import SimpleDiT
+from plaid.diffusion.guided import GaussianDiffusion
+from plaid.datasets import CompressedH5DataModule
 import torch
 
 dit = SimpleDiT()
 device = torch.device("cuda")
 dit.to(device)
 
-from plaid.datasets import CompressedH5DataModule
 dm = CompressedH5DataModule(batch_size=16)
 dm.setup("fit")
 dl = dm.train_dataloader()
 
 optimizer = torch.optim.Adam(dit.parameters(), lr=1e-4)
+diffusion = GaussianDiffusion(model=dit)
+diffusion.to(device)
 
 for batch in dl:
     x, mask, _ = batch
@@ -21,7 +24,9 @@ for batch in dl:
     print(out)
     print(out.mean())
     print(out.shape)
-
+    
+    out = diffusion(x, mask) 
+    
     loss = ((x - out) ** 2).mean()
     optimizer.zero_grad()
     loss.backward()

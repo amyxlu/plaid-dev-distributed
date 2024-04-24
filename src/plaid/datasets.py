@@ -791,9 +791,6 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
         self.dataset_size = fh.attrs['dataset_size']
         self.fh = fh
 
-    def __del__(self):
-        self.fh.close()
-
     def __len__(self):
         return self.dataset_size
 
