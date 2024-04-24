@@ -10,14 +10,22 @@
 # --------------------------------------------------------
 
 import torch
-import torch.nn as nn
+from torch import nn, einsum
 import torch.nn.functional as F
 import numpy as np
-import math
 from functools import partial
+from einops import rearrange
 
 from .modules.helpers import to_2tuple
 from .modules.embedders import TimestepEmbedder, get_1d_sincos_pos_embed
+
+
+def exists(val):
+    return val is not None
+
+
+def default(val, d):
+    return val if exists(val) else d
 
 
 def modulate(x, shift, scale):
@@ -25,49 +33,83 @@ def modulate(x, shift, scale):
 
 
 class Attention(nn.Module):
-    """Adapted from timm.vision_transformer:
-    https://github.com/huggingface/pytorch-image-models/blob/main/timm/models/vision_transformer.py
-    """
-
     def __init__(
         self,
-        dim: int,
-        num_heads: int = 8,
-        qkv_bias: bool = False,
-        qk_norm: bool = False,
-        attn_drop: float = 0.,
-        proj_drop: float = 0.,
-        norm_layer: nn.Module = nn.LayerNorm,
-    ) -> None:
+        dim,
+        heads = 8,
+        qkv_bias = False,
+        dropout = 0.,
+    ):
         super().__init__()
-        assert dim % num_heads == 0, 'dim should be divisible by num_heads'
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
-        self.scale = self.head_dim ** -0.5
+        self.heads = heads
+        dim_head = dim // heads
+        self.scale = dim_head ** -0.5
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-        self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
+        self.to_qkv = nn.Linear(dim, dim * 3, bias = qkv_bias)
+        self.to_out = nn.Linear(dim, dim)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv.unbind(0)
-        q, k = self.q_norm(q), self.k_norm(k)
+    def forward(self, x, mask = None):
+        h, device = self.heads, x.device
+        q, k, v = self.to_qkv(x).chunk(3, dim = -1)
+        q, k, v = map(lambda t: rearrange(t, 'b l (h d) -> b h l d', h = h), (q, k, v))
 
-        x = F.scaled_dot_product_attention(
-            q, k, v,
-            dropout_p=self.attn_drop.p if self.training else 0.,
-            attn_mask=mask
-        )
+        q = q * self.scale
 
-        x = x.transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
+        sim = einsum('b h i d, b h j d -> b h i j', q, k)
+        mask_value = -torch.finfo(sim.dtype).max
+
+        if exists(mask):
+            mask = rearrange(mask, 'b j -> b () () j')
+            sim = sim.masked_fill(~mask, mask_value)
+
+        attn = sim.softmax(dim = -1)
+        attn = self.dropout(attn)
+
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = rearrange(out, 'b h l d -> b l (h d)', h = h)
+        return self.to_out(out)
+
+# class Attention(nn.Module):
+#     def __init__(
+#             self,
+#             dim: int,
+#             num_heads: int = 8,
+#             qkv_bias: bool = False,
+#             qk_norm: bool = False,
+#             attn_drop: float = 0.,
+#             proj_drop: float = 0.,
+#             norm_layer: nn.Module = nn.LayerNorm,
+#     ) -> None:
+#         super().__init__()
+#         assert dim % num_heads == 0, 'dim should be divisible by num_heads'
+#         self.num_heads = num_heads
+#         self.head_dim = dim // num_heads
+#         self.scale = self.head_dim ** -0.5
+
+#         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+#         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+#         self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+#         self.attn_drop = nn.Dropout(attn_drop)
+#         self.proj = nn.Linear(dim, dim)
+#         self.proj_drop = nn.Dropout(proj_drop)
+
+#     def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+#         B, N, C = x.shape
+#         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+#         q, k, v = qkv.unbind(0)
+#         q, k = self.q_norm(q), self.k_norm(k)
+
+#         x = F.scaled_dot_product_attention(
+#             q, k, v, attn_mask=mask,
+#             dropout_p=self.attn_drop.p if self.training else 0.,
+#         )
+
+#         x = x.transpose(1, 2).reshape(B, N, C)
+#         x = self.proj(x)
+#         x = self.proj_drop(x)
+#         return x
+    
 
 
 class Mlp(nn.Module):
@@ -116,7 +158,7 @@ class DiTBlock(nn.Module):
     def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, **block_kwargs):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.attn = Attention(hidden_size, num_heads=num_heads, qkv_bias=True, **block_kwargs)
+        self.attn = Attention(hidden_size, num_heads, qkv_bias=False, **block_kwargs)
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
@@ -126,9 +168,10 @@ class DiTBlock(nn.Module):
             nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
-    def forward(self, x, c):
+    def forward(self, x, c, mask):
+        """Apply multi-head attention (with mask) and adaLN conditioning (mask agnostic)."""
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
-        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa))
+        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), mask)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
         return x
 
@@ -139,8 +182,11 @@ class FinalLayer(nn.Module):
     """
     def __init__(self, hidden_size, max_seq_len, out_channels):
         super().__init__()
+        self.max_seq_len = max_seq_len
+        self.out_channels = out_channels
+        self.hidden_size = hidden_size
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.linear = nn.Linear(hidden_size, max_seq_len * out_channels, bias=True)
+        self.linear = nn.Linear(hidden_size, out_channels, bias=True)
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(),
             nn.Linear(hidden_size, 2 * hidden_size, bias=True)
@@ -152,6 +198,19 @@ class FinalLayer(nn.Module):
         x = self.linear(x)
         return x
 
+
+class InputProj(nn.Module):
+    """
+    Initial x projection, serves a similar purpose as the patch embed
+    """
+    def __init__(self, input_dim, hidden_size, bias=True):
+        super().__init__()
+        self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
+        self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+    
+    def forward(self, x):
+        return self.norm(self.proj(x))
+    
 
 class SimpleDiT(nn.Module):
     """
@@ -174,6 +233,7 @@ class SimpleDiT(nn.Module):
         self.learn_sigma = learn_sigma
         self.num_heads = num_heads
 
+        self.x_proj = InputProj(input_dim, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
 
@@ -193,16 +253,8 @@ class SimpleDiT(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], self.max_seq_len)
+        pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], np.arange(self.max_seq_len))
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
-
-        # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
-        w = self.x_embedder.proj.weight.data
-        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-        nn.init.constant_(self.x_embedder.proj.bias, 0)
-
-        # Initialize label embedding table:
-        nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
@@ -219,28 +271,21 @@ class SimpleDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, x, t, y=None):
+    def forward(self, x, t, mask=None):
         """
         Forward pass of DiT.
         x: (N, C, L) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
-        y: (N,) tensor of class labels
         """
-        x += self.pos_emb
+        x = self.x_proj(x)
+        x += self.pos_embed
         t = self.t_embedder(t)                   # (N, D)
-        if not y is None:
-            # TODO
-            y = self.y_embedder(y, self.training)    # (N, D)
-            c = t + y                                # (N, D)
-        else:
-            c = t
+        c = t  # TODO: add y embedding and clf guidance
+        
+        if mask is None:
+            mask = torch.ones(x.shape[:2], device=x.device).bool()
 
         for block in self.blocks:
-            x = block(x, c)                      # (N, T, D)
-        x = self.final_layer(x, c)                # (N, T, patch_size ** 2 * out_channels)
+            x = block(x, c, mask)                # (N, L, D)
+        x = self.final_layer(x, c)               # (N, L, out_channels)
         return x
-
-
-if __name__ == "__main__":
-    denoiser = SimpleDiT()
-    import IPython;IPython.embed()

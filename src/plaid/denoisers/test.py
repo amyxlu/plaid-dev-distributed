@@ -1,0 +1,30 @@
+from plaid.denoisers.dit import SimpleDiT
+import torch
+
+dit = SimpleDiT()
+device = torch.device("cuda")
+dit.to(device)
+
+from plaid.datasets import CompressedH5DataModule
+dm = CompressedH5DataModule(batch_size=16)
+dm.setup("fit")
+dl = dm.train_dataloader()
+
+optimizer = torch.optim.Adam(dit.parameters(), lr=1e-4)
+
+for batch in dl:
+    x, mask, _ = batch
+    x, mask = x.to(device), mask.to(device)
+    t = torch.randint(0, 500, (x.shape[0],)).to(device)
+    out = dit(x, t, mask)
+
+    print(out)
+    print(out.mean())
+    print(out.shape)
+
+    loss = ((x - out) ** 2).mean()
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+    print(loss)
+
