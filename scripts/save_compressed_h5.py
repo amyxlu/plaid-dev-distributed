@@ -26,7 +26,7 @@ class FastaToH5:
     """Class that deals with writeable H5 file creation."""
     def __init__(
         self,
-        hourglass_model_id: str,
+        compression_model_id: str,
         hourglass_ckpt_dir: PathLike,
         fasta_file: PathLike,
         output_dir: PathLike,
@@ -42,7 +42,7 @@ class FastaToH5:
         device_mode: str = "cuda",
     ):
         # basic attributes
-        self.hourglass_model_id = hourglass_model_id
+        self.compression_model_id = compression_model_id
         self.hourglass_ckpt_dir = hourglass_ckpt_dir
         self.fasta_file = fasta_file
         self.batch_size = batch_size
@@ -69,7 +69,7 @@ class FastaToH5:
         self.hourglass_model.to(self.device)
 
         # set up output path
-        dirname = f"hourglass_{hourglass_model_id}"
+        dirname = f"hourglass_{compression_model_id}"
         outdir = Path(output_dir) / dirname / f"seqlen_{max_seq_len}"
         self.train_h5_path = outdir / "train.h5"
         self.val_h5_path = outdir / "val.h5"
@@ -85,7 +85,7 @@ class FastaToH5:
             Path(outpath).parent.mkdir(parents=True)
 
     def _make_hourglass(self) -> HourglassVQLightningModule: 
-        ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.hourglass_model_id) / "last.ckpt"
+        ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / "last.ckpt"
         print("Loading hourglass from", str(ckpt_path))
         model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
         model = model.eval()
@@ -191,7 +191,7 @@ class FastaToH5:
 
 def main():
     fasta_to_h5 = FastaToH5(
-        hourglass_model_id="jzlv54wl",
+        compression_model_id="jzlv54wl",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
         output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",

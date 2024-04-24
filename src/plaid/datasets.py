@@ -729,7 +729,7 @@ class CompressedLMDBDataset(torch.utils.data.Dataset):
 class CompressedLMDBDataModule(L.LightningDataModule):
     def __init__(
             self,
-            hourglass_model_id="jzlv54wl",
+            compression_model_id="jzlv54wl",
             lmdb_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
             max_seq_len=512,
             batch_size=128,
@@ -737,14 +737,14 @@ class CompressedLMDBDataModule(L.LightningDataModule):
             shuffle_val_dataset=False
         ):
         super().__init__()
-        self.hourglass_model_id = hourglass_model_id
+        self.compression_model_id = compression_model_id
         self.lmdb_root_dir = lmdb_root_dir
         self.max_seq_len = max_seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
 
-        base_dir = Path(lmdb_root_dir) / f"hourglass_{hourglass_model_id}" / f"seqlen_{max_seq_len}"
+        base_dir = Path(lmdb_root_dir) / f"hourglass_{compression_model_id}" / f"seqlen_{max_seq_len}"
         self.train_lmdb_path = base_dir / "train.lmdb"
         self.val_lmdb_path = base_dir / "val.lmdb"
         
@@ -806,7 +806,7 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
 class CompressedH5DataModule(L.LightningDataModule):
     def __init__(
         self,
-        hourglass_model_id="jzlv54wl",
+        compression_model_id="jzlv54wl",
         h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
         max_seq_len=512,
         batch_size=128,
@@ -815,14 +815,14 @@ class CompressedH5DataModule(L.LightningDataModule):
     ):
         
         super().__init__()
-        self.hourglass_model_id = hourglass_model_id
+        self.compression_model_id = compression_model_id
         self.h5_root_dir = h5_root_dir
         self.max_seq_len = max_seq_len
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
 
-        base_dir = Path(h5_root_dir) / f"hourglass_{hourglass_model_id}" / f"seqlen_{max_seq_len}"
+        base_dir = Path(h5_root_dir) / f"hourglass_{compression_model_id}" / f"seqlen_{max_seq_len}"
         self.train_h5_path = base_dir / "train.h5"
         self.val_h5_path = base_dir / "val.h5"
         

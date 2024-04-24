@@ -1,6 +1,6 @@
 # @package _global_
 
-hourglass_model_id: jzlv54wl
+compression_model_id: jzlv54wl
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 8 
 
@@ -9,7 +9,7 @@ defaults:
   - override /datamodule: /compressed/pfam_h5
 
 datamodule:
-  hourglass_model_id: ${hourglass_model_id}
+  compression_model_id: ${compression_model_id}
   num_workers: 0
 
 callbacks/sample:
