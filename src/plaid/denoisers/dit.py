@@ -235,13 +235,15 @@ class SimpleDiT(nn.Module):
     def forward(self, x, t, mask=None, x_self_cond=None):
         """
         Forward pass of DiT.
-        x: (N, C, L) tensor of spatial inputs (images or latent representations of images)
+        x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
         t: (N,) tensor of diffusion timesteps
+        mask: (N, L) mask where True means to attend and False denotes padding
+        x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
         """
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
         x = self.x_proj(x)
-        x += self.pos_embed
+        x += self.pos_embed[:, :x.shape[1], :]
         t = self.t_embedder(t)                   # (N, D)
         c = t  # TODO: add y embedding and clf guidance
         
