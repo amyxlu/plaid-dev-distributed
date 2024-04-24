@@ -11,7 +11,6 @@ defaults:
 
 diffusion:
   shorten_factor: ${shorten_factor} 
-  se
 
 datamodule:
   compression_model_id: ${compression_model_id}
@@ -23,4 +22,3 @@ denoiser:
 callbacks/sample:
   n_to_sample: 640 
   batch_size: 64
-  run_every_n_epoch: 15

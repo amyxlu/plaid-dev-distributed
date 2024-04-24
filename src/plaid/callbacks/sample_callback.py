@@ -41,7 +41,6 @@ class SampleCallback(Callback):
     def __init__(
         self,
         diffusion: GaussianDiffusion,  # most sampling logic is here
-        normalize_real_features: bool = True,
         n_to_sample: int = 16,
         n_to_construct: int = 4,
         gen_seq_len: int = 64,
@@ -51,6 +50,8 @@ class SampleCallback(Callback):
         calc_sequence: bool = True,
         calc_fid: bool = True,
         fid_holdout_tensor_fpath: str = "",
+        uncompress_for_fid: bool = True,
+        normalize_real_features: bool = True,
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
         num_recycles: int = 4,
@@ -65,6 +66,7 @@ class SampleCallback(Callback):
         self.diffusion = diffusion
         self.log_to_wandb = log_to_wandb
         self.normalize_real_features = normalize_real_features
+        self.gen_seq_len = gen_seq_len
 
         self.calc_fid = calc_fid
         self.calc_structure = calc_structure
@@ -77,6 +79,7 @@ class SampleCallback(Callback):
             assert calc_structure
 
         self.fid_holdout_tensor_fpath = fid_holdout_tensor_fpath
+        self.uncompress_for_fid = uncompress_for_fid 
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
         self.sequence_decode_temperature = sequence_decode_temperature
@@ -267,12 +270,12 @@ class SampleCallback(Callback):
 
         # sample latent (implicitly uncompresses and unnormalizes)
         maybe_print("sampling latent...")
-        x, log_dict = self.sample_latent(shape)
+        x, log_dict = self.sample_latent(shape)   # compressed, i.e. (N, L, C_compressed)
         if log_to_wandb:
             logger.log(log_dict)
 
         # uncompress and unnormalize the sampled x
-        latent = self.diffusion.process_x_to_latent(x)
+        latent = self.diffusion.process_x_to_latent(x)  # (N, L, C_comp) -> (N, L, C_lat)
 
         # calculate FID 
         if self.calc_fid:
@@ -332,52 +335,9 @@ class SampleCallback(Callback):
     #     torch.cuda.empty_cache()
 
     def on_train_epoch_end(self, trainer, pl_module):
-        if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
-            shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
-            self._run(pl_module, shape, log_to_wandb=True)
-            torch.cuda.empty_cache()
-        else:
-            pass
-
-
-if __name__ == "__main__":
-    from plaid.diffusion import GaussianDiffusion
-    from plaid.denoisers import UTriSelfAttnDenoiser
-    from plaid.compression.uncompress import UncompressContinuousLatent
-
-    uncompressor = UncompressContinuousLatent("tk3g5edg")
-    denoiser = UTriSelfAttnDenoiser(
-        hid_dim=1024,
-        num_blocks=3,
-        input_dim_if_different=8
-    )
-    unscaler = LatentScaler()
-
-    diffusion = GaussianDiffusion(denoiser, uncompressor=uncompressor, unscaler=unscaler, sampling_timesteps=5)
-    callback = SampleCallback(
-        diffusion,
-        denoiser,
-        fid_holdout_tensor_fpath="/homefs/home/lux70/storage/data/rocklin/shards/val/esmfold/seqlen_256/fp32/shard0000.h5",
-        n_to_sample=4)
-    device = torch.device("cuda:0")
-
-    x = torch.randn((16, 46, 1024)).to(device)
-    seq_str, log_dict = callback.construct_sequence(x, device)
-    print(seq_str)
-
-    cons = LatentToStructure()
-    outputs = cons.to_structure(x, seq_str, batch_size=4)
-    import IPython;IPython.embed()
-
-    # x, log_dict = callback.sample_latent((4, 46, 8))
-    # latent = diffusion.process_x_to_latent(x)
-    # log_dict = callback.calculate_fid(latent, device)
-    # print(log_dict)
-
-    # x = x[torch.randperm(x.shape[0])][: callback.n_to_construct]
-    # seq_str, log_dict = callback.construct_sequence(x, device)
-    # print(seq_str)
-
-    # pdb_strs, outputs = callback.construct_structure(latent, seq_str, device)
-    # print(outputs)
-
+        # if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
+        shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
+        self._run(pl_module, shape, log_to_wandb=True)
+        torch.cuda.empty_cache()
+        # else:
+        #     pass

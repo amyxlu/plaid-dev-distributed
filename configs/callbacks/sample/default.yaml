@@ -10,4 +10,3 @@ calc_perplexity: False
 calc_structure: False
 calc_fid: True
 calc_sequence: True
-run_every_n_epoch: 1

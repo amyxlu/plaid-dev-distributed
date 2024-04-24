@@ -13,5 +13,11 @@ datamodule:
   num_workers: 0
 
 callbacks/sample:
-  n_to_sample: 640 
-  batch_size: 64
+  n_to_sample: 32
+  batch_size: 32
+  calculate_fid: False
+  save_generated_structures: True
+
+
+compression_model_id: 3e9k1838
+compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
