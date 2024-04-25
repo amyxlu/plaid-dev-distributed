@@ -21,7 +21,7 @@ from plaid.compression.uncompress import UncompressContinuousLatent
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid 
 from plaid.proteins import LatentToSequence, LatentToStructure
-from plaid.utils import LatentScaler, write_pdb_to_disk
+from plaid.utils import LatentScaler, write_pdb_to_disk, npy
 from plaid.constants import CACHED_TENSORS_DIR
 
 
@@ -59,7 +59,8 @@ class SampleCallback(Callback):
         sequence_decode_temperature: float = 1.0,
         sequence_constructor: T.Optional[LatentToSequence] = None,
         structure_constructor: T.Optional[LatentToStructure] = None,
-        run_every_n_epoch: int = 1
+        run_every_n_steps: int = 1000,
+        n_structures_to_log: T.Optional[int] = None
     ):
         super().__init__()
         self.outdir = Path(outdir)
@@ -99,7 +100,8 @@ class SampleCallback(Callback):
         self.batch_size = batch_size
         self.n_to_construct = n_to_construct
         self.gen_seq_len = gen_seq_len
-        self.run_every_n_epoch = run_every_n_epoch
+        self.run_every_n_steps = run_every_n_steps
+        self.n_structures_to_log = n_structures_to_log
 
     def _save_setup(self):
         if not self.outdir.exists():
@@ -233,26 +235,26 @@ class SampleCallback(Callback):
         metrics = outputs_to_avg_metric(outputs)
 
         # `outputs` values are numpy arrays on CPU
-        plddt_per_position = outputs['plddt'].flatten()
-        pae_per_position = outputs['predicted_aligned_erro'].flatten()
+        plddt_per_position = npy(outputs['plddt'].flatten())
+        pae_per_position = npy(outputs['predicted_aligned_error'].flatten())
 
-        plddt = metrics['plddt'].flatten()
-        pae = metrics['predicted_aligned_error'].flatten()
-        ptm = metrics['ptm'].flatten()
+        plddt = npy(metrics['plddt'].flatten())
+        pae = npy(metrics['predicted_aligned_error'].flatten())
+        ptm = npy(metrics['ptm'].flatten())
 
         N = x_processed.shape[0]
 
         log_dict = {
-            f"sampled/plddt_mean": plddt.mean().item(),
-            f"sampled/plddt_median": plddt.median().item(),
+            f"sampled/plddt_mean": np.mean(plddt),
+            f"sampled/plddt_median": np.median(plddt),
             f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(N, 50)),
             f"sampled/plddt_per_position_hist": wandb.Histogram(plddt_per_position, num_bins=min(N, 50)),
-            f"sampled/pae_mean": pae.mean().item(),
-            f"sampled/pae_median": pae.median().item(),
+            f"sampled/pae_mean": np.mean(pae),
+            f"sampled/pae_median": np.median(pae),
             f"sampled/pae_hist": wandb.Histogram(pae, num_bins=min(pae.shape[0], 50)),
             f"sampled/pae_per_position_hist": wandb.Histogram(pae_per_position, num_bins=min(N, 50)),
-            f"sampled/ptm_mean": pae.mean().item(),
-            f"sampled/ptm_median": pae.median().item(),
+            f"sampled/ptm_mean": np.mean(pae),
+            f"sampled/ptm_median": np.median(pae),
             f"sampled/ptm_hist": wandb.Histogram(ptm, num_bins=min(ptm.shape[0], 50))
         }
         return pdb_strs, metrics, log_dict
@@ -304,40 +306,28 @@ class SampleCallback(Callback):
                 logger.log(log_dict)
 
             if self.save_generated_structures:
-                self.save_structures_to_disk(pdb_strs, pl_module.current_epoch)
+                all_pdb_paths = self.save_structures_to_disk(pdb_strs, pl_module.current_epoch)
+
+                if not self.n_structures_to_log is None:
+                    df = pd.DataFrame(metrics)
+                    top_idxs = df.sort_values(by="plddt", ascending=False).index[:self.n_structures_to_log].values
+                    top_pdb_paths = np.array(all_pdb_paths)[top_idxs]
+                    for i in range(self.n_structures_to_log):
+                        wandb.log({f"sample_protein_{i}", wandb.Molecule(top_pdb_paths[i])})
+
 
     def save_structures_to_disk(self, pdb_strs, epoch_or_step: int):
         paths = []
         for i, pdbstr in enumerate(pdb_strs):
-            outpath = self.outdir / f"generated_structures_{epoch_or_step}" / f"sample{i}.pdb"
+            outpath = self.outdir / f"step-{epoch_or_step}" / f"sample{i}.pdb"
             outpath = write_pdb_to_disk(pdbstr, outpath)
             paths.append(outpath)
         return paths
 
-    # def on_sanity_check_start(self, trainer, pl_module):
-    #     _sampling_timesteps = pl_module.sampling_timesteps
-    #     _n_to_sample = self.n_to_sample
-    #     _n_to_construct = self.n_to_construct
-
-    #     # hack
-    #     pl_module.sampling_timesteps = 3
-    #     self.n_to_sample, self.n_to_construct = 2, 2
-    #     if rank_zero_only.rank == 0:
-    #         dummy_shape = (2, 16, self.diffusion.model.input_dim)
-    #         self._run(pl_module, shape=dummy_shape, log_to_wandb=False)
-        
-    #     # restore
-    #     pl_module.sampling_timesteps = _sampling_timesteps
-    #     self.n_to_sample = _n_to_sample
-    #     self.n_to_construct = _n_to_construct
-    #     print("done sampling sanity check")
-
-    #     torch.cuda.empty_cache()
-
-    def on_train_epoch_end(self, trainer, pl_module):
-        # if (trainer.current_epoch % self.run_every_n_epoch == 0) and not (trainer.current_epoch == 0):
-        shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
-        self._run(pl_module, shape, log_to_wandb=True)
-        torch.cuda.empty_cache()
-        # else:
-        #     pass
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if (trainer.global_step % self.run_every_n_steps == 0) and not (trainer.global_step == 0):
+            shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
+            self._run(pl_module, shape, log_to_wandb=True)
+            torch.cuda.empty_cache()
+        else:
+            pass

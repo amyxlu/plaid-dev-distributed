@@ -6,18 +6,9 @@ input_dim: 8
 
 defaults:
   - override /denoiser: dit.yaml
-  - override /datamodule: /compressed/pfam_h5
+  - override /datamodule: compressed/pfam_h5
+  - override /callbacks/sample: pfam_compressed_fid
 
 datamodule:
   compression_model_id: ${compression_model_id}
-  num_workers: 0
-
-callbacks/sample:
-  n_to_sample: 32
-  batch_size: 32
-  calculate_fid: False
-  save_generated_structures: True
-
-
-compression_model_id: 3e9k1838
-compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
+  num_workers: 4
