@@ -23,7 +23,7 @@ def train(cfg: DictConfig):
         cfg = OmegaConf.load(config_yaml)
         print("*" * 10, "\n", "Resuming from job ID", job_id,  "\n", "*" * 10)
     else:
-        job_id = wandb.utils.generate_id()
+        job_id = wandb.util.generate_id()
 
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:

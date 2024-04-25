@@ -18,6 +18,14 @@ def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
 
+    # maybe use prior job id, else generate new ID
+    if cfg.resume_from_model_id is not None:
+        job_id = cfg.resume_from_model_id 
+    else:
+        job_id = wandb.util.generate_id() 
+    
+    # TODO: load config if resuming run
+
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -64,6 +72,8 @@ def train(cfg: DictConfig):
     denoiser = hydra.utils.instantiate(cfg.denoiser)
     beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
 
+    from plaid.utils import count_parameters
+
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
         model=denoiser,
@@ -74,12 +84,11 @@ def train(cfg: DictConfig):
         uncompressor=uncompressor
     )
 
-    # maybe use prior job id, else generate new ID
-    if cfg.resume_from_model_id is not None:
-        job_id = cfg.resume_from_model_id 
-    else:
-        job_id = wandb.util.generate_id() 
-    
+    trainable_parameters = count_parameters(diffusion, require_grad_only=True)
+    total_parameters = count_parameters(diffusion, require_grad_only=False)
+    log_cfg['trainable_params'] = trainable_parameters
+    log_cfg['total_params'] = total_parameters
+
     # save config
     dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
     dirpath.mkdir(parents=False)
