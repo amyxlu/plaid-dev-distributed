@@ -196,7 +196,7 @@ class SimpleDiT(nn.Module):
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
         if self.use_self_conditioning:
-            self.self_conditioning_mlp = Mlp(input_dim, input_dim * 2)
+            self.self_conditioning_mlp = Mlp(input_dim * 2, input_dim)
 
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
