@@ -64,7 +64,8 @@ class UncompressDiscreteLatent:
     def __init__(
         self,
         compression_model_id,
-        compression_ckpt_dir):
+        compression_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
+    ):
         super().__init__(compression_model_id, compression_ckpt_dir)
 
         assert self.quantize_scheme == "fsq", f"Only supports fsq but got {self.quantize_scheme}."
@@ -79,44 +80,3 @@ class UncompressDiscreteLatent:
             z_q = self.post_quant_proj(codes)
         
         return self.decoder(z_q, mask, verbose)
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    compression_model_id = "2024-03-21T18-49-51"
-    device = torch.device("cuda")
-
-    # scaler = LatentScaler("identity")
-    uncompressor = UncompressContinuousLatent(compression_model_id)
-    uncompressor.to(device)
-    model = uncompressor.model
-
-    from plaid.datasets import CATHShardedDataModule
-    dm = CATHShardedDataModule(
-        shard_dir="/homefs/home/lux70/storage/data/cath/shards",
-        seq_len=256,
-    )
-    dm.setup()
-    loader = dm.train_dataloader()
-    batch = next(iter(loader))
-    x = batch[0].to(device)
-    mask = None
-
-    from plaid.utils import LatentScaler
-
-    scaler = LatentScaler()
-    x_norm = scaler.scale(x)
-
-    model.to(device)
-    out = model(x_norm, mask)
-    x_recons_norm = out[0]
-    z_e = out[-1]
-    print(out[1])
-    print(((x_recons_norm - x_norm) ** 2).mean())
-
-    uncompressed = uncompressor.uncompress(z_e)
-    assert torch.allclose(uncompressed, x_recons_norm)

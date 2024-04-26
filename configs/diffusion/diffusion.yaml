@@ -2,7 +2,7 @@ _target_: plaid.diffusion.GaussianDiffusion
 
 x_downscale_factor: 1.0
 timesteps: 1000
-objective: "pred_v"
+objective: "pred_noise"
 min_snr_loss_weight: True
 min_snr_gamma: 5
 x_clip_val: 1.0
@@ -13,7 +13,7 @@ sequence_decoder_weight: 0.0
 structure_decoder_weight: 0.0
 
 lr: 1e-4
-adam_betas: [0.9, 0.999]
+adam_betas: [0.9, 0.995]
 lr_sched_type: "constant"
 lr_num_warmup_steps: 0
 lr_num_training_steps: 10_000_000

@@ -37,5 +37,5 @@ for i, batch in enumerate(dl):
 
 from plaid.callbacks.sample_callback import SampleCallback
 
-callback = SampleCallback(diffusion, calc_fid=False)
-callback.on_train_epoch_end(None, diffusion)
+callback = SampleCallback(diffusion, calc_fid=True)
+callback.on_train_batch_end(None, diffusion, None, None, None)

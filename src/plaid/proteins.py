@@ -352,6 +352,23 @@ class LatentToStructure:
             return all_pdb_strs, all_output_dicts
 
 
+class ProteinAnalysis:
+    def __init__(self):
+        self.properties = ['molecular_weight', 'aromaticity', 'instability_index', 'isoelectric_point', 'gravy', 'charge_at_pH']
+
+    def _protein_property(protein_sequence, prop):
+        analyzer = ProteinAnalysis(protein_sequence)
+        if prop == "charge_at_pH":
+            return getattr(analyzer, prop)(pH=7)
+        else:
+            return getattr(analyzer, prop)()
+
+    @classmethod
+    def map_analysis(self, df, sequence_column_name="sequences"):
+        for prop in self.properties:
+            df[prop] = df[sequence_column_name].map(lambda seq: self._protein_property(seq, prop))
+
+
 if __name__ == "__main__":
     import torch
     from plaid.proteins import LatentToSequence, LatentToStructure

@@ -1,6 +1,8 @@
 # sbatch train_hourglass.slrm resume_from_model_id=jzlv54wl
-sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=2 ++logger.name="pfam_tanh_256_8" ++hourglass.lr=1e-4
-sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=1 ++logger.name="pfam_tanh_512_4" ++hourglass.lr=1e-4
+# sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=2 ++logger.name="pfam_tanh_256_8" ++hourglass.lr=1e-4
+# sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=1 ++logger.name="pfam_tanh_512_4" ++hourglass.lr=1e-4
+# sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=256 ++hourglass.shorten_factor=2 ++logger.name="pfam_tanh_256_4" ++hourglass.lr=1e-4
+sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=128 ++hourglass.shorten_factor=4 ++logger.name="pfam_tanh_128_4" ++hourglass.lr=1e-4
 
 # sbatch train_hourglass.slrm experiment=hvq/bounded/rocklin.yaml
 # sbatch train_hourglass.slrm experiment=hvq/bounded/pfam_full.yaml ++hourglass.downproj_factor=32 ++hourglass.shorten_factor=2 ++logger.name="pfam_tanh_256_32"
