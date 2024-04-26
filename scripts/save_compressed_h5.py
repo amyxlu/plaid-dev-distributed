@@ -21,7 +21,6 @@ from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 PathLike = T.Union[Path, str]
 
-
 class FastaToH5:
     """Class that deals with writeable H5 file creation."""
     def __init__(
@@ -31,6 +30,7 @@ class FastaToH5:
         fasta_file: PathLike,
         output_dir: PathLike,
         batch_size: int,
+        compression_model_name: T.Optional[str] = None,
         max_dataset_size: T.Optional[int] = None,
         num_workers: int = 8,
         max_seq_len: int = 512,
@@ -54,6 +54,9 @@ class FastaToH5:
         self.split_header = split_header
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
+        if compression_model_name is None:
+            compression_model_name = "last.ckpt"
+        self.compression_model_name = compression_model_name
 
         self.latent_scaler = LatentScaler(latent_scaler_mode)
         self.train_dataloader, self.val_dataloader = self._make_fasta_dataloaders()
@@ -85,7 +88,7 @@ class FastaToH5:
             Path(outpath).parent.mkdir(parents=True)
 
     def _make_hourglass(self) -> HourglassVQLightningModule: 
-        ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / "last.ckpt"
+        ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / self.compression_model_name
         print("Loading hourglass from", str(ckpt_path))
         model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
         model = model.eval()
@@ -137,7 +140,8 @@ class FastaToH5:
         """
         1. make LM embeddings
         """    
-        feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
+        with torch.no_grad():
+            feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
         
         """
         2. make hourglass compression
@@ -191,15 +195,18 @@ class FastaToH5:
 
 def main():
     fasta_to_h5 = FastaToH5(
-        compression_model_id="jzlv54wl",
+        compression_model_id="wiepwn5p",
+        compression_model_name="epoch0-step65000-2.193.ckpt",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
-        batch_size=128,
-        max_dataset_size=5000,
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_1M",
+        batch_size=256,
+        max_dataset_size=1_000_000,
+        max_seq_len=128,
+        train_split_frac=0.995
     )
     fasta_to_h5.run()
 
 
 if __name__ == "__main__":
-    main()
+    main() 
