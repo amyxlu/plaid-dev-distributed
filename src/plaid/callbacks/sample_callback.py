@@ -306,26 +306,27 @@ class SampleCallback(Callback):
                 logger.log(log_dict)
 
             if self.save_generated_structures:
-                all_pdb_paths = self.save_structures_to_disk(pdb_strs, pl_module.current_epoch)
+                all_pdb_paths = self.save_structures_to_disk(pdb_strs, pl_module.global_step)
 
                 if not self.n_structures_to_log is None:
                     df = pd.DataFrame(metrics)
-                    top_idxs = df.sort_values(by="plddt", ascending=False).index[:self.n_structures_to_log].values
-                    top_pdb_paths = np.array(all_pdb_paths)[top_idxs]
-                    for i in range(self.n_structures_to_log):
-                        wandb.log({f"sample_protein_{i}", wandb.Molecule(top_pdb_paths[i])})
+                    df['pdb_path'] = [str(x) for x in all_pdb_paths]
+                    df = df.sort_values(by="plddt", ascending=False) 
+                    df = df.iloc[:self.n_structures_to_log, :]
+                    df['protein'] = df['pdb_path'].map(lambda x: wandb.Molecule(str(x)))
+                    wandb.log({"sampled_proteins": wandb.Table(dataframe=df)})
 
 
-    def save_structures_to_disk(self, pdb_strs, epoch_or_step: int):
+    def save_structures_to_disk(self, pdb_strs, cur_step: int):
         paths = []
         for i, pdbstr in enumerate(pdb_strs):
-            outpath = self.outdir / f"step-{epoch_or_step}" / f"sample{i}.pdb"
+            outpath = self.outdir / f"step-{cur_step}" / f"sample{i}.pdb"
             outpath = write_pdb_to_disk(pdbstr, outpath)
             paths.append(outpath)
         return paths
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        if (trainer.global_step % self.run_every_n_steps == 0) and not (trainer.global_step == 0):
+        if (pl_module.global_step % self.run_every_n_steps == 0) and not (pl_module.global_step == 0):
             shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
             self._run(pl_module, shape, log_to_wandb=True)
             torch.cuda.empty_cache()
