@@ -187,17 +187,21 @@ class BaseDiT(nn.Module):
         self.num_heads = num_heads
         self.use_self_conditioning = use_self_conditioning
 
+        self.hidden_size = hidden_size
+        self.mlp_ratio = mlp_ratio
+        self.depth = depth
+
         self.x_proj = InputProj(input_dim, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
         if self.use_self_conditioning:
             self.self_conditioning_mlp = Mlp(input_dim * 2, input_dim)
-
-        self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
-        ])
         self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
+        self.make_blocks()
         self.initialize_weights()
+
+    def make_blocks(self):
+        raise NotImplementedError
 
     def initialize_weights(self):
         # Initialize transformer layers:
@@ -230,8 +234,8 @@ class BaseDiT(nn.Module):
     def forward(*args, **kwargs):
         raise NotImplementedError
     
-    
-class SimpleDit(BaseDiT):
+
+class SimpleDiT(BaseDiT):
     def __init__(
         self,
         input_dim=8,
@@ -251,6 +255,11 @@ class SimpleDit(BaseDiT):
             mlp_ratio=mlp_ratio,
             use_self_conditioning=use_self_conditioning,
         )
+    
+    def make_blocks(self):
+        self.blocks = nn.ModuleList([
+            DiTBlock(self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio) for _ in range(self.depth)
+        ])
 
     def forward(self, x, t, mask=None, x_self_cond=None):
         """
@@ -274,3 +283,18 @@ class SimpleDit(BaseDiT):
             x = block(x, c, mask)                # (N, L, D)
         x = self.final_layer(x, c)               # (N, L, out_channels)
         return x
+    
+
+# class UDiT(BaseDiT):
+#     def __init__(
+#         self,
+#         ...
+#     ):
+#         super().__init__(
+#             ...
+#         )
+    
+#         # add residuals
+    
+#     def forward(self, ...):
+#         # same as before but with mid blocks
