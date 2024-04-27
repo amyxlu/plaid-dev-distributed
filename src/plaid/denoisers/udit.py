@@ -58,6 +58,20 @@ class UDiT(BaseDiT):
             UDiTBlock(self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio, skip_connection=True) for _ in range(self.depth // 2)
         ])
 
+    def initialize_block_weights(self):
+        # Zero-out adaLN modulation layers in DiT blocks:
+        for block in self.in_blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+        nn.init.constant_(self.mid_block.adaLN_modulation[-1].weight, 0)
+        nn.init.constant_(self.mid_block.adaLN_modulation[-1].bias, 0)
+
+        for block in self.out_blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+
     def forward(self, x, t, mask=None, x_self_cond=None):
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))

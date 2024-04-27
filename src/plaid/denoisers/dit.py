@@ -198,12 +198,10 @@ class BaseDiT(nn.Module):
             self.self_conditioning_mlp = Mlp(input_dim * 2, input_dim)
         self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
         self.make_blocks()
+        self.initialize_base_weights()
         self.initialize_weights()
 
-    def make_blocks(self):
-        raise NotImplementedError
-
-    def initialize_weights(self):
+    def initialize_base_weights(self):
         # Initialize transformer layers:
         def _basic_init(module):
             if isinstance(module, nn.Linear):
@@ -220,16 +218,17 @@ class BaseDiT(nn.Module):
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
 
-        # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
         # Zero-out output layers:
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def make_blocks(self):
+        raise NotImplementedError
+    
+    def initialize_block_weights(self):
+        raise NotImplementedError
 
     def forward(*args, **kwargs):
         raise NotImplementedError
@@ -260,6 +259,12 @@ class SimpleDiT(BaseDiT):
         self.blocks = nn.ModuleList([
             DiTBlock(self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio) for _ in range(self.depth)
         ])
+
+    def initialize_block_weights(self):
+        # Zero-out adaLN modulation layers in DiT blocks:
+        for block in self.blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
 
     def forward(self, x, t, mask=None, x_self_cond=None):
         """
