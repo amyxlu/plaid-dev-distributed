@@ -284,17 +284,3 @@ class SimpleDiT(BaseDiT):
         x = self.final_layer(x, c)               # (N, L, out_channels)
         return x
     
-
-# class UDiT(BaseDiT):
-#     def __init__(
-#         self,
-#         ...
-#     ):
-#         super().__init__(
-#             ...
-#         )
-    
-#         # add residuals
-    
-#     def forward(self, ...):
-#         # same as before but with mid blocks

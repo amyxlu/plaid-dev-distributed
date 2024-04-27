@@ -2,3 +2,6 @@ _target_: lightning.pytorch.loggers.WandbLogger
 
 project: plaid-compressed-diffusion 
 entity: ${paths.entity}
+name: null
+tags: null
+group: null

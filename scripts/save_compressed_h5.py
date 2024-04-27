@@ -199,11 +199,11 @@ def main():
         compression_model_name="epoch0-step65000-2.193.ckpt",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_1M",
-        batch_size=256,
-        max_dataset_size=1_000_000,
-        max_seq_len=128,
-        train_split_frac=0.995
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
+        batch_size=64,
+        max_dataset_size=5000,
+        max_seq_len=512,
+        train_split_frac=0.8
     )
     fasta_to_h5.run()
 
