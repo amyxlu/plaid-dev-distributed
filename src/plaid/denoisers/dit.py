@@ -24,10 +24,6 @@ def exists(val):
     return val is not None
 
 
-def default(val, d):
-    return val if exists(val) else d
-
-
 def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
@@ -81,7 +77,6 @@ class Mlp(nn.Module):
             hidden_features=None,
             out_features=None,
             act_layer=nn.GELU,
-            norm_layer=None,
             bias=True,
             drop=0.,
             use_conv=False,
@@ -96,7 +91,7 @@ class Mlp(nn.Module):
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
+        self.norm = nn.LayerNorm(hidden_features, elementwise_affine=False, eps=1e-6)
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
@@ -171,7 +166,7 @@ class InputProj(nn.Module):
         return self.norm(self.proj(x))
     
 
-class SimpleDiT(nn.Module):
+class BaseDiT(nn.Module):
     """
     Diffusion model with a Transformer backbone.
     Adapted to remove y_embedder and patch embeddings
@@ -231,6 +226,31 @@ class SimpleDiT(nn.Module):
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
+
+    def forward(*args, **kwargs):
+        raise NotImplementedError
+    
+    
+class SimpleDit(BaseDiT):
+    def __init__(
+        self,
+        input_dim=8,
+        hidden_size=1024,
+        max_seq_len=512, 
+        depth=28,
+        num_heads=16,
+        mlp_ratio=4.0,
+        use_self_conditioning=False
+    ):
+        super().__init__(
+            input_dim=input_dim,
+            hidden_size=hidden_size,
+            max_seq_len=max_seq_len,
+            depth=depth,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            use_self_conditioning=use_self_conditioning,
+        )
 
     def forward(self, x, t, mask=None, x_self_cond=None):
         """
