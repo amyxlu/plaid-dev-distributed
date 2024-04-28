@@ -199,7 +199,7 @@ class BaseDiT(nn.Module):
         self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
         self.make_blocks()
         self.initialize_base_weights()
-        self.initialize_weights()
+        self.initialize_block_weights()
 
     def initialize_base_weights(self):
         # Initialize transformer layers:

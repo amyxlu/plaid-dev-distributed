@@ -6,4 +6,5 @@
 # sbatch train_diffusion.slrm experiment=hdif/pfam_dit ++diffusion.x_downscale_factor=0.01
 # sbatch train_diffusion.slrm ++datamodule.max_seq_len=512 experiment=hdif/pfam_dit_toy ++trainer.limit_val_batches=0.0 
 # sbatch train_diffusion.slrm ++datamodule.max_seq_len=512 experiment=hdif/pfam_dit_toy ++trainer.limit_val_batches=0.0 ++denoiser.depth=12 ++trainer.gradient_clip_val=5
-sbatch train_diffusion.slrm experiment=hdif/pfam_udit_toy ++trainer.limit_val_batches=0.0 ++denoiser.depth=12 ++trainer.gradient_clip_val=5
+sbatch train_diffusion.slrm experiment=hdif/pfam_udit ++trainer.limit_val_batches=0.0 ++denoiser.depth=21
+

@@ -206,7 +206,10 @@ class SampleCallback(Callback):
         if self.calc_perplexity:
             if not self.is_perplexity_setup:
                 self._perplexity_setup(device)
-            perplexities = self.perplexity_calc.batch_eval(strs, return_mean=False)
+            
+            with torch.no_grad():
+                perplexities = self.perplexity_calc.batch_eval(strs, return_mean=False)
+                
             print(f"Mean perplexity: {np.mean(perplexities):.3f}")
             log_dict[f"sampled/perplexity_mean"] = np.mean(perplexities)
             log_dict[f"sampled/perplexity_hist"] = wandb.Histogram(
