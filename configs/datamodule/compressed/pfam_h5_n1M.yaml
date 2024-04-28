@@ -1,7 +1,7 @@
 _target_: plaid.datasets.CompressedH5DataModule
 compression_model_id: ${compression_model_id} 
 h5_root_dir: /homefs/home/lux70/storage/data/pfam/compressed/subset_1M
-max_seq_len: 128 
-batch_size: 128
+max_seq_len: 512 
+batch_size: 64 
 num_workers: 18 
 shuffle_val_dataset: False

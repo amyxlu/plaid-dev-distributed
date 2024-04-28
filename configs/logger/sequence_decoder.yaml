@@ -2,3 +2,5 @@ _target_: lightning.pytorch.loggers.WandbLogger
 
 project: plaid-sequence-decoder 
 entity: ${paths.entity}
+name: null
+tags: null

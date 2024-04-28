@@ -1,0 +1,21 @@
+# @package _global_
+
+compression_model_id: wiepwn5p
+compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
+input_dim: 8 
+shorten_factor: 1
+
+defaults:
+  - override /denoiser: utsa.yaml
+  - override /datamodule: compressed/pfam_h5_n1M
+  - override /callbacks/sample: pfam_compressed_fid
+
+datamodule:
+  compression_model_id: ${compression_model_id}
+  max_seq_len: 512
+
+trainer:
+  limit_val_batches: 0.0
+
+denoiser:
+  input_dim_if_different: ${input_dim}
