@@ -257,8 +257,10 @@ class HourglassVQLightningModule(L.LightningModule):
 
         # if shortened and using a Fasta loader, the latent might not be a multiple of 2
         s = self.enc.shorten_factor 
-        if x.shape[1] % s != 0:
-            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + x.shape[1] % s, pad_idx=0)
+        extra = x.shape[1] % s
+        if extra != 0:
+            needed = s - extra
+            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + needed, pad_idx=0)
 
         # In any case where the mask and token generated from sequence strings don't match latent, make it match
         if mask.shape[1] != x.shape[1]:
