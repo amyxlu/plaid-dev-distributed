@@ -11,7 +11,6 @@ defaults:
 
 datamodule:
   compression_model_id: ${compression_model_id}
-  max_seq_len: 128
 
 trainer:
   limit_val_batches: 0.0
