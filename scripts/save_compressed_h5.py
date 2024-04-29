@@ -23,6 +23,17 @@ from plaid.compression.hourglass_vq import HourglassVQLightningModule
 PathLike = T.Union[Path, str]
 
 
+def get_dtype(dtype: str):
+    if "fp16":
+        return np.float16
+    elif "fp32":
+        return np.float32
+    elif "fp64":
+        return np.float64
+    else:
+        raise ValueError(f"dtype {dtype} not recognized; must be fp16, fp32, or fp64.")
+
+
 class _ToH5:
     """Class that deals with writeable H5 file creation."""
     def __init__(
@@ -176,7 +187,8 @@ class FastaToH5(_ToH5):
         train_split_frac: float = 0.8,
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
         split_header: bool = False,
-        device_mode: str = "cuda"
+        device_mode: str = "cuda",
+        float_type: str = "fp32"
     ):
         super().__init__(
             compression_model_id=compression_model_id,
@@ -195,6 +207,7 @@ class FastaToH5(_ToH5):
             device_mode=device_mode,
         )
         self.split_header = split_header
+        self.dtype = get_dtype(float_type)
 
     def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
         headers, sequences = batch
@@ -223,7 +236,7 @@ class FastaToH5(_ToH5):
         """
         for i in range(compressed.shape[0]):
             sequence = sequences[i] 
-            data = compressed[i, :len(sequence), :].astype(np.float32)
+            data = compressed[i, :len(sequence), :].astype(self.dtype)
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="lzf")
             ds = fh.create_dataset(str(cur_idx), data=data, dtype="f")
@@ -250,7 +263,8 @@ class FastaToH5Clans(_ToH5):
         pad_to_even_number: T.Optional[int] = None,
         train_split_frac: float = 0.8,
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
-        device_mode: str = "cuda"
+        device_mode: str = "cuda",
+        float_type: str = "fp16"
     ):
         super().__init__(
             compression_model_id=compression_model_id,
@@ -269,6 +283,7 @@ class FastaToH5Clans(_ToH5):
             device_mode=device_mode,
         )
         self.accession_to_clan_file = accession_to_clan_file
+        self.dtype = get_dtype(float_type)
         self._make_accession_to_clan_data_structures()
 
     def _make_accession_to_clan_data_structures(self):
@@ -326,7 +341,7 @@ class FastaToH5Clans(_ToH5):
         """
         for i in range(compressed.shape[0]):
             sequence = sequences[i] 
-            data = compressed[i, :len(sequence), :].astype(np.float32)
+            data = compressed[i, :len(sequence), :].astype(self.dtype)
             clan_idx = clan_idxs[i] 
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="lzf")
@@ -355,11 +370,12 @@ def main():
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
         accession_to_clan_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_with_clans",
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_with_clans_fp16",
         batch_size=64,
         max_dataset_size=5_000,
         max_seq_len=512,
-        train_split_frac=0.8
+        train_split_frac=0.8,
+        float_type="fp16"
     ).run()
 
 

@@ -7,6 +7,8 @@ structure_module_c_z = 128
 c_s = 1024
 c_z = 128
 
+NUM_CLANS = 660  # 659 clans + the unlabelled clan. Does not include the unconditional index!
+
 DECODER_CKPT_PATH = Path(os.environ["HOME"]) / "plaid_cached_tensors/decoder_mlp.ckpt"
 DECODER_SINGLE_LAYER_CKPT_PATH = Path(os.environ["HOME"]) / "plaid_cached_tensors/decoder_single_layer.ckpt"
 CACHED_TENSORS_DIR = Path(os.environ["HOME"]) / "plaid_cached_tensors"
