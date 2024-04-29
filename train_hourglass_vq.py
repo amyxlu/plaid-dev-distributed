@@ -17,13 +17,22 @@ def train(cfg: DictConfig):
     # general set up
     torch.set_float32_matmul_precision("medium")
 
+    # generate job ID if not resuming
     if cfg.resume_from_model_id is not None:
         job_id = cfg.resume_from_model_id
-        config_yaml = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id / "config.yaml"
-        cfg = OmegaConf.load(config_yaml)
-        print("*" * 10, "\n", "Resuming from job ID", job_id,  "\n", "*" * 10)
     else:
         job_id = wandb.util.generate_id()
+
+    # set up checkpoint and config yaml paths 
+    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
+    config_path = dirpath / "config.yaml"
+    if config_path.exists():
+        cfg = OmegaConf.load(config_path)
+        print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
+    else:
+        dirpath.mkdir(parents=False)
+        if not config_path.exists():
+            OmegaConf.save(cfg, config_path)
 
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
@@ -58,13 +67,6 @@ def train(cfg: DictConfig):
         logger = None
 
     # callback options
-    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
-    dirpath.mkdir(parents=False)
-    config_path = dirpath / "config.yaml"
-    
-    if not config_path.exists():
-        OmegaConf.save(cfg, config_path)
-
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
@@ -73,6 +75,7 @@ def train(cfg: DictConfig):
         cfg.trainer, logger=logger, callbacks=[compression_callback, checkpoint_callback, lr_monitor]
     )
 
+    # run
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
@@ -82,6 +85,7 @@ def train(cfg: DictConfig):
         else:
             # job id / dirpath was already updated to match the to-be-resumed directory 
             trainer.fit(model, datamodule=datamodule, ckpt_path=dirpath / "last.ckpt")
+
 
 if __name__ == "__main__":
     train()
