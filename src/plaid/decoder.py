@@ -10,7 +10,7 @@ from typing import Optional, Callable
 from .losses.functions import masked_token_cross_entropy_loss, masked_token_accuracy
 from .esmfold.misc import batch_encode_sequences
 from .transforms import get_random_sequence_crop_batch
-from .constants import DECODER_CKPT_PATH
+from .constants import DECODER_CKPT_PATH, DECODER_SINGLE_LAYER_CKPT_PATH
 from .utils import LatentScaler
 
 
@@ -154,7 +154,8 @@ class FullyConnectedNetwork(L.LightningModule):
     @classmethod
     def from_pretrained(cls, device=None, ckpt_path=None, eval_mode=True):
         if ckpt_path is None:
-            ckpt_path = DECODER_CKPT_PATH
+            # ckpt_path = DECODER_CKPT_PATH
+            ckpt_path = DECODER_SINGLE_LAYER_CKPT_PATH
         model = cls.load_from_checkpoint(ckpt_path)
         if device is not None:
             model.to(device)
