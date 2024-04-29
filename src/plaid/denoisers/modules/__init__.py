@@ -1,4 +1,4 @@
-from .embedders import GaussianFourierProjection, Base2FourierFeatures, TimestepEmbedder
+from .embedders import GaussianFourierProjection, Base2FourierFeatures, TimestepEmbedder, LabelEmbedder
 from .rope import RotaryEmbedding
 from .labels import LabelEmbedder 
 from ._base_block import BaseBlock

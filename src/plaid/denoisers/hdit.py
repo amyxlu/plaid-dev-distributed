@@ -12,8 +12,7 @@ import torch._dynamo
 from torch.nn import functional as F
 
 from . import flags, flops
-from .. import layers
-from .axial_rope import make_axial_pos
+from .modules import LabelEmbedder, TimestepEmbedder
 
 
 try:
@@ -25,6 +24,11 @@ try:
     import flash_attn
 except ImportError:
     flash_attn = None
+
+# To use compile and FlashAttn2:
+# export DIFFUSION_USE_COMPILE=1
+# export DIFFUSION_USE_FLASH_2=1
+# see flags.py
 
 
 if flags.get_use_compile():
@@ -41,17 +45,19 @@ def zero_init(layer):
     return layer
 
 
+# trades off computation time for memory efficiency
+# https://pytorch.org/docs/stable/checkpoint.html
 def checkpoint(function, *args, **kwargs):
-    if flags.get_checkpointing():
+    # if flags.get_checkpointing():
+    if False:
         kwargs.setdefault("use_reentrant", True)
         return torch.utils.checkpoint.checkpoint(function, *args, **kwargs)
     else:
         return function(*args, **kwargs)
 
-
 def downscale_pos(pos):
-    pos = rearrange(pos, "... (h nh) (w nw) e -> ... h w (nh nw) e", nh=2, nw=2)
-    return torch.mean(pos, dim=-2)
+    pos = rearrange(pos, "... (l nl) e -> ... l nl e", nl=2)
+    return torch.mean(pos, dim=-1)
 
 
 # Param tags
@@ -166,24 +172,6 @@ class AdaRMSNorm(nn.Module):
         return rms_norm(x, self.linear(cond)[:, None, None, :] + 1, self.eps)
 
 
-# Rotary position embeddings
-
-@flags.compile_wrap
-def apply_rotary_emb(x, theta, conj=False):
-    out_dtype = x.dtype
-    dtype = reduce(torch.promote_types, (x.dtype, theta.dtype, torch.float32))
-    d = theta.shape[-1]
-    assert d * 2 <= x.shape[-1]
-    x1, x2, x3 = x[..., :d], x[..., d : d * 2], x[..., d * 2 :]
-    x1, x2, theta = x1.to(dtype), x2.to(dtype), theta.to(dtype)
-    cos, sin = torch.cos(theta), torch.sin(theta)
-    sin = -sin if conj else sin
-    y1 = x1 * cos - x2 * sin
-    y2 = x2 * cos + x1 * sin
-    y1, y2 = y1.to(out_dtype), y2.to(out_dtype)
-    return torch.cat((y1, y2, x3), dim=-1)
-
-
 @flags.compile_wrap
 def _apply_rotary_emb_inplace(x, theta, conj):
     dtype = reduce(torch.promote_types, (x.dtype, theta.dtype, torch.float32))
@@ -222,110 +210,23 @@ def apply_rotary_emb_(x, theta):
     return ApplyRotaryEmbeddingInplace.apply(x, theta, False)
 
 
-class AxialRoPE(nn.Module):
+class RoPE(nn.Module):
     def __init__(self, dim, n_heads):
         super().__init__()
         log_min = math.log(math.pi)
         log_max = math.log(10.0 * math.pi)
-        freqs = torch.linspace(log_min, log_max, n_heads * dim // 4 + 1)[:-1].exp()
-        self.register_buffer("freqs", freqs.view(dim // 4, n_heads).T.contiguous())
+        # Reshape frequencies for 1D
+        freqs = torch.linspace(log_min, log_max, n_heads * dim // 2 + 1)[:-1].exp()
+        self.register_buffer("freqs", freqs.view(dim // 2, n_heads).T.contiguous())
 
     def extra_repr(self):
-        return f"dim={self.freqs.shape[1] * 4}, n_heads={self.freqs.shape[0]}"
+        # return f"dim={self.freqs.shape[1] * 4}, n_heads={self.freqs.shape[0]}"
+        return f"dim={self.freqs.shape[1] * 2}, n_heads={self.freqs.shape[0]}"
 
     def forward(self, pos):
-        theta_h = pos[..., None, 0:1] * self.freqs.to(pos.dtype)
-        theta_w = pos[..., None, 1:2] * self.freqs.to(pos.dtype)
-        return torch.cat((theta_h, theta_w), dim=-1)
-
-
-# Shifted window attention
-
-def window(window_size, x):
-    *b, h, w, c = x.shape
-    x = torch.reshape(
-        x,
-        (*b, h // window_size, window_size, w // window_size, window_size, c),
-    )
-    x = torch.permute(
-        x,
-        (*range(len(b)), -5, -3, -4, -2, -1),
-    )
-    return x
-
-
-def unwindow(x):
-    *b, h, w, wh, ww, c = x.shape
-    x = torch.permute(x, (*range(len(b)), -5, -3, -4, -2, -1))
-    x = torch.reshape(x, (*b, h * wh, w * ww, c))
-    return x
-
-
-def shifted_window(window_size, window_shift, x):
-    x = torch.roll(x, shifts=(window_shift, window_shift), dims=(-2, -3))
-    windows = window(window_size, x)
-    return windows
-
-
-def shifted_unwindow(window_shift, x):
-    x = unwindow(x)
-    x = torch.roll(x, shifts=(-window_shift, -window_shift), dims=(-2, -3))
-    return x
-
-
-@lru_cache
-def make_shifted_window_masks(n_h_w, n_w_w, w_h, w_w, shift, device=None):
-    ph_coords = torch.arange(n_h_w, device=device)
-    pw_coords = torch.arange(n_w_w, device=device)
-    h_coords = torch.arange(w_h, device=device)
-    w_coords = torch.arange(w_w, device=device)
-    patch_h, patch_w, q_h, q_w, k_h, k_w = torch.meshgrid(
-        ph_coords,
-        pw_coords,
-        h_coords,
-        w_coords,
-        h_coords,
-        w_coords,
-        indexing="ij",
-    )
-    is_top_patch = patch_h == 0
-    is_left_patch = patch_w == 0
-    q_above_shift = q_h < shift
-    k_above_shift = k_h < shift
-    q_left_of_shift = q_w < shift
-    k_left_of_shift = k_w < shift
-    m_corner = (
-        is_left_patch
-        & is_top_patch
-        & (q_left_of_shift == k_left_of_shift)
-        & (q_above_shift == k_above_shift)
-    )
-    m_left = is_left_patch & ~is_top_patch & (q_left_of_shift == k_left_of_shift)
-    m_top = ~is_left_patch & is_top_patch & (q_above_shift == k_above_shift)
-    m_rest = ~is_left_patch & ~is_top_patch
-    m = m_corner | m_left | m_top | m_rest
-    return m
-
-
-def apply_window_attention(window_size, window_shift, q, k, v, scale=None):
-    # prep windows and masks
-    q_windows = shifted_window(window_size, window_shift, q)
-    k_windows = shifted_window(window_size, window_shift, k)
-    v_windows = shifted_window(window_size, window_shift, v)
-    b, heads, h, w, wh, ww, d_head = q_windows.shape
-    mask = make_shifted_window_masks(h, w, wh, ww, window_shift, device=q.device)
-    q_seqs = torch.reshape(q_windows, (b, heads, h, w, wh * ww, d_head))
-    k_seqs = torch.reshape(k_windows, (b, heads, h, w, wh * ww, d_head))
-    v_seqs = torch.reshape(v_windows, (b, heads, h, w, wh * ww, d_head))
-    mask = torch.reshape(mask, (h, w, wh * ww, wh * ww))
-
-    # do the attention here
-    flops.op(flops.op_attention, q_seqs.shape, k_seqs.shape, v_seqs.shape)
-    qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask, scale=scale)
-
-    # unwindow
-    qkv = torch.reshape(qkv, (b, heads, h, w, wh, ww, d_head))
-    return shifted_unwindow(window_shift, qkv)
+        # Simplified to one dimensional operation
+        theta = pos[..., None, :] * self.freqs.to(pos.dtype) 
+        return theta
 
 
 # Transformer layers
@@ -344,6 +245,7 @@ def use_flash_2(x):
 
 
 class SelfAttentionBlock(nn.Module):
+    # TODO: Dobule check if correct! 
     def __init__(self, d_model, d_head, cond_features, dropout=0.0):
         super().__init__()
         self.d_head = d_head
@@ -351,7 +253,7 @@ class SelfAttentionBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
+        self.pos_emb = RoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
 
@@ -359,29 +261,31 @@ class SelfAttentionBlock(nn.Module):
         return f"d_head={self.d_head},"
 
     def forward(self, x, pos, cond):
+        # x: (N, L, C)
+        # pos: (N, L)
+        # cond: (N, ...) 
         skip = x
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
-        pos = rearrange(pos, "... h w e -> ... (h w) e").to(qkv.dtype)
         theta = self.pos_emb(pos)
         if use_flash_2(qkv):
-            qkv = rearrange(qkv, "n h w (t nh e) -> n (h w) t nh e", t=3, e=self.d_head)
+            qkv = rearrange(qkv, "n l (t nh e) -> n l t nh e", t=3, e=self.d_head)
             qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
             theta = torch.stack((theta, theta, torch.zeros_like(theta)), dim=-3)
             qkv = apply_rotary_emb_(qkv, theta)
             flops_shape = qkv.shape[-5], qkv.shape[-2], qkv.shape[-4], qkv.shape[-1]
             flops.op(flops.op_attention, flops_shape, flops_shape, flops_shape)
             x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
-            x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
+            x = rearrange(x, "n l nh e -> n l (nh e)", l=skip.shape[1])
         else:
-            q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
+            q, k, v = rearrange(qkv, "n l (t nh e) -> t n nh l e", t=3, e=self.d_head)
             q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None], 1e-6)
             theta = theta.movedim(-2, -3)
             q = apply_rotary_emb_(q, theta)
             k = apply_rotary_emb_(k, theta)
             flops.op(flops.op_attention, q.shape, k.shape, v.shape)
             x = F.scaled_dot_product_attention(q, k, v, scale=1.0)
-            x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
+            x = rearrange(x, "n nh l e -> n l (nh e)", l=skip.shape[1])
         x = self.dropout(x)
         x = self.out_proj(x)
         return x + skip
@@ -396,7 +300,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
+        self.pos_emb = RoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
 
@@ -404,10 +308,11 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         return f"d_head={self.d_head}, kernel_size={self.kernel_size}"
 
     def forward(self, x, pos, cond):
+        # TODO: doule check for accuracy
         skip = x
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
-        q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
+        q, k, v = rearrange(qkv, "n l (t nh e) -> t n nh l e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
         theta = self.pos_emb(pos).movedim(-2, -4)
         q = apply_rotary_emb_(q, theta)
@@ -418,40 +323,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
         a = torch.softmax(qk, dim=-1).to(v.dtype)
         x = natten.functional.natten2dav(a, v, self.kernel_size, 1)
-        x = rearrange(x, "n nh h w e -> n h w (nh e)")
-        x = self.dropout(x)
-        x = self.out_proj(x)
-        return x + skip
-
-
-class ShiftedWindowSelfAttentionBlock(nn.Module):
-    def __init__(self, d_model, d_head, cond_features, window_size, window_shift, dropout=0.0):
-        super().__init__()
-        self.d_head = d_head
-        self.n_heads = d_model // d_head
-        self.window_size = window_size
-        self.window_shift = window_shift
-        self.norm = AdaRMSNorm(d_model, cond_features)
-        self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
-        self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
-        self.dropout = nn.Dropout(dropout)
-        self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
-
-    def extra_repr(self):
-        return f"d_head={self.d_head}, window_size={self.window_size}, window_shift={self.window_shift}"
-
-    def forward(self, x, pos, cond):
-        skip = x
-        x = self.norm(x, cond)
-        qkv = self.qkv_proj(x)
-        q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
-        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
-        theta = self.pos_emb(pos).movedim(-2, -4)
-        q = apply_rotary_emb_(q, theta)
-        k = apply_rotary_emb_(k, theta)
-        x = apply_window_attention(self.window_size, self.window_shift, q, k, v, scale=1.0)
-        x = rearrange(x, "n nh h w e -> n h w (nh e)")
+        x = rearrange(x, "n nh l e -> n l (nh e)")
         x = self.dropout(x)
         x = self.out_proj(x)
         return x + skip
@@ -490,19 +362,6 @@ class NeighborhoodTransformerLayer(nn.Module):
     def __init__(self, d_model, d_ff, d_head, cond_features, kernel_size, dropout=0.0):
         super().__init__()
         self.self_attn = NeighborhoodSelfAttentionBlock(d_model, d_head, cond_features, kernel_size, dropout=dropout)
-        self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
-
-    def forward(self, x, pos, cond):
-        x = checkpoint(self.self_attn, x, pos, cond)
-        x = checkpoint(self.ff, x, cond)
-        return x
-
-
-class ShiftedWindowTransformerLayer(nn.Module):
-    def __init__(self, d_model, d_ff, d_head, cond_features, window_size, index, dropout=0.0):
-        super().__init__()
-        window_shift = window_size // 2 if index % 2 == 1 else 0
-        self.self_attn = ShiftedWindowSelfAttentionBlock(d_model, d_head, cond_features, window_size, window_shift, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
 
     def forward(self, x, pos, cond):
@@ -602,142 +461,76 @@ class TokenSplit(nn.Module):
         return torch.lerp(skip, x, self.fac.to(x.dtype))
 
 
-# Configuration
-
-@dataclass
-class GlobalAttentionSpec:
-    d_head: int
+## Model class
 
 
-@dataclass
-class NeighborhoodAttentionSpec:
-    d_head: int
-    kernel_size: int
+class HDiT(nn.Module):
+    """Modified from HDiT and original DiT for 1D joint embeddings of protein sequence and structure."""
 
-
-@dataclass
-class ShiftedWindowAttentionSpec:
-    d_head: int
-    window_size: int
-
-
-@dataclass
-class NoAttentionSpec:
-    pass
-
-
-@dataclass
-class LevelSpec:
-    depth: int
-    width: int
-    d_ff: int
-    self_attn: Union[GlobalAttentionSpec, NeighborhoodAttentionSpec, ShiftedWindowAttentionSpec, NoAttentionSpec]
-    dropout: float
-
-
-@dataclass
-class MappingSpec:
-    depth: int
-    width: int
-    d_ff: int
-    dropout: float
-
-
-# Model class
-
-class ImageTransformerDenoiserModelV2(nn.Module):
-    def __init__(self, levels, mapping, in_channels, out_channels, patch_size, num_classes=0, mapping_cond_dim=0):
+    def __init__(
+        self,
+        input_dim=8,
+        hidden_size=1024,
+        max_seq_len=512, 
+        depth=28,
+        num_heads=16,
+        mlp_ratio=4.0,
+        use_self_conditioning=False,
+        class_dropout_prob=0.1,
+        num_classes=660,
+        mapping_depth=0,
+        mapping_width=0,
+        mapping_d_ff=0,
+        mapping_dropout=0.,
+    ):
         super().__init__()
-        self.num_classes = num_classes
 
-        self.patch_in = TokenMerge(in_channels, levels[0].width, patch_size)
+        # dimensions for 1D diffusion
+        self.max_seq_len = max_seq_len
+        self.input_dim = input_dim
+        self.num_heads = num_heads
+        self.use_self_conditioning = use_self_conditioning
 
-        self.time_emb = layers.FourierFeatures(1, mapping.width)
-        self.time_in_proj = Linear(mapping.width, mapping.width, bias=False)
-        self.aug_emb = layers.FourierFeatures(9, mapping.width)
-        self.aug_in_proj = Linear(mapping.width, mapping.width, bias=False)
-        self.class_emb = nn.Embedding(num_classes, mapping.width) if num_classes else None
-        self.mapping_cond_in_proj = Linear(mapping_cond_dim, mapping.width, bias=False) if mapping_cond_dim else None
-        self.mapping = tag_module(MappingNetwork(mapping.depth, mapping.width, mapping.d_ff, dropout=mapping.dropout), "mapping")
+        self.hidden_size = hidden_size
+        self.mlp_ratio = mlp_ratio
+        self.depth = depth
 
+        # Simple projection layer from input latent dimension up to higher dimension
+        self.x_proj = Linear(input_dim, hidden_size, bias=False)
+
+        # embedder modules inspired by DiT
+        self.t_embedder = TimestepEmbedder(hidden_size)
+        self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+
+        # mapping network for combining conditioning information
+        self.mapping = tag_module(MappingNetwork(mapping_depth, mapping_width, mapping_d_ff, dropout=mapping_dropout), "mapping")
+
+        # hierarchical levels
         self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
-        for i, spec in enumerate(levels):
-            if isinstance(spec.self_attn, GlobalAttentionSpec):
-                layer_factory = lambda _: GlobalTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=spec.dropout)
-            elif isinstance(spec.self_attn, NeighborhoodAttentionSpec):
-                layer_factory = lambda _: NeighborhoodTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.kernel_size, dropout=spec.dropout)
-            elif isinstance(spec.self_attn, ShiftedWindowAttentionSpec):
-                layer_factory = lambda i: ShiftedWindowTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.window_size, i, dropout=spec.dropout)
-            elif isinstance(spec.self_attn, NoAttentionSpec):
-                layer_factory = lambda _: NoAttentionTransformerLayer(spec.width, spec.d_ff, mapping.width, dropout=spec.dropout)
-            else:
-                raise ValueError(f"unsupported self attention spec {spec.self_attn}")
+        for i in range(depth // 2):
+            self.down_levels.append(None)
+            self.up_levels.append(None)
+        self.mid_level = None
 
-            if i < len(levels) - 1:
-                self.down_levels.append(Level([layer_factory(i) for i in range(spec.depth)]))
-                self.up_levels.append(Level([layer_factory(i + spec.depth) for i in range(spec.depth)]))
-            else:
-                self.mid_level = Level([layer_factory(i) for i in range(spec.depth)])
+        # TODO: edit the token merges
+        # self.merges = nn.ModuleList([TokenMerge(spec_1.width, spec_2.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
+        # self.splits = nn.ModuleList([TokenSplit(spec_2.width, spec_1.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
 
-        self.merges = nn.ModuleList([TokenMerge(spec_1.width, spec_2.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
-        self.splits = nn.ModuleList([TokenSplit(spec_2.width, spec_1.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
+        # self.out_norm = RMSNorm(levels[0].width)
+        # self.patch_out = TokenSplitWithoutSkip(levels[0].width, out_channels, patch_size)
+        # nn.init.zeros_(self.patch_out.proj.weight)
+        ##### 
 
-        self.out_norm = RMSNorm(levels[0].width)
-        self.patch_out = TokenSplitWithoutSkip(levels[0].width, out_channels, patch_size)
-        nn.init.zeros_(self.patch_out.proj.weight)
+        # pos embedding is baked into the attention operations, following RoPE
+        # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
 
-    def param_groups(self, base_lr=5e-4, mapping_lr_scale=1 / 3):
-        wd = filter_params(lambda tags: "wd" in tags and "mapping" not in tags, self)
-        no_wd = filter_params(lambda tags: "wd" not in tags and "mapping" not in tags, self)
-        mapping_wd = filter_params(lambda tags: "wd" in tags and "mapping" in tags, self)
-        mapping_no_wd = filter_params(lambda tags: "wd" not in tags and "mapping" in tags, self)
-        groups = [
-            {"params": list(wd), "lr": base_lr},
-            {"params": list(no_wd), "lr": base_lr, "weight_decay": 0.0},
-            {"params": list(mapping_wd), "lr": base_lr * mapping_lr_scale},
-            {"params": list(mapping_no_wd), "lr": base_lr * mapping_lr_scale, "weight_decay": 0.0}
-        ]
-        return groups
+        # self.blocks = nn.ModuleList([
+        #     DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
+        # ])
+        # self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
+        # self.initialize_weights()
 
-    def forward(self, x, sigma, aug_cond=None, class_cond=None, mapping_cond=None):
-        # Patching
-        x = x.movedim(-3, -1)
-        x = self.patch_in(x)
-        # TODO: pixel aspect ratio for nonsquare patches
-        pos = make_axial_pos(x.shape[-3], x.shape[-2], device=x.device).view(x.shape[-3], x.shape[-2], 2)
-
-        # Mapping network
-        if class_cond is None and self.class_emb is not None:
-            raise ValueError("class_cond must be specified if num_classes > 0")
-        if mapping_cond is None and self.mapping_cond_in_proj is not None:
-            raise ValueError("mapping_cond must be specified if mapping_cond_dim > 0")
-
-        c_noise = torch.log(sigma) / 4
-        time_emb = self.time_in_proj(self.time_emb(c_noise[..., None]))
-        aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
-        aug_emb = self.aug_in_proj(self.aug_emb(aug_cond))
-        class_emb = self.class_emb(class_cond) if self.class_emb is not None else 0
-        mapping_emb = self.mapping_cond_in_proj(mapping_cond) if self.mapping_cond_in_proj is not None else 0
-        cond = self.mapping(time_emb + aug_emb + class_emb + mapping_emb)
-
-        # Hourglass transformer
-        skips, poses = [], []
-        for down_level, merge in zip(self.down_levels, self.merges):
-            x = down_level(x, pos, cond)
-            skips.append(x)
-            poses.append(pos)
-            x = merge(x)
-            pos = downscale_pos(pos)
-
-        x = self.mid_level(x, pos, cond)
-
-        for up_level, split, skip, pos in reversed(list(zip(self.up_levels, self.splits, skips, poses))):
-            x = split(x, skip)
-            x = up_level(x, pos, cond)
-
-        # Unpatching
-        x = self.out_norm(x)
-        x = self.patch_out(x)
-        x = x.movedim(-1, -3)
-
-        return x
+        # TODO: decide on mapping
+    
+    def forward(self):
+        pass
