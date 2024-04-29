@@ -6,6 +6,7 @@ import typing as T
 from pathlib import Path
 
 import pickle
+import pandas as pd
 import h5py
 import torch
 from torch.utils.data import DataLoader
@@ -39,7 +40,6 @@ class _ToH5:
         pad_to_even_number: T.Optional[int] = None,
         train_split_frac: float = 0.8,
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
-        split_header: bool = False,
         device_mode: str = "cuda",
     ):
         # basic attributes
@@ -52,7 +52,6 @@ class _ToH5:
         self.pad_to_even_number = pad_to_even_number
         self.train_split_frac = train_split_frac
         self.val_split_frac = 1. - train_split_frac
-        self.split_header = split_header
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
         if compression_model_name is None:
@@ -193,9 +192,9 @@ class FastaToH5(_ToH5):
             pad_to_even_number=pad_to_even_number,
             train_split_frac=train_split_frac,
             latent_scaler_mode=latent_scaler_mode,
-            split_header=split_header,
             device_mode=device_mode,
         )
+        self.split_header = split_header
 
     def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
         headers, sequences = batch
@@ -240,6 +239,7 @@ class FastaToH5Clans(_ToH5):
         compression_model_id: str,
         hourglass_ckpt_dir: PathLike,
         fasta_file: PathLike,
+        accession_to_clan_file: PathLike,
         output_dir: PathLike,
         batch_size: int,
         compression_model_name: T.Optional[str] = None,
@@ -250,7 +250,6 @@ class FastaToH5Clans(_ToH5):
         pad_to_even_number: T.Optional[int] = None,
         train_split_frac: float = 0.8,
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
-        split_header: bool = False,
         device_mode: str = "cuda"
     ):
         super().__init__(
@@ -267,23 +266,101 @@ class FastaToH5Clans(_ToH5):
             pad_to_even_number=pad_to_even_number,
             train_split_frac=train_split_frac,
             latent_scaler_mode=latent_scaler_mode,
-            split_header=split_header,
             device_mode=device_mode,
         )
+        self.accession_to_clan_file = accession_to_clan_file
+        self._make_accession_to_clan_data_structures()
+
+    def _make_accession_to_clan_data_structures(self):
+        fam_to_clan_df = pd.read_csv(
+            self.accession_to_clan_file,
+            sep="\t",
+            header=None
+    )
+        # read accession to clan dataframe and grab the first clan for each pfam family accession
+        header = ["accession", "clan", "short_name", "gene_name", "description"]
+        fam_to_clan_df.columns = header
+        accession_to_clan = fam_to_clan_df.groupby("accession").first().filter(['accession','clan'], axis=1)
+        accession_to_clan = accession_to_clan.to_dict()['clan']
+
+        # create an unique index representer for each clan
+        clans = fam_to_clan_df.clan.dropna().unique()
+        clans.sort()
+
+        # store mapping
+        self.clans_to_idx = dict(zip(clans, np.arange(len(clans))))
+        self.accession_to_clan = accession_to_clan
+        self.clans = clans
+    
+    def _header_to_clan_idx(self, header):
+        subid = header.split(" ")[-1]
+        accession = subid.split(".")[0]
+        clan_id = self.accession_to_clan[accession]
+        if clan_id is None:
+            return len(self.clans)  # dummy idx for unknown clan
+        else:
+            return self.clans_to_idx[clan_id]
+    
+    def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
+        headers, sequences = batch
+
+        """
+        1. make LM embeddings
+        """    
+        with torch.no_grad():
+            feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
+        
+        """
+        2. make hourglass compression
+        """
+        compressed = self.process_and_compress(feats, mask)
+        assert compressed.shape[-1] == self.hid_dim
+
+        compressed = npy(compressed)
+        del feats, mask
+
+        clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
+
+        """
+        3. Write to h5 
+        """
+        for i in range(compressed.shape[0]):
+            sequence = sequences[i] 
+            data = compressed[i, :len(sequence), :].astype(np.float32)
+            clan_idx = clan_idxs[i] 
+            # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
+            # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="lzf")
+            ds = fh.create_dataset(str(cur_idx), data=data, dtype="f")
+            ds.attrs['clan'] = np.array([clan_idx], dtype=np.uint16)
+            cur_idx += 1
+        
+        return cur_idx
 
 def main():
-    fasta_to_h5 = FastaToH5(
+    # fasta_to_h5 = FastaToH5(
+    #     compression_model_id="wiepwn5p",
+    #     compression_model_name="epoch0-step65000-2.193.ckpt",
+    #     hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
+    #     fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
+    #     output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_1M",
+    #     batch_size=64,
+    #     max_dataset_size=1_000_000,
+    #     max_seq_len=512,
+    #     train_split_frac=0.999
+    # )
+    # fasta_to_h5.run()
+    FastaToH5Clans(
         compression_model_id="wiepwn5p",
         compression_model_name="epoch0-step65000-2.193.ckpt",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_1M",
+        accession_to_clan_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv",
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_with_clans",
         batch_size=64,
-        max_dataset_size=1_000_000,
+        max_dataset_size=5_000,
         max_seq_len=512,
-        train_split_frac=0.999
-    )
-    fasta_to_h5.run()
+        train_split_frac=0.8
+    ).run()
 
 
 if __name__ == "__main__":
