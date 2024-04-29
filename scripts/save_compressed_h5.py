@@ -21,7 +21,8 @@ from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 PathLike = T.Union[Path, str]
 
-class FastaToH5:
+
+class _ToH5:
     """Class that deals with writeable H5 file creation."""
     def __init__(
         self,
@@ -130,6 +131,72 @@ class FastaToH5:
             _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
     
+    def run_batch(self, *args, **kwargs):
+        raise NotImplementedError
+        
+    def make_h5_database(self, h5_path, dataloader):
+        # set global index per database
+        cur_idx = 0
+        print("Making h5 database at", h5_path)
+
+        # open handle
+        fh = h5py.File(h5_path, "w")
+
+        # store metadata
+        fh.attrs['max_seq_len'] = self.max_seq_len
+        fh.attrs['shorten_factor'] = self.shorten_factor
+        fh.attrs['compressed_hid_dim'] = self.hid_dim
+        fh.attrs['dataset_size'] = len(dataloader.dataset)
+
+        # writes each data point as its own dataset within the run batch method
+        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
+            cur_idx = self.run_batch(fh, batch, cur_idx)
+
+        # close handle
+        fh.close()
+    
+    def run(self):
+        self.make_h5_database(self.val_h5_path, self.val_dataloader)
+        self.make_h5_database(self.train_h5_path, self.train_dataloader)
+
+
+class FastaToH5(_ToH5):
+    def __init__(
+        self,
+        compression_model_id: str,
+        hourglass_ckpt_dir: PathLike,
+        fasta_file: PathLike,
+        output_dir: PathLike,
+        batch_size: int,
+        compression_model_name: T.Optional[str] = None,
+        max_dataset_size: T.Optional[int] = None,
+        num_workers: int = 8,
+        max_seq_len: int = 512,
+        esmfold: T.Optional[torch.nn.Module] = None,
+        pad_to_even_number: T.Optional[int] = None,
+        train_split_frac: float = 0.8,
+        latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
+        split_header: bool = False,
+        device_mode: str = "cuda"
+    ):
+        super().__init__(
+            compression_model_id=compression_model_id,
+            hourglass_ckpt_dir=hourglass_ckpt_dir,
+            fasta_file=fasta_file,
+            output_dir=output_dir,
+            batch_size=batch_size,
+            compression_model_name=compression_model_name,
+            max_dataset_size=max_dataset_size,
+            num_workers=num_workers,
+            max_seq_len=max_seq_len,
+            esmfold=esmfold,
+            pad_to_even_number=pad_to_even_number,
+            train_split_frac=train_split_frac,
+            latent_scaler_mode=latent_scaler_mode,
+            split_header=split_header,
+            device_mode=device_mode,
+        )
+
     def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
         headers, sequences = batch
 
@@ -166,32 +233,43 @@ class FastaToH5:
         
         return cur_idx
 
-        
-    def make_h5_database(self, h5_path, dataloader):
-        # set global index per database
-        cur_idx = 0
-        print("Making h5 database at", h5_path)
 
-        # open handle
-        fh = h5py.File(h5_path, "w")
-
-        # store metadata
-        fh.attrs['max_seq_len'] = self.max_seq_len
-        fh.attrs['shorten_factor'] = self.shorten_factor
-        fh.attrs['compressed_hid_dim'] = self.hid_dim
-        fh.attrs['dataset_size'] = len(dataloader.dataset)
-
-        # writes each data point as its own dataset within the run batch method
-        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
-            cur_idx = self.run_batch(fh, batch, cur_idx)
-
-        # close handle
-        fh.close()
-    
-    def run(self):
-        self.make_h5_database(self.val_h5_path, self.val_dataloader)
-        self.make_h5_database(self.train_h5_path, self.train_dataloader)
-    
+class FastaToH5Clans(_ToH5):
+    def __init__(
+        self,
+        compression_model_id: str,
+        hourglass_ckpt_dir: PathLike,
+        fasta_file: PathLike,
+        output_dir: PathLike,
+        batch_size: int,
+        compression_model_name: T.Optional[str] = None,
+        max_dataset_size: T.Optional[int] = None,
+        num_workers: int = 8,
+        max_seq_len: int = 512,
+        esmfold: T.Optional[torch.nn.Module] = None,
+        pad_to_even_number: T.Optional[int] = None,
+        train_split_frac: float = 0.8,
+        latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
+        split_header: bool = False,
+        device_mode: str = "cuda"
+    ):
+        super().__init__(
+            compression_model_id=compression_model_id,
+            hourglass_ckpt_dir=hourglass_ckpt_dir,
+            fasta_file=fasta_file,
+            output_dir=output_dir,
+            batch_size=batch_size,
+            compression_model_name=compression_model_name,
+            max_dataset_size=max_dataset_size,
+            num_workers=num_workers,
+            max_seq_len=max_seq_len,
+            esmfold=esmfold,
+            pad_to_even_number=pad_to_even_number,
+            train_split_frac=train_split_frac,
+            latent_scaler_mode=latent_scaler_mode,
+            split_header=split_header,
+            device_mode=device_mode,
+        )
 
 def main():
     fasta_to_h5 = FastaToH5(
