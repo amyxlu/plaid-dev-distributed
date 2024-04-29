@@ -96,6 +96,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         if mask is None:
             mask = x.new_ones(B, L).long()
         
+        mask = mask.long()  # in case the mask is a boolean 
 
         if z is None:
             z = x.new_zeros(B, L, L, self.pairwise_state_dim)
