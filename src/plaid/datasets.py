@@ -803,11 +803,24 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
         return emb, mask, seq
 
 
+class CompressedH5ClansDataset(CompressedH5Dataset):
+    def __init__(self, h5_path):
+        super().__init__(h5_path=h5_path)
+    
+    def __getitem__(self, idx):
+        ds = self.fh[str(idx)]
+        emb, clan = torch.tensor(ds[:]), ds.attrs["clan"][:]
+        emb = trim_or_pad_length_first(emb, self.max_seq_len)
+        mask = torch.arange(self.max_seq_len) < emb.shape[1] 
+        return emb, mask, clan
+
+
 class CompressedH5DataModule(L.LightningDataModule):
     def __init__(
         self,
-        compression_model_id="jzlv54wl",
-        h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
+        compression_model_id,
+        h5_root_dir,
+        return_clans,
         max_seq_len=512,
         batch_size=128,
         num_workers=8,
@@ -822,16 +835,21 @@ class CompressedH5DataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
 
+        if return_clans:
+            self.dataset_fn = CompressedH5ClansDataset
+        else:
+            self.dataset_fn = CompressedH5Dataset
+
         base_dir = Path(h5_root_dir) / f"hourglass_{compression_model_id}" / f"seqlen_{max_seq_len}"
         self.train_h5_path = base_dir / "train.h5"
         self.val_h5_path = base_dir / "val.h5"
         
     def setup(self, stage: str = "fit"):
         if stage == "fit":
-            self.train_dataset = CompressedH5Dataset(self.train_h5_path) 
-            self.val_dataset = CompressedH5Dataset(self.val_h5_path)
+            self.train_dataset = self.dataset_fn(self.train_h5_path) 
+            self.val_dataset = self.dataset_fn(self.val_h5_path)
         elif stage == "predict":
-            self.test_dataset = CompressedH5Dataset(self.val_h5_path)
+            self.test_dataset = self.dataset_fn(self.val_h5_path)
         else:
             return ValueError(f"Stage must be 'fit' or 'predict', got {stage}.")
     
@@ -861,7 +879,14 @@ class CompressedH5DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = CompressedH5DataModule(batch_size=16)
+    compression_model_id = "jzlv54wl"
+    h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_10K_with_clan"
+    dm = CompressedH5DataModule(
+        compression_model_id=compression_model_id,
+        h5_root_dir=h5_root_dir,
+        return_clans=True,
+        batch_size=16
+    )
     dm.setup("fit")
     dl = dm.train_dataloader()
     batch = next(iter(dl))
