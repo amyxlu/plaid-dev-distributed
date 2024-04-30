@@ -18,7 +18,7 @@ hourglass:
   fsq_levels: None
   downproj_factor: 32
   shorten_factor: 1
-  lr: 8e-5
+  lr: 6e-5
   lr_num_warmup_steps: 10000
   lr_sched_type: "cosine_with_restarts"
   lr_num_training_steps: 800_000
