@@ -3,6 +3,7 @@ import warnings
 import einops
 import torch
 from torch.utils.data import IterableDataset, DataLoader, Dataset
+import math
 import numpy as np
 from typing import List, Tuple
 import h5py
@@ -782,7 +783,7 @@ class CompressedLMDBDataModule(L.LightningDataModule):
         return self.val_dataloader()
 
 
-class CompressedH5Dataset(torch.utils.data.Dataset):
+class CompressedH5ClansDataset(torch.utils.data.Dataset):
     def __init__(self, h5_path):
         fh = h5py.File(h5_path, "r")
         self.max_seq_len = fh.attrs['max_seq_len']
@@ -795,23 +796,14 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
         return self.dataset_size
 
     def __getitem__(self, idx):
-        ds = self.fh[str(idx)]
-        emb, seq = torch.tensor(ds[:]), ds.attrs["sequence"]
-        L, C = emb.shape
-        emb = trim_or_pad_length_first(emb, self.max_seq_len)
-        mask = torch.arange(self.max_seq_len) < L
-        return emb, mask, seq
-
-
-class CompressedH5ClansDataset(CompressedH5Dataset):
-    def __init__(self, h5_path):
-        super().__init__(h5_path=h5_path)
-    
-    def __getitem__(self, idx):
-        ds = self.fh[str(idx)]
-        emb, clan = torch.tensor(ds[:]), ds.attrs["clan"][:]
-        emb = trim_or_pad_length_first(emb, self.max_seq_len)
-        mask = torch.arange(self.max_seq_len) < emb.shape[1] 
+        group = self.fh[str(idx)]
+        emb, clan, original_l = group[:], group.attrs['clan'], group.attrs['len']
+        emb, clan, original_l = tuple(map(lambda x: torch.tensor(x), (emb, clan, original_l)))
+        s = self.shorten_factor
+        effective_max_l = math.ceil(self.max_seq_len / s)
+        effective_cur_l = math.ceil(original_l[0] / s)
+        emb = trim_or_pad_length_first(emb, effective_max_l)
+        mask = torch.arange(len(emb)) < effective_cur_l
         return emb, mask, clan
 
 
@@ -879,8 +871,8 @@ class CompressedH5DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    compression_model_id = "jzlv54wl"
-    h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_10K_with_clan"
+    compression_model_id = "j1v1wv6w"
+    h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5K_with_clan"
     dm = CompressedH5DataModule(
         compression_model_id=compression_model_id,
         h5_root_dir=h5_root_dir,

@@ -12,6 +12,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm, trange
 import numpy as np
+from einops import reduce
 from evo.dataset import FastaDataset
 
 from plaid.utils import embed_batch_esmfold, LatentScaler, npy
@@ -21,6 +22,22 @@ from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 
 PathLike = T.Union[Path, str]
+
+
+def argument_parser():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--compression_model_id", type=str, default="jzlv54wl")
+    parser.add_argument("--compression_model_name", type=str, default="last.ckpt")
+    parser.add_argument("--fasta_file", type=str, default="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta")
+    parser.add_argument("--accession_to_clan_file", type=str, default="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv")
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--max_seq_len", type=int, default=512)
+    parser.add_argument("--max_dataset_size", type=int, default=30000)
+    parser.add_argument("--output_dir", type=str, default="/homefs/home/lux70/storage/data/pfam/compressed/subset_30K_with_clan")
+    parser.add_argument("--train_split_frac", type=float, default=0.9)
+    parser.add_argument("--float_type", type=str, choices=["fp16", "fp32", "fp64"], default="fp16")
+    return parser.parse_args()
 
 
 def get_dtype(dtype: str):
@@ -127,19 +144,26 @@ class _ToH5:
         x_norm = self.latent_scaler.scale(feats) 
         del feats
 
-        x_norm, mask = x_norm.to(device), mask.to(device)
+        # if shortened and using a Fasta loader, the latent might not be a multiple of 2
+        s = self.shorten_factor 
+        extra = x_norm.shape[1] % s
+        if extra != 0:
+            needed = s - extra
+            x_norm = trim_or_pad_batch_first(x_norm, pad_to=x_norm.shape[1] + needed, pad_idx=0)
 
-        # for now, this is only for the Rocklin dataset, thus hardcard the target length
-        if self.pad_to_even_number:
-            self.max_seq_len = 64 
-            x_norm = trim_or_pad_batch_first(x_norm, pad_to=64)
-            mask = trim_or_pad_batch_first(mask, pad_to=64)
+        if mask.shape[1] != x_norm.shape[1]:
+            # pad with False
+            mask = trim_or_pad_batch_first(mask, x_norm.shape[1], pad_idx=0)
+
+        x_norm, mask = x_norm.to(device), mask.to(device)
 
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
             _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
-        return compressed_representation
+
+        downsampled_mask = reduce(mask, 'b (n s) -> b n', 'sum', s = s) > 0
+        return compressed_representation, downsampled_mask
     
     def run_batch(self, *args, **kwargs):
         raise NotImplementedError
@@ -328,7 +352,8 @@ class FastaToH5Clans(_ToH5):
         """
         2. make hourglass compression
         """
-        compressed = self.process_and_compress(feats, mask)
+        compressed, downsampled_mask = self.process_and_compress(feats, mask)
+        compressed_lens = downsampled_mask.sum(dim=-1)
         assert compressed.shape[-1] == self.hid_dim
 
         compressed = npy(compressed)
@@ -340,51 +365,34 @@ class FastaToH5Clans(_ToH5):
         3. Write to h5 
         """
         for i in range(compressed.shape[0]):
-            sequence = sequences[i] 
-            data = compressed[i, :len(sequence), :].astype(self.dtype)
+            data = compressed[i, :compressed_lens[i], :].astype(self.dtype)
             clan_idx = clan_idxs[i] 
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="lzf")
             ds = fh.create_dataset(str(cur_idx), data=data, dtype="f")
-            ds.attrs['clan'] = np.array([clan_idx], dtype=np.uint16)
+            ds.attrs['clan'] = np.array([clan_idx], dtype=np.int16)
+            ds.attrs['len'] = np.array([len(sequences[i])], dtype=np.int16)
             cur_idx += 1
         
         return cur_idx
 
 
 def main():
-    compression_model_id="j1v1wv6w"
-    compression_model_name="last.ckpt"
-    max_dataset_size=30_000
-    output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_3K"
-    train_split_frac=0.9
-
-    fasta_to_h5 = FastaToH5(
-        compression_model_id=compression_model_id,
-        compression_model_name=compression_model_name,
+    args = argument_parser()
+    runner = FastaToH5Clans(
+        compression_model_id=args.compression_model_id,
+        compression_model_name=args.compression_model_name,
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
-        fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        batch_size=64,
-        max_dataset_size=max_dataset_size,
-        output_dir=output_dir,
-        max_seq_len=512,
-        train_split_frac=train_split_frac
+        fasta_file=args.fasta_file,
+        accession_to_clan_file=args.accession_to_clan_file,
+        batch_size=args.batch_size,
+        max_dataset_size=args.max_dataset_size,
+        output_dir=args.output_dir,
+        max_seq_len=args.max_seq_len,
+        train_split_frac=args.train_split_frac,
+        float_type=args.float_type
     )
-    fasta_to_h5.run()
-
-    # FastaToH5Clans(
-    #     compression_model_id="wiepwn5p",
-    #     compression_model_name="epoch0-step65000-2.193.ckpt",
-    #     hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
-    #     fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-    #     accession_to_clan_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv",
-    #     output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_with_clans_fp16",
-    #     batch_size=64,
-    #     max_dataset_size=5_000,
-    #     max_seq_len=512,
-    #     train_split_frac=0.8,
-    #     float_type="fp32"
-    # ).run()
+    runner.run()
 
 
 if __name__ == "__main__":
