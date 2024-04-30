@@ -703,11 +703,10 @@ class GaussianDiffusion(L.LightningModule):
         return self.unscaler.unscale(x)
 
     def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
-        embs, mask, sequences = batch
+        embs, mask, clan = batch
         model_output, x_t, t, diffusion_loss = self(
             x_start=embs,
             mask=mask,
-            sequences=sequences,
             model_kwargs=model_kwargs,
             noise=noise
         )
@@ -722,15 +721,17 @@ class GaussianDiffusion(L.LightningModule):
             pred_latent = self.process_x_to_latent(pred_x_start)
         
         if self.sequence_decoder_weight > 0.0:
-            true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
-            seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
-                pred_latent, true_aatype, seq_mask, cur_weight=None
-            )
-            log_dict = (
-                log_dict | seq_loss_dict
-            )  # shorthand for combining dictionaries, requires python >= 3.9
-            tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
-            wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            # true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
+            # seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
+            #     pred_latent, true_aatype, seq_mask, cur_weight=None
+            # )
+            # log_dict = (
+            #     log_dict | seq_loss_dict
+            # )  # shorthand for combining dictionaries, requires python >= 3.9
+            # tbl = pd.DataFrame({"reconstructed": recons_strs, "original": sequences})
+            # wandb.log({"recons_strs_tbl": wandb.Table(dataframe=tbl)})
+            # TODO: we're no longer loading in the sequences in the batches
+            pass
         else:
             seq_loss = 0.0
 

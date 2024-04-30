@@ -5,8 +5,9 @@
 python save_compressed_h5.py \
     --compression_model_id "j1v1wv6w" \
     --compression_model_name "last.ckpt" \
-    --max_dataset_size 5000 \
-    --output_dir "/homefs/home/lux70/storage/data/pfam/compressed/subset_5K_with_clan" \
+    --max_dataset_size 30000 \
+    --output_dir "/homefs/home/lux70/storage/data/pfam/compressed/subset_30K_with_clan" \
     --max_seq_len 512 \
     --train_split_frac 0.9 \
-    --float_type "fp16"
+    --float_type "fp16" \
+    --batch_size 64 

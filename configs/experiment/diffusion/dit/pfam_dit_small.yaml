@@ -11,6 +11,7 @@ defaults:
 
 datamodule:
   compression_model_id: ${compression_model_id}
+  batch_size: 256
 
 trainer:
   limit_val_batches: 0.0

@@ -812,7 +812,6 @@ class CompressedH5DataModule(L.LightningDataModule):
         self,
         compression_model_id,
         h5_root_dir,
-        return_clans,
         max_seq_len=512,
         batch_size=128,
         num_workers=8,
@@ -827,10 +826,7 @@ class CompressedH5DataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
 
-        if return_clans:
-            self.dataset_fn = CompressedH5ClansDataset
-        else:
-            self.dataset_fn = CompressedH5Dataset
+        self.dataset_fn = CompressedH5ClansDataset
 
         base_dir = Path(h5_root_dir) / f"hourglass_{compression_model_id}" / f"seqlen_{max_seq_len}"
         self.train_h5_path = base_dir / "train.h5"
