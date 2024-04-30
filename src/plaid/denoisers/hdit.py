@@ -1,6 +1,7 @@
 """k-diffusion transformer diffusion models, version 2."""
 
 from dataclasses import dataclass
+import einops
 from functools import lru_cache, reduce
 import math
 from typing import Union
@@ -260,7 +261,7 @@ class SelfAttentionBlock(nn.Module):
     def extra_repr(self):
         return f"d_head={self.d_head},"
 
-    def forward(self, x, pos, cond):
+    def forward(self, x, pos, mask, cond):
         # x: (N, L, C)
         # pos: (N, L)
         # cond: (N, ...) 
@@ -284,7 +285,7 @@ class SelfAttentionBlock(nn.Module):
             q = apply_rotary_emb_(q, theta)
             k = apply_rotary_emb_(k, theta)
             flops.op(flops.op_attention, q.shape, k.shape, v.shape)
-            x = F.scaled_dot_product_attention(q, k, v, scale=1.0)
+            x = F.scaled_dot_product_attention(q, k, v, scale=1.0, attn_mask=mask)
             x = rearrange(x, "n nh l e -> n l (nh e)", l=skip.shape[1])
         x = self.dropout(x)
         x = self.out_proj(x)
@@ -320,9 +321,9 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         flops.op(flops.op_natten, q.shape, k.shape, v.shape, self.kernel_size)
-        qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
+        qk = natten.functional.natten1dqk(q, k, self.kernel_size, 1)
         a = torch.softmax(qk, dim=-1).to(v.dtype)
-        x = natten.functional.natten2dav(a, v, self.kernel_size, 1)
+        x = natten.functional.natten1dav(a, v, self.kernel_size, 1)
         x = rearrange(x, "n nh l e -> n l (nh e)")
         x = self.dropout(x)
         x = self.out_proj(x)
@@ -347,7 +348,7 @@ class FeedForwardBlock(nn.Module):
 
 
 class GlobalTransformerLayer(nn.Module):
-    def __init__(self, d_model, d_ff, d_head, cond_features, dropout=0.0):
+    def __init__(self, d_model, d_ff, d_head, cond_features, dropout=0.0, *args, **kwargs):
         super().__init__()
         self.self_attn = SelfAttentionBlock(d_model, d_head, cond_features, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
@@ -359,7 +360,7 @@ class GlobalTransformerLayer(nn.Module):
 
 
 class NeighborhoodTransformerLayer(nn.Module):
-    def __init__(self, d_model, d_ff, d_head, cond_features, kernel_size, dropout=0.0):
+    def __init__(self, d_model, d_ff, d_head, cond_features, kernel_size, dropout=0.0, *args, **kwargs):
         super().__init__()
         self.self_attn = NeighborhoodSelfAttentionBlock(d_model, d_head, cond_features, kernel_size, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
@@ -367,23 +368,6 @@ class NeighborhoodTransformerLayer(nn.Module):
     def forward(self, x, pos, cond):
         x = checkpoint(self.self_attn, x, pos, cond)
         x = checkpoint(self.ff, x, cond)
-        return x
-
-
-class NoAttentionTransformerLayer(nn.Module):
-    def __init__(self, d_model, d_ff, cond_features, dropout=0.0):
-        super().__init__()
-        self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
-
-    def forward(self, x, pos, cond):
-        x = checkpoint(self.ff, x, cond)
-        return x
-
-
-class Level(nn.ModuleList):
-    def forward(self, x, *args, **kwargs):
-        for layer in self:
-            x = layer(x, *args, **kwargs)
         return x
 
 
@@ -424,9 +408,9 @@ class MappingNetwork(nn.Module):
 # Token merging and splitting
 
 class TokenMerge(nn.Module):
-    def __init__(self, in_features, out_features, length=2):
+    def __init__(self, in_features, out_features, fold_length=2):
         super().__init__()
-        self.nl = length
+        self.nl = fold_length
         self.proj = apply_wd(Linear(in_features * self.nl, out_features, bias=False))
 
     def forward(self, x):
@@ -435,9 +419,9 @@ class TokenMerge(nn.Module):
 
 
 class TokenSplitWithoutSkip(nn.Module):
-    def __init__(self, in_features, out_features, length=2):
+    def __init__(self, in_features, out_features, fold_length=2):
         super().__init__()
-        self.nl = length
+        self.nl = fold_length
         self.proj = apply_wd(Linear(in_features, out_features * self.nl, bias=False))
 
     def forward(self, x):
@@ -446,9 +430,9 @@ class TokenSplitWithoutSkip(nn.Module):
 
 
 class TokenSplit(nn.Module):
-    def __init__(self, in_features, out_features, length=2):
+    def __init__(self, in_features, out_features, fold_length=2):
         super().__init__()
-        self.nl = length
+        self.nl = fold_length
         self.proj = apply_wd(Linear(in_features, out_features * self.nl, bias=False))
         self.fac = nn.Parameter(torch.ones(1) * 0.5)
 
@@ -469,6 +453,7 @@ class HDiT(nn.Module):
         input_dim=8,
         hidden_size=1024,
         max_seq_len=512, 
+        fold_length=2,
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
@@ -479,7 +464,11 @@ class HDiT(nn.Module):
         mapping_width=0,
         mapping_d_ff=0,
         mapping_dropout=0.,
-        attn_type = "global",  # "global" / "neighborhood"
+        attn_type = "global",  # "global" / "local"
+        attn_width=0,
+        attn_d_ff=0,
+        attn_d_head=0,
+        attn_kernel_size=0
     ):
         super().__init__()
 
@@ -493,6 +482,8 @@ class HDiT(nn.Module):
         self.mlp_ratio = mlp_ratio
         self.depth = depth
 
+        assert depth % 2 == 1, "Depth must an odd number."
+
         # Simple projection layer from input latent dimension up to higher dimension
         self.x_proj = Linear(input_dim, hidden_size, bias=False)
 
@@ -505,30 +496,47 @@ class HDiT(nn.Module):
 
         # hierarchical levels
         self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
+
+        if attn_type == "global":
+            layer_factory = lambda _: GlobalTransformerLayer(attn_width, attn_d_ff, attn_d_head, mapping_width)
+        elif attn_type == "local":
+            layer_factory = lambda _: NeighborhoodTransformerLayer(attn_width, attn_d_ff, attn_d_head, mapping_width, attn_kernel_size)
+
         for i in range(depth // 2):
-            self.down_levels.append(None)
-            self.up_levels.append(None)
-        self.mid_level = None
+            self.down_levels.append(layer_factory())
+            self.up_levels.append(layer_factory())
+        self.mid_level = layer_factory()
 
-        # TODO: edit the token merges
-        # self.merges = nn.ModuleList([TokenMerge(spec_1.width, spec_2.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
-        # self.splits = nn.ModuleList([TokenSplit(spec_2.width, spec_1.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
+        self.merges = nn.ModuleList([TokenMerge(attn_width, attn_width) for _ in range(depth - 1)])
+        self.splits = nn.ModuleList([TokenSplit(attn_width, attn_width) for _ in range(depth - 1)])
 
-        # self.out_norm = RMSNorm(levels[0].width)
-        # self.patch_out = TokenSplitWithoutSkip(levels[0].width, out_channels, patch_size)
-        # nn.init.zeros_(self.patch_out.proj.weight)
-        ##### 
+        self.out_norm = RMSNorm(attn_width)
+        self.patch_out = TokenSplitWithoutSkip(attn_width, input_dim, fold_length)
+        nn.init.zeros_(self.patch_out.proj.weight)
 
-        # pos embedding is baked into the attention operations, following RoPE
-        # self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, hidden_size), requires_grad=False)
+    def forward(self, x, t, mask=None, y=None, x_self_cond=None):
+        x = self.x_proj(x)
+        pos = einops.repeat(torch.arange(x.shape[1], device=x.device), "l -> b l", b=x.shape[0])
 
-        # self.blocks = nn.ModuleList([
-        #     DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
-        # ])
-        # self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
-        # self.initialize_weights()
+        t = self.t_embedder(t)                   # (N, D)
+        y = self.y_embedder(y)                   # (N, D)
+        c = self.mapping(t + y)
 
-        # TODO: decide on mapping
-    
-    def forward(self):
-        pass
+        # Hourglass transformer
+        skips, poses = [], []
+        for down_level, merge in zip(self.down_levels, self.merges):
+            x = down_level(x, pos, c)
+            skips.append(x)
+            poses.append(pos)
+            x = merge(x)
+            pos = downscale_pos(pos)
+
+        x = self.mid_level(x, pos, c)
+
+        for up_level, split, skip, pos in reversed(list(zip(self.up_levels, self.splits, skips, poses))):
+            x = split(x, skip)
+            x = up_level(x, pos, c)
+
+        x = self.out_norm(x)
+        x = self.patch_out(x)
+        return x
