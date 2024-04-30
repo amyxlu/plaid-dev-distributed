@@ -5,7 +5,7 @@ compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 8 
 
 defaults:
-  - override /denoiser: dit/small.yaml
+  - override /denoiser: udit/small.yaml
   - override /datamodule: compressed/pfam_h5_n1M
   - override /callbacks/sample: pfam_compressed_fid
 
@@ -14,4 +14,4 @@ datamodule:
 
 trainer:
   limit_val_batches: 0.0
-  gradient_clip_val: 5
+  gradient_clip_val: 2

@@ -351,32 +351,40 @@ class FastaToH5Clans(_ToH5):
         
         return cur_idx
 
+
 def main():
-    # fasta_to_h5 = FastaToH5(
+    compression_model_id="j1v1wv6w"
+    compression_model_name="last.ckpt"
+    max_dataset_size=30_000
+    output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_3K"
+    train_split_frac=0.9
+
+    fasta_to_h5 = FastaToH5(
+        compression_model_id=compression_model_id,
+        compression_model_name=compression_model_name,
+        hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
+        fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
+        batch_size=64,
+        max_dataset_size=max_dataset_size,
+        output_dir=output_dir,
+        max_seq_len=512,
+        train_split_frac=train_split_frac
+    )
+    fasta_to_h5.run()
+
+    # FastaToH5Clans(
     #     compression_model_id="wiepwn5p",
     #     compression_model_name="epoch0-step65000-2.193.ckpt",
     #     hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
     #     fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-    #     output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_1M",
+    #     accession_to_clan_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv",
+    #     output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_with_clans_fp16",
     #     batch_size=64,
-    #     max_dataset_size=1_000_000,
+    #     max_dataset_size=5_000,
     #     max_seq_len=512,
-    #     train_split_frac=0.999
-    # )
-    # fasta_to_h5.run()
-    FastaToH5Clans(
-        compression_model_id="wiepwn5p",
-        compression_model_name="epoch0-step65000-2.193.ckpt",
-        hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
-        fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        accession_to_clan_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_with_clans_fp16",
-        batch_size=64,
-        max_dataset_size=5_000,
-        max_seq_len=512,
-        train_split_frac=0.8,
-        float_type="fp16"
-    ).run()
+    #     train_split_frac=0.8,
+    #     float_type="fp32"
+    # ).run()
 
 
 if __name__ == "__main__":

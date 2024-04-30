@@ -424,40 +424,37 @@ class MappingNetwork(nn.Module):
 # Token merging and splitting
 
 class TokenMerge(nn.Module):
-    def __init__(self, in_features, out_features, patch_size=(2, 2)):
+    def __init__(self, in_features, out_features, length=2):
         super().__init__()
-        self.h = patch_size[0]
-        self.w = patch_size[1]
-        self.proj = apply_wd(Linear(in_features * self.h * self.w, out_features, bias=False))
+        self.nl = length
+        self.proj = apply_wd(Linear(in_features * self.nl, out_features, bias=False))
 
     def forward(self, x):
-        x = rearrange(x, "... (h nh) (w nw) e -> ... h w (nh nw e)", nh=self.h, nw=self.w)
+        x = rearrange(x, "... (l nl) e -> ... l (nl e)", nl=self.nl)
         return self.proj(x)
 
 
 class TokenSplitWithoutSkip(nn.Module):
-    def __init__(self, in_features, out_features, patch_size=(2, 2)):
+    def __init__(self, in_features, out_features, length=2):
         super().__init__()
-        self.h = patch_size[0]
-        self.w = patch_size[1]
-        self.proj = apply_wd(Linear(in_features, out_features * self.h * self.w, bias=False))
+        self.nl = length
+        self.proj = apply_wd(Linear(in_features, out_features * self.nl, bias=False))
 
     def forward(self, x):
         x = self.proj(x)
-        return rearrange(x, "... h w (nh nw e) -> ... (h nh) (w nw) e", nh=self.h, nw=self.w)
+        return rearrange(x, "... l (nl e) -> ... (l nl) e", nl=self.nl)
 
 
 class TokenSplit(nn.Module):
-    def __init__(self, in_features, out_features, patch_size=(2, 2)):
+    def __init__(self, in_features, out_features, length=2):
         super().__init__()
-        self.h = patch_size[0]
-        self.w = patch_size[1]
-        self.proj = apply_wd(Linear(in_features, out_features * self.h * self.w, bias=False))
+        self.nl = length
+        self.proj = apply_wd(Linear(in_features, out_features * self.nl, bias=False))
         self.fac = nn.Parameter(torch.ones(1) * 0.5)
 
     def forward(self, x, skip):
         x = self.proj(x)
-        x = rearrange(x, "... h w (nh nw e) -> ... (h nh) (w nw) e", nh=self.h, nw=self.w)
+        x = rearrange(x, "... l (nl e) -> ... (l nl) e", nl=self.nl)
         return torch.lerp(skip, x, self.fac.to(x.dtype))
 
 
@@ -482,6 +479,7 @@ class HDiT(nn.Module):
         mapping_width=0,
         mapping_d_ff=0,
         mapping_dropout=0.,
+        attn_type = "global",  # "global" / "neighborhood"
     ):
         super().__init__()
 

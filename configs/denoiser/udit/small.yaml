@@ -1,0 +1,9 @@
+_target_: plaid.denoisers.UDiT
+
+input_dim: 8
+hidden_size: 384 
+max_seq_len: 512
+depth: 12 
+num_heads: 6 
+mlp_ratio: 4.0
+use_self_conditioning: False 
