@@ -194,7 +194,7 @@ def main():
         compression_model_id="jzlv54wl",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000_redo",
         batch_size=128,
         max_dataset_size=5000,
     )
