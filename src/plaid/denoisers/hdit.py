@@ -12,23 +12,16 @@ from torch import nn
 import torch._dynamo
 from torch.nn import functional as F
 
-from . import flags, flops
-from .modules import LabelEmbedder, TimestepEmbedder
+from .modules import flags, flops
+from .modules.embedders import LabelEmbedder, TimestepEmbedder
+
+# from xformers.components.positional_embedding import RotaryEmbedding
+# from xformers.components.attention import scaled_dot_product
+# from xformers.ops import unbind
 
 
-try:
-    import natten
-except ImportError:
-    natten = None
-
-try:
-    import flash_attn
-except ImportError:
-    flash_attn = None
-
-# To use compile and FlashAttn2:
+# To use compile:
 # export DIFFUSION_USE_COMPILE=1
-# export DIFFUSION_USE_FLASH_2=1
 # see flags.py
 
 
@@ -49,8 +42,7 @@ def zero_init(layer):
 # trades off computation time for memory efficiency
 # https://pytorch.org/docs/stable/checkpoint.html
 def checkpoint(function, *args, **kwargs):
-    # if flags.get_checkpointing():
-    if False:
+    if flags.get_checkpointing():
         kwargs.setdefault("use_reentrant", True)
         return torch.utils.checkpoint.checkpoint(function, *args, **kwargs)
     else:
@@ -160,17 +152,17 @@ class RMSNorm(nn.Module):
 
 
 class AdaRMSNorm(nn.Module):
-    def __init__(self, features, cond_features, eps=1e-6):
+    def __init__(self, features, eps=1e-6):
         super().__init__()
         self.eps = eps
-        self.linear = apply_wd(zero_init(Linear(cond_features, features, bias=False)))
+        self.linear = apply_wd(zero_init(Linear(features, features, bias=False)))
         tag_module(self.linear, "mapping")
 
     def extra_repr(self):
         return f"eps={self.eps},"
 
     def forward(self, x, cond):
-        return rms_norm(x, self.linear(cond)[:, None, None, :] + 1, self.eps)
+        return rms_norm(x, self.linear(cond)[:, None, :] + 1, self.eps)
 
 
 @flags.compile_wrap
@@ -233,25 +225,12 @@ class RoPE(nn.Module):
 # Transformer layers
 
 
-def use_flash_2(x):
-    if not flags.get_use_flash_attention_2():
-        return False
-    if flash_attn is None:
-        return False
-    if x.device.type != "cuda":
-        return False
-    if x.dtype not in (torch.float16, torch.bfloat16):
-        return False
-    return True
-
-
 class SelfAttentionBlock(nn.Module):
-    # TODO: Dobule check if correct! 
-    def __init__(self, d_model, d_head, cond_features, dropout=0.0):
+    def __init__(self, d_model, d_head, dropout=0.0):
         super().__init__()
         self.d_head = d_head
         self.n_heads = d_model // d_head
-        self.norm = AdaRMSNorm(d_model, cond_features)
+        self.norm = AdaRMSNorm(d_model)
         self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
         self.pos_emb = RoPE(d_head // 2, self.n_heads)
@@ -263,77 +242,30 @@ class SelfAttentionBlock(nn.Module):
 
     def forward(self, x, pos, mask, cond):
         # x: (N, L, C)
-        # pos: (N, L)
         # cond: (N, ...) 
         skip = x
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
         theta = self.pos_emb(pos)
-        if use_flash_2(qkv):
-            qkv = rearrange(qkv, "n l (t nh e) -> n l t nh e", t=3, e=self.d_head)
-            qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
-            theta = torch.stack((theta, theta, torch.zeros_like(theta)), dim=-3)
-            qkv = apply_rotary_emb_(qkv, theta)
-            flops_shape = qkv.shape[-5], qkv.shape[-2], qkv.shape[-4], qkv.shape[-1]
-            flops.op(flops.op_attention, flops_shape, flops_shape, flops_shape)
-            x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
-            x = rearrange(x, "n l nh e -> n l (nh e)", l=skip.shape[1])
-        else:
-            q, k, v = rearrange(qkv, "n l (t nh e) -> t n nh l e", t=3, e=self.d_head)
-            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None], 1e-6)
-            theta = theta.movedim(-2, -3)
-            q = apply_rotary_emb_(q, theta)
-            k = apply_rotary_emb_(k, theta)
-            flops.op(flops.op_attention, q.shape, k.shape, v.shape)
-            x = F.scaled_dot_product_attention(q, k, v, scale=1.0, attn_mask=mask)
-            x = rearrange(x, "n nh l e -> n l (nh e)", l=skip.shape[1])
-        x = self.dropout(x)
-        x = self.out_proj(x)
-        return x + skip
 
-
-class NeighborhoodSelfAttentionBlock(nn.Module):
-    def __init__(self, d_model, d_head, cond_features, kernel_size, dropout=0.0):
-        super().__init__()
-        self.d_head = d_head
-        self.n_heads = d_model // d_head
-        self.kernel_size = kernel_size
-        self.norm = AdaRMSNorm(d_model, cond_features)
-        self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
-        self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = RoPE(d_head // 2, self.n_heads)
-        self.dropout = nn.Dropout(dropout)
-        self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
-
-    def extra_repr(self):
-        return f"d_head={self.d_head}, kernel_size={self.kernel_size}"
-
-    def forward(self, x, pos, cond):
-        # TODO: doule check for accuracy
-        skip = x
-        x = self.norm(x, cond)
-        qkv = self.qkv_proj(x)
         q, k, v = rearrange(qkv, "n l (t nh e) -> t n nh l e", t=3, e=self.d_head)
-        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
-        theta = self.pos_emb(pos).movedim(-2, -4)
+        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None], 1e-6)
+        theta = theta.movedim(-2, -3)
         q = apply_rotary_emb_(q, theta)
         k = apply_rotary_emb_(k, theta)
-        if natten is None:
-            raise ModuleNotFoundError("natten is required for neighborhood attention")
-        flops.op(flops.op_natten, q.shape, k.shape, v.shape, self.kernel_size)
-        qk = natten.functional.natten1dqk(q, k, self.kernel_size, 1)
-        a = torch.softmax(qk, dim=-1).to(v.dtype)
-        x = natten.functional.natten1dav(a, v, self.kernel_size, 1)
-        x = rearrange(x, "n nh l e -> n l (nh e)")
+        flops.op(flops.op_attention, q.shape, k.shape, v.shape)
+        x = F.scaled_dot_product_attention(q, k, v, scale=1.0, attn_mask=mask)
+        x = rearrange(x, "n nh l e -> n l (nh e)", l=skip.shape[1])
+
         x = self.dropout(x)
         x = self.out_proj(x)
         return x + skip
 
 
 class FeedForwardBlock(nn.Module):
-    def __init__(self, d_model, d_ff, cond_features, dropout=0.0):
+    def __init__(self, d_model, d_ff, dropout=0.0):
         super().__init__()
-        self.norm = AdaRMSNorm(d_model, cond_features)
+        self.norm = AdaRMSNorm(d_model)
         self.up_proj = apply_wd(LinearGEGLU(d_model, d_ff, bias=False))
         self.dropout = nn.Dropout(dropout)
         self.down_proj = apply_wd(zero_init(Linear(d_ff, d_model, bias=False)))
@@ -348,25 +280,13 @@ class FeedForwardBlock(nn.Module):
 
 
 class GlobalTransformerLayer(nn.Module):
-    def __init__(self, d_model, d_ff, d_head, cond_features, dropout=0.0, *args, **kwargs):
+    def __init__(self, d_model, d_ff, d_head, dropout=0.0, *args, **kwargs):
         super().__init__()
-        self.self_attn = SelfAttentionBlock(d_model, d_head, cond_features, dropout=dropout)
-        self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
+        self.self_attn = SelfAttentionBlock(d_model, d_head, dropout=dropout)
+        self.ff = FeedForwardBlock(d_model, d_ff, dropout=dropout)
 
-    def forward(self, x, pos, cond):
-        x = checkpoint(self.self_attn, x, pos, cond)
-        x = checkpoint(self.ff, x, cond)
-        return x
-
-
-class NeighborhoodTransformerLayer(nn.Module):
-    def __init__(self, d_model, d_ff, d_head, cond_features, kernel_size, dropout=0.0, *args, **kwargs):
-        super().__init__()
-        self.self_attn = NeighborhoodSelfAttentionBlock(d_model, d_head, cond_features, kernel_size, dropout=dropout)
-        self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
-
-    def forward(self, x, pos, cond):
-        x = checkpoint(self.self_attn, x, pos, cond)
+    def forward(self, x, pos, mask, cond):
+        x = checkpoint(self.self_attn, x, pos, mask, cond)
         x = checkpoint(self.ff, x, cond)
         return x
 
@@ -454,21 +374,15 @@ class HDiT(nn.Module):
         hidden_size=1024,
         max_seq_len=512, 
         fold_length=2,
-        depth=28,
+        depth=15,
         num_heads=16,
         mlp_ratio=4.0,
         use_self_conditioning=False,
         class_dropout_prob=0.1,
         num_classes=660,
-        mapping_depth=0,
-        mapping_width=0,
-        mapping_d_ff=0,
-        mapping_dropout=0.,
-        attn_type = "global",  # "global" / "local"
-        attn_width=0,
-        attn_d_ff=0,
-        attn_d_head=0,
-        attn_kernel_size=0
+        mapping_depth=8,
+        d_ff=512,
+        d_head=64,
     ):
         super().__init__()
 
@@ -486,57 +400,66 @@ class HDiT(nn.Module):
 
         # Simple projection layer from input latent dimension up to higher dimension
         self.x_proj = Linear(input_dim, hidden_size, bias=False)
+        if self.use_self_conditioning:
+            self.x_cond_proj = Linear(input_dim * 2, input_dim)
 
         # embedder modules inspired by DiT
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
 
         # mapping network for combining conditioning information
-        self.mapping = tag_module(MappingNetwork(mapping_depth, mapping_width, mapping_d_ff, dropout=mapping_dropout), "mapping")
+        self.mapping = tag_module(MappingNetwork(mapping_depth, hidden_size, hidden_size), "mapping")
 
         # hierarchical levels
         self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
 
-        if attn_type == "global":
-            layer_factory = lambda _: GlobalTransformerLayer(attn_width, attn_d_ff, attn_d_head, mapping_width)
-        elif attn_type == "local":
-            layer_factory = lambda _: NeighborhoodTransformerLayer(attn_width, attn_d_ff, attn_d_head, mapping_width, attn_kernel_size)
-
         for i in range(depth // 2):
-            self.down_levels.append(layer_factory())
-            self.up_levels.append(layer_factory())
-        self.mid_level = layer_factory()
+            self.down_levels.append(GlobalTransformerLayer(hidden_size, d_ff, d_head))
+            self.up_levels.append(GlobalTransformerLayer(hidden_size, d_ff, d_head))
+        self.mid_level = GlobalTransformerLayer(hidden_size, d_ff, d_head)
 
-        self.merges = nn.ModuleList([TokenMerge(attn_width, attn_width) for _ in range(depth - 1)])
-        self.splits = nn.ModuleList([TokenSplit(attn_width, attn_width) for _ in range(depth - 1)])
+        self.merges = nn.ModuleList([TokenMerge(hidden_size, hidden_size) for _ in range(depth - 1)])
+        self.splits = nn.ModuleList([TokenSplit(hidden_size, hidden_size) for _ in range(depth - 1)])
 
-        self.out_norm = RMSNorm(attn_width)
-        self.patch_out = TokenSplitWithoutSkip(attn_width, input_dim, fold_length)
+        self.out_norm = RMSNorm(hidden_size)
+        self.patch_out = TokenSplitWithoutSkip(hidden_size, input_dim, fold_length)
         nn.init.zeros_(self.patch_out.proj.weight)
 
-    def forward(self, x, t, mask=None, y=None, x_self_cond=None):
+    def forward(self, x, t, mask=None, y=None, x_self_cond=None, train_mode=True):
+        if x_self_cond is not None:
+            x = torch.cat([x, x_self_cond], dim=-1)
+            x_self_cond = self.x_cond_proj(x)
         x = self.x_proj(x)
+
         pos = einops.repeat(torch.arange(x.shape[1], device=x.device), "l -> b l", b=x.shape[0])
 
-        t = self.t_embedder(t)                   # (N, D)
-        y = self.y_embedder(y)                   # (N, D)
-        c = self.mapping(t + y)
+        t = self.t_embedder(t)
+
+        if mask is None:
+            mask = torch.ones_like(x).bool
+
+        if not y is None:
+            y = self.y_embedder(y, train=train_mode)
+            c = self.mapping(t + y)
+        else:
+            c = self.mapping(t)
 
         # Hourglass transformer
         skips, poses = [], []
         for down_level, merge in zip(self.down_levels, self.merges):
-            x = down_level(x, pos, c)
+            x = down_level(x, pos, mask, c)
             skips.append(x)
             poses.append(pos)
             x = merge(x)
             pos = downscale_pos(pos)
 
-        x = self.mid_level(x, pos, c)
+        x = self.mid_level(x, pos, mask, c)
 
         for up_level, split, skip, pos in reversed(list(zip(self.up_levels, self.splits, skips, poses))):
             x = split(x, skip)
-            x = up_level(x, pos, c)
+            x = up_level(x, pos, mask, c)
 
         x = self.out_norm(x)
         x = self.patch_out(x)
         return x
+    
