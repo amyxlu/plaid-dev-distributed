@@ -20,7 +20,7 @@ import contextlib
 import copy
 import os
 import threading
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, Optional
 
 import pytorch_lightning as pl
 import torch
@@ -366,9 +366,10 @@ class EMAModelCheckpoint(ModelCheckpoint):
     Adapted from: https://github.com/NVIDIA/NeMo/blob/be0804f61e82dd0f63da7f9fe8a4d8388e330b18/nemo/utils/exp_manager.py#L744
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, min_steps_before_checkpoint, **kwargs):
         # call the parent class constructor with the provided kwargs
         super().__init__(**kwargs)
+        self.min_steps_before_checkpoint = min_steps_before_checkpoint
 
     def _get_ema_callback(self, trainer: "pl.Trainer") -> Optional[EMA]:
         ema_callback = None
@@ -378,6 +379,9 @@ class EMAModelCheckpoint(ModelCheckpoint):
         return ema_callback
 
     def _save_checkpoint(self, trainer: "pl.Trainer", filepath: str) -> None:
+        if trainer.global_step < self.min_steps_before_checkpoint:
+            return
+        
         super()._save_checkpoint(trainer, filepath)
         ema_callback = self._get_ema_callback(trainer)
         if ema_callback is not None:

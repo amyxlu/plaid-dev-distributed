@@ -13,6 +13,15 @@ import torch
 from plaid.proteins import LatentToSequence, LatentToStructure
 
 
+import logging
+logger = logging.getLogger("lightning.pytorch")
+logger.setLevel(logging.DEBUG)
+
+logger = logging.getLogger("torch._dynamo")
+logger.setLevel(logging.DEBUG)
+
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
     # general set up
@@ -70,13 +79,15 @@ def train(cfg: DictConfig):
     datamodule.setup(stage="fit")
 
     denoiser = hydra.utils.instantiate(cfg.denoiser)
+    compiled_denoiser = torch.compile(denoiser)
+
     beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
 
     from plaid.utils import count_parameters
 
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
-        model=denoiser,
+        model=compiled_denoiser,
         beta_scheduler=beta_scheduler,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
@@ -127,9 +138,8 @@ def train(cfg: DictConfig):
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
-    compiled_diffusion = torch.compile(diffusion)
     if not cfg.dryrun:
-        trainer.fit(compiled_diffusion, datamodule=datamodule)
+        trainer.fit(diffusion, datamodule=datamodule)
 
 
 if __name__ == "__main__":
