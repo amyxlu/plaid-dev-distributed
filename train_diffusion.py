@@ -16,7 +16,7 @@ from plaid.proteins import LatentToSequence, LatentToStructure
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
     # general set up
-    torch.set_float32_matmul_precision("high")
+    torch.set_float32_matmul_precision("medium")
 
     # maybe use prior job id, else generate new ID
     if cfg.resume_from_model_id is not None:
@@ -127,6 +127,9 @@ def train(cfg: DictConfig):
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
+    # compiled_diffusion = torch.compile(diffusion, mode="reduce_overhead")
+    # if not cfg.dryrun:
+    #     trainer.fit(compiled_diffusion, datamodule=datamodule)
     if not cfg.dryrun:
         trainer.fit(diffusion, datamodule=datamodule)
 
