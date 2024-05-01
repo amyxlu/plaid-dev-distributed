@@ -127,8 +127,9 @@ def train(cfg: DictConfig):
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
+    compiled_diffusion = torch.compile(diffusion)
     if not cfg.dryrun:
-        trainer.fit(diffusion, datamodule=datamodule)
+        trainer.fit(compiled_diffusion, datamodule=datamodule)
 
 
 if __name__ == "__main__":
