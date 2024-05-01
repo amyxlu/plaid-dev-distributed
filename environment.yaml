@@ -5,11 +5,10 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - python>=3.11
+  - python==3.11
   - pip
   - pytorch-cuda=12.1
   - pytorch
-  - torchvision
   - bioconda::tmalign
   - pip:
     - -r requirements.txt

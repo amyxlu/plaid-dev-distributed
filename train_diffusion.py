@@ -16,7 +16,7 @@ from plaid.proteins import LatentToSequence, LatentToStructure
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
     # general set up
-    torch.set_float32_matmul_precision("medium")
+    torch.set_float32_matmul_precision("high")
 
     # maybe use prior job id, else generate new ID
     if cfg.resume_from_model_id is not None:

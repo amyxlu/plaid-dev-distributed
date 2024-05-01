@@ -1,6 +1,6 @@
 _target_: plaid.denoisers.SimpleDiT
 
-input_dim: 8
+input_dim: ${input_dim} 
 hidden_size: 768 
 max_seq_len: 512
 depth: 12 
