@@ -160,7 +160,7 @@ class HourglassVQLightningModule(L.LightningModule):
         }
         return x_recons, loss, log_dict, z_e_out
 
-    def forward(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
+    def forward(self, x, mask, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
         if self.quantize_scheme is None:
             return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
 
@@ -174,11 +174,12 @@ class HourglassVQLightningModule(L.LightningModule):
         # quantize and get z_q
         if self.quantize_scheme == "vq": 
             quant_out = self.quantizer(z_e, verbose)
-            z_q = quant_out['z_q']
-            vq_loss = quant_out['loss']
-            log_dict["vq_loss"] = quant_out['loss']
-            log_dict["vq_perplexity"] = quant_out['perplexity']
-            compressed_representation = quant_out['min_encoding_indices'].detach().cpu().numpy()
+            if not infer_only:
+                z_q = quant_out['z_q']
+                vq_loss = quant_out['loss']
+                log_dict["vq_loss"] = quant_out['loss']
+                log_dict["vq_perplexity"] = quant_out['perplexity']
+                compressed_representation = quant_out['min_encoding_indices'].detach().cpu().numpy()
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
@@ -192,6 +193,9 @@ class HourglassVQLightningModule(L.LightningModule):
             vq_loss = 0
         else:
             raise NotImplementedError
+        
+        if infer_only:
+            return compressed_representation
 
         if self.post_quant_proj is not None:
             z_q = self.post_quant_proj(z_q)

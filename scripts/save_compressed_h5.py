@@ -4,6 +4,7 @@ Embed with ESMFold, compress, and save to h5py with each header getting its own 
 import random
 import typing as T
 from pathlib import Path
+import os
 
 import pickle
 import pandas as pd
@@ -19,9 +20,12 @@ from plaid.utils import embed_batch_esmfold, LatentScaler, npy
 from plaid.esmfold import esmfold_v1
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
+from plaid.flags import compile_wrap
 
 
 PathLike = T.Union[Path, str]
+os.environ['TORCH_LOGS'] = "recompiles"
+os.environ['TORCH_DYNAMO_CACHE_SIZE'] = "16"
 
 
 def argument_parser():
@@ -89,6 +93,7 @@ class _ToH5:
         self.latent_scaler = LatentScaler(latent_scaler_mode)
         self.train_dataloader, self.val_dataloader = self._make_fasta_dataloaders()
 
+
         # set up esmfold
         if esmfold is None:
             esmfold = esmfold_v1()
@@ -98,7 +103,10 @@ class _ToH5:
         # set up processing
         self.hourglass_model = self._make_hourglass()
         self.hourglass_model.to(self.device)
+
+        # compile
         self.hourglass_model_compiled = torch.compile(self.hourglass_model)
+        self.esmfold_embed_compiled = compile_wrap(embed_batch_esmfold)
 
         # set up output path
         dirname = f"hourglass_{compression_model_id}"
@@ -161,7 +169,7 @@ class _ToH5:
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
-            _, _, _, compressed_representation = self.hourglass_model_compiled(x_norm, mask.bool(), log_wandb=False)
+            compressed_representation = self.hourglass_model_compiled(x_norm, mask.bool(), log_wandb=False, infer_only=True)
 
         downsampled_mask = reduce(mask, 'b (n s) -> b n', 'sum', s = s) > 0
         return compressed_representation, downsampled_mask
@@ -348,7 +356,7 @@ class FastaToH5Clans(_ToH5):
         1. make LM embeddings
         """    
         with torch.no_grad():
-            feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
+            feats, mask, sequences = self.esmfold_embed_compiled(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
         
         """
         2. make hourglass compression
