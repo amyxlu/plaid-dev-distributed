@@ -111,7 +111,7 @@ def train(cfg: DictConfig):
     if not cfg.dryrun:
         # this will automatically log to the same wandb page
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
-        # logger.watch(model, log="all", log_graph=False)
+        logger.watch(diffusion, log="all", log_graph=False)
     else:
         logger = None
 
@@ -127,14 +127,14 @@ def train(cfg: DictConfig):
         structure_constructor=structure_constructor,
     )
 
+    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
+
     # run training
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
-        callbacks=[ema_callback, lr_monitor, checkpoint_callback, sample_callback],
+        callbacks=[lr_monitor, checkpoint_callback, sample_callback, ema_callback],
     )
-
-    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
 
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
