@@ -70,13 +70,14 @@ def train(cfg: DictConfig):
     datamodule.setup(stage="fit")
 
     denoiser = hydra.utils.instantiate(cfg.denoiser)
+    compiled_denoiser = torch.compile(denoiser)
     beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
 
     from plaid.utils import count_parameters
 
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
-        model=denoiser,
+        model=compiled_denoiser,
         beta_scheduler=beta_scheduler,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
