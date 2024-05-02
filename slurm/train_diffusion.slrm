@@ -18,5 +18,9 @@ echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
 export HYDRA_FULL_ERROR=1
 export TOKENIZERS_PARALLELISM=false
+
+export TORCH_LOGS="+dynamo"
+export TORCHDYNAMO_VERBOSE=1 
+
 cd /homefs/home/lux70/code/plaid/
 srun python train_diffusion.py $@
