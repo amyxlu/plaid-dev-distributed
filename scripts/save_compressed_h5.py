@@ -24,8 +24,9 @@ from plaid.flags import compile_wrap
 
 
 PathLike = T.Union[Path, str]
-os.environ['TORCH_LOGS'] = "recompiles"
+os.environ['TORCH_LOGS'] = "+dynamo"
 os.environ['TORCH_DYNAMO_CACHE_SIZE'] = "16"
+os.environ['TORCHDYNAMO_VERBOSE'] = "1"
 
 
 def argument_parser():
@@ -106,7 +107,7 @@ class _ToH5:
 
         # compile
         self.hourglass_model_compiled = torch.compile(self.hourglass_model)
-        self.esmfold_embed_compiled = compile_wrap(embed_batch_esmfold)
+        self.esmfold_compiled = torch.compile(esmfold)
 
         # set up output path
         dirname = f"hourglass_{compression_model_id}"
@@ -356,14 +357,15 @@ class FastaToH5Clans(_ToH5):
         1. make LM embeddings
         """    
         with torch.no_grad():
-            feats, mask, sequences = self.esmfold_embed_compiled(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
+            feats, mask, sequences = embed_batch_esmfold(self.esmfold_compiled, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
         
         """
         2. make hourglass compression
         """
-        compressed, downsampled_mask = self.process_and_compress(feats, mask)
-        compressed_lens = downsampled_mask.sum(dim=-1)
-        assert compressed.shape[-1] == self.hid_dim
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            compressed, downsampled_mask = self.process_and_compress(feats, mask)
+            compressed_lens = downsampled_mask.sum(dim=-1)
+            assert compressed.shape[-1] == self.hid_dim
 
         compressed = npy(compressed)
         del feats, mask
