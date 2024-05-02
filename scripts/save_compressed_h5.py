@@ -33,7 +33,7 @@ def argument_parser():
     parser.add_argument("--accession_to_clan_file", type=str, default="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--max_seq_len", type=int, default=512)
-    parser.add_argument("--max_dataset_size", type=int, default=30000)
+    parser.add_argument("--max_dataset_size", type=int, default=-1)
     parser.add_argument("--output_dir", type=str, default="/homefs/home/lux70/storage/data/pfam/compressed/subset_30K_with_clan")
     parser.add_argument("--train_split_frac", type=float, default=0.9)
     parser.add_argument("--float_type", type=str, choices=["fp16", "fp32", "fp64"], default="fp16")
@@ -61,7 +61,7 @@ class _ToH5:
         output_dir: PathLike,
         batch_size: int,
         compression_model_name: T.Optional[str] = None,
-        max_dataset_size: T.Optional[int] = None,
+        max_dataset_size: int = -1,
         num_workers: int = 8,
         max_seq_len: int = 512,
         esmfold: T.Optional[torch.nn.Module] = None,
@@ -98,6 +98,7 @@ class _ToH5:
         # set up processing
         self.hourglass_model = self._make_hourglass()
         self.hourglass_model.to(self.device)
+        self.hourglass_model_compiled = torch.compile(self.hourglass_model)
 
         # set up output path
         dirname = f"hourglass_{compression_model_id}"
@@ -125,7 +126,7 @@ class _ToH5:
     def _make_fasta_dataloaders(self) -> T.Tuple[DataLoader, DataLoader]:
         # potentially subset dataset
         ds = FastaDataset(self.fasta_file, cache_indices=True)
-        if self.max_dataset_size is not None:
+        if self.max_dataset_size > 0:
             indices = random.sample(range(len(ds)), self.max_dataset_size)
             ds = torch.utils.data.Subset(ds, indices)
             print(f"Subsetting dataset to {len(ds)} data points.")
@@ -160,7 +161,7 @@ class _ToH5:
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
-            _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
+            _, _, _, compressed_representation = self.hourglass_model_compiled(x_norm, mask.bool(), log_wandb=False)
 
         downsampled_mask = reduce(mask, 'b (n s) -> b n', 'sum', s = s) > 0
         return compressed_representation, downsampled_mask
@@ -190,8 +191,8 @@ class _ToH5:
         fh.close()
     
     def run(self):
-        self.make_h5_database(self.val_h5_path, self.val_dataloader)
         self.make_h5_database(self.train_h5_path, self.train_dataloader)
+        self.make_h5_database(self.val_h5_path, self.val_dataloader)
 
 
 class FastaToH5(_ToH5):
