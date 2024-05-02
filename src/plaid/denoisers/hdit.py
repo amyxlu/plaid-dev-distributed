@@ -12,12 +12,12 @@ from torch import nn
 import torch._dynamo
 from torch.nn import functional as F
 
-from .modules import flags, flops
+from .. import flags
+from .. import flops
 from .modules.embedders import LabelEmbedder, TimestepEmbedder
 
-# from xformers.components.positional_embedding import RotaryEmbedding
-# from xformers.components.attention import scaled_dot_product
-# from xformers.ops import unbind
+from xformers.components.positional_embedding import RotaryEmbedding
+from xformers.ops import unbind
 
 
 # To use compile:
@@ -115,7 +115,7 @@ def scale_for_cosine_sim(q, k, scale, eps):
 
 @flags.compile_wrap
 def scale_for_cosine_sim_qkv(qkv, scale, eps):
-    q, k, v = qkv.unbind(2)
+    q, k, v = unbind(qkv, 2)
     q, k = scale_for_cosine_sim(q, k, scale[:, None], eps)
     return torch.stack((q, k, v), dim=2)
 
@@ -165,66 +165,6 @@ class AdaRMSNorm(nn.Module):
         return rms_norm(x, self.linear(cond)[:, None, :] + 1, self.eps)
 
 
-@flags.compile_wrap
-def _apply_rotary_emb_inplace(x, theta, conj):
-    dtype = reduce(torch.promote_types, (x.dtype, theta.dtype, torch.float32))
-    d = theta.shape[-1]
-    assert d * 2 <= x.shape[-1]
-    x1, x2 = x[..., :d], x[..., d : d * 2]
-    x1_, x2_, theta = x1.to(dtype), x2.to(dtype), theta.to(dtype)
-    cos, sin = torch.cos(theta), torch.sin(theta)
-    sin = -sin if conj else sin
-    y1 = x1_ * cos - x2_ * sin
-    y2 = x2_ * cos + x1_ * sin
-    x1.copy_(y1)
-    x2.copy_(y2)
-
-
-class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
-    @staticmethod
-    def forward(x, theta, conj):
-        _apply_rotary_emb_inplace(x, theta, conj=conj)
-        return x
-
-    @staticmethod
-    def setup_context(ctx, inputs, output):
-        _, theta, conj = inputs
-        ctx.save_for_backward(theta)
-        ctx.conj = conj
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        theta, = ctx.saved_tensors
-        _apply_rotary_emb_inplace(grad_output, theta, conj=not ctx.conj)
-        return grad_output, None, None
-
-
-def apply_rotary_emb_(x, theta):
-    return ApplyRotaryEmbeddingInplace.apply(x, theta, False)
-
-
-class RoPE(nn.Module):
-    def __init__(self, dim, n_heads):
-        super().__init__()
-        log_min = math.log(math.pi)
-        log_max = math.log(10.0 * math.pi)
-        # Reshape frequencies for 1D
-        freqs = torch.linspace(log_min, log_max, n_heads * dim // 2 + 1)[:-1].exp()
-        self.register_buffer("freqs", freqs.view(dim // 2, n_heads).T.contiguous())
-
-    def extra_repr(self):
-        # return f"dim={self.freqs.shape[1] * 4}, n_heads={self.freqs.shape[0]}"
-        return f"dim={self.freqs.shape[1] * 2}, n_heads={self.freqs.shape[0]}"
-
-    def forward(self, pos):
-        # Simplified to one dimensional operation
-        theta = pos[..., None, :] * self.freqs.to(pos.dtype) 
-        return theta
-
-
-# Transformer layers
-
-
 class SelfAttentionBlock(nn.Module):
     def __init__(self, d_model, d_head, dropout=0.0):
         super().__init__()
@@ -233,7 +173,7 @@ class SelfAttentionBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model)
         self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = RoPE(d_head // 2, self.n_heads)
+        self.pos_emb = RotaryEmbedding(d_head)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
 
@@ -246,14 +186,12 @@ class SelfAttentionBlock(nn.Module):
         skip = x
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
-        theta = self.pos_emb(pos)
 
         q, k, v = rearrange(qkv, "n l (t nh e) -> t n nh l e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None], 1e-6)
-        theta = theta.movedim(-2, -3)
-        q = apply_rotary_emb_(q, theta)
-        k = apply_rotary_emb_(k, theta)
+        q, k = self.pos_emb(q, k)
         flops.op(flops.op_attention, q.shape, k.shape, v.shape)
+        
         x = F.scaled_dot_product_attention(q, k, v, scale=1.0, attn_mask=mask)
         x = rearrange(x, "n nh l e -> n l (nh e)", l=skip.shape[1])
 
