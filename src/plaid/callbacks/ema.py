@@ -432,6 +432,7 @@ class EMAModelCheckpoint(ModelCheckpoint):
 # https://github.com/crowsonkb/k-diffusion/blob/master/k_diffusion/utils.py#L107
 #############################################################################################
 
+
 class EMAWarmup:
     """Implements an EMA warmup using an inverse decay schedule.
     If inv_gamma=1 and power=1, implements a simple average. inv_gamma=1, power=2/3 are

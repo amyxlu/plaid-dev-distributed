@@ -1,0 +1,5 @@
+_target_: plaid.callbacks.ema.EMA
+decay: 0.9999 
+validate_original_weights: false
+every_n_steps: 1
+cpu_offload: false
