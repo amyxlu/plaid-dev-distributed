@@ -2,7 +2,7 @@ _target_: plaid.diffusion.GaussianDiffusion
 
 x_downscale_factor: 1.0
 timesteps: 1000
-objective: "pred_noise"
+objective: "pred_v"
 min_snr_loss_weight: True
 min_snr_gamma: 5
 x_clip_val: 1.0

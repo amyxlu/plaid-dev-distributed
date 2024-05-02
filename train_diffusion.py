@@ -13,6 +13,14 @@ import torch
 from plaid.proteins import LatentToSequence, LatentToStructure
 
 
+import logging
+logger = logging.getLogger("lightning.pytorch")
+logger.setLevel(logging.DEBUG)
+
+logger = logging.getLogger("torch._dynamo")
+logger.setLevel(logging.DEBUG)
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
     # general set up
