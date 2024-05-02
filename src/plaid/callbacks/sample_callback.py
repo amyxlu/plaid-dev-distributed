@@ -338,7 +338,7 @@ class SampleCallback(Callback):
             ema_callback = self._get_ema_callback(trainer)
             if ema_callback is not None:
                 # replace module weights with the EMA copy
-                ema_callback.replace_model_weights(trainer.lightning_module)
+                ema_callback.replace_model_weights(pl_module)
 
                 # run sampling eval
                 shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
@@ -346,6 +346,6 @@ class SampleCallback(Callback):
                 torch.cuda.empty_cache()
 
                 # restore the non-EMA weights
-                ema_callback.restore_original_weights(trainer.lightning_module)
+                ema_callback.restore_original_weights(pl_module)
         else:
             pass
