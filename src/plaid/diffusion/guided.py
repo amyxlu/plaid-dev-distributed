@@ -4,6 +4,7 @@ https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_di
 """
 
 import typing as T
+import time
 from random import random
 from functools import partial
 from collections import namedtuple
@@ -573,9 +574,12 @@ class GaussianDiffusion(L.LightningModule):
 
 
     def training_step(self, batch):
+        start = time.time()
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
+        end = time.time()
+        log_dict['batch_runtime'] = (end - start) / 60
         N = len(batch[0])
         self.log_dict(
             {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=True, batch_size=N
