@@ -1,4 +1,5 @@
 import torch
+import threading
 import abc
 import math
 import numpy as np
@@ -128,3 +129,122 @@ class ADMCosineBetaScheduler(BetaScheduler):
 
     def __call__(self, timesteps):
         return betas_for_alpha_bar(timesteps, lambda t: adm_cosine_schedule(t))
+
+
+
+# ############# k diffusion sigmas
+
+def stratified_uniform(shape, group=0, groups=1, dtype=None, device=None):
+    """Draws stratified samples from a uniform distribution."""
+    if groups <= 0:
+        raise ValueError(f"groups must be positive, got {groups}")
+    if group < 0 or group >= groups:
+        raise ValueError(f"group must be in [0, {groups})")
+    n = shape[-1] * groups
+    offsets = torch.arange(group, n, groups, dtype=dtype, device=device)
+    u = torch.rand(shape, dtype=dtype, device=device)
+    return (offsets + u) / n
+
+
+stratified_settings = threading.local()
+
+def stratified_with_settings(shape, dtype=None, device=None):
+    """Draws stratified samples from a uniform distribution, using settings from a context
+    manager."""
+    if not hasattr(stratified_settings, 'disable') or stratified_settings.disable:
+        return torch.rand(shape, dtype=dtype, device=device)
+    return stratified_uniform(
+        shape, stratified_settings.group, stratified_settings.groups, dtype=dtype, device=device
+    )
+
+
+def rand_v_diffusion(shape, sigma_data=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
+    """Draws samples from a truncated v-diffusion training timestep distribution."""
+    min_cdf = math.atan(min_value / sigma_data) * 2 / math.pi
+    max_cdf = math.atan(max_value / sigma_data) * 2 / math.pi
+    u = stratified_with_settings(shape, device=device, dtype=dtype) * (max_cdf - min_cdf) + min_cdf
+    return torch.tan(u * math.pi / 2) * sigma_data
+
+
+def rand_cosine_interpolated(shape, image_d, noise_d_low, noise_d_high, sigma_data=1., min_value=1e-3, max_value=1e3, device='cpu', dtype=torch.float32):
+    """Draws samples from an interpolated cosine timestep distribution (from simple diffusion)."""
+
+    def logsnr_schedule_cosine(t, logsnr_min, logsnr_max):
+        t_min = math.atan(math.exp(-0.5 * logsnr_max))
+        t_max = math.atan(math.exp(-0.5 * logsnr_min))
+        return -2 * torch.log(torch.tan(t_min + t * (t_max - t_min)))
+
+    def logsnr_schedule_cosine_shifted(t, image_d, noise_d, logsnr_min, logsnr_max):
+        shift = 2 * math.log(noise_d / image_d)
+        return logsnr_schedule_cosine(t, logsnr_min - shift, logsnr_max - shift) + shift
+
+    def logsnr_schedule_cosine_interpolated(t, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max):
+        logsnr_low = logsnr_schedule_cosine_shifted(t, image_d, noise_d_low, logsnr_min, logsnr_max)
+        logsnr_high = logsnr_schedule_cosine_shifted(t, image_d, noise_d_high, logsnr_min, logsnr_max)
+        return torch.lerp(logsnr_low, logsnr_high, t)
+
+    logsnr_min = -2 * math.log(min_value / sigma_data)
+    logsnr_max = -2 * math.log(max_value / sigma_data)
+    u = stratified_with_settings(shape, device=device, dtype=dtype)
+    logsnr = logsnr_schedule_cosine_interpolated(u, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max)
+    return torch.exp(-logsnr / 2) * sigma_data
+
+
+class VDiffusionSigmas(BetaScheduler):
+    def __init__(self, max_value=1e3, min_value=1e-3, sigma_data=1):
+        super().__init__()
+        self.min_value = min_value
+        self.max_value = max_value
+        self.sigma_data = sigma_data
+    
+    def __call__(self, shape):
+        return rand_v_diffusion(
+            shape=shape,
+            sigma_data=self.sigma_data,
+            min_value=self.min_value,
+            max_value=self.max_value
+        )
+
+
+class CosineInterpolatedSigmas(BetaScheduler):
+    def __init__(self, max_value=1e3, min_value=1e-3, sigma_data=1, input_size=512, noise_d_low=32, noise_d_high=512):
+        super().__init__()
+        self.min_value = min_value
+        self.max_value = max_value
+        self.sigma_data = sigma_data
+        self.input_size = input_size
+        self.noise_d_low = noise_d_low
+        self.noise_d_high = noise_d_high
+
+    def __call__(self, shape):
+        return rand_cosine_interpolated(
+            shape=shape,
+            image_d=self.image_d,
+            noise_d=self.noise_d,
+            noise_d_low = self.noise_d_low,
+            noise_d_high = self.noise_d_high
+        ) 
+
+        
+
+
+#     if sd_config['type'] in {'v-diffusion', 'cosine'}:
+#         min_value = sd_config['min_value'] if 'min_value' in sd_config else 1e-3
+#         max_value = sd_config['max_value'] if 'max_value' in sd_config else 1e3
+#         return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
+#     if sd_config['type'] == 'split-lognormal':
+#         loc = sd_config['mean'] if 'mean' in sd_config else sd_config['loc']
+#         scale_1 = sd_config['std_1'] if 'std_1' in sd_config else sd_config['scale_1']
+#         scale_2 = sd_config['std_2'] if 'std_2' in sd_config else sd_config['scale_2']
+#         return partial(utils.rand_split_log_normal, loc=loc, scale_1=scale_1, scale_2=scale_2)
+#     if sd_config['type'] == 'cosine-interpolated':
+#         min_value = sd_config.get('min_value', min(config['sigma_min'], 1e-3))
+#         max_value = sd_config.get('max_value', max(config['sigma_max'], 1e3))
+#         image_d = sd_config.get('image_d', max(config['input_size']))
+#         noise_d_low = sd_config.get('noise_d_low', 32)
+#         noise_d_high = sd_config.get('noise_d_high', max(config['input_size']))
+#         return partial(utils.rand_cosine_interpolated, image_d=image_d, noise_d_low=noise_d_low, noise_d_high=noise_d_high, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
+
+
+
+
