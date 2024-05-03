@@ -65,7 +65,7 @@ def ema_update_dict(values, updates, decay):
 import lightning as L
 
 
-class Diffusion(L.LightningModule):
+class ElucidatedDiffusion(L.LightningModule):
     """A Karras et al. preconditioner for denoising diffusion models."""
 
     def __init__(
@@ -140,6 +140,7 @@ class Diffusion(L.LightningModule):
         
         self.save_hyperparameters()
 
+    """Loss scalings and preconditioning"""
     def _weighting_soft_min_snr(self, sigma):
         return (sigma * self.sigma_data) ** 2 / (sigma ** 2 + self.sigma_data ** 2) ** 2
 
@@ -152,9 +153,10 @@ class Diffusion(L.LightningModule):
         c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         return c_skip, c_out, c_in
 
-    def loss(self, x, sigma, mask=None, noise=None, label=None, x_self_cond=None, **kwargs):
+    def loss(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
         c_skip, c_out, c_in = [append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         c_weight = self.weighting(sigma)
+        noise = torch.randn_like(x)
         noised_input = x + noise * append_dims(sigma, x.ndim)
         model_output = self.denoiser(
             x=noised_input * c_in,
@@ -166,7 +168,7 @@ class Diffusion(L.LightningModule):
         target = (x - c_skip * noised_input) / c_out
         return masked_mse_loss(model_output, target) * c_weight
 
-    def forward(self, x, sigma, mask=None, noise=None, label=None, x_self_cond=None, **kwargs):
+    def forward(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
         c_skip, c_out, c_in = [append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         model_output = self.denoiser(
             x=x * c_in,
@@ -178,10 +180,10 @@ class Diffusion(L.LightningModule):
         return model_output * c_out + x * c_skip
     
     """Lightning set up"""
-    
     def training_step(self, batch, batch_idx):
         start = time.time()
         x, mask, clan = batch
+        clan = clan.long().squeeze()   # clan idx was cached as (N,1) array of int16
         noise = torch.randn_like(x)
         sigma = self.sigma_density_generator((x.shape[0],))
 

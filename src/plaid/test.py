@@ -1,20 +1,18 @@
-from plaid.denoisers import SimpleDiT 
-
+from plaid.denoisers import SimpleDiT, CFGDiT 
+from plaid.diffusion.beta_schedulers import VDiffusionSigmas
+from plaid.callbacks import SampleCallback
+from plaid.diffusion import GaussianDiffusion, ElucidatedDiffusion
+from plaid.compression.uncompress import UncompressContinuousLatent
 from plaid.diffusion.guided import GaussianDiffusion
 from plaid.datasets import CompressedH5DataModule
 import torch
 
-model = SimpleDiT()
+model = CFGDiT()
 device = torch.device("cuda")
 model.to(device)
 
-x = torch.randn(4, 128, 8).to(device)
-t = torch.randint(0, 100, (4,)).to(device)
-y = torch.randint(0, 600, (4,)).to(device)
-mask = torch.ones(x.shape[:-1]).bool().to(device)
-
-output = model(x, t, mask)# , y)
-print(output)
+batch_size = 16
+t = torch.randint(0, 100, (batch_size,)).to(device).long()
 
 dm = CompressedH5DataModule(
     compression_model_id="jzlv54wl",
@@ -23,40 +21,50 @@ dm = CompressedH5DataModule(
 )
 dm.setup("fit")
 dl = dm.train_dataloader()
+batch = next(iter(dl))
+batch = tuple(map(lambda x: x.to(device), batch))
+x, mask, clan = batch
+clan = clan.long().squeeze()
 
-from plaid.compression.uncompress import UncompressContinuousLatent
 
+output = model(x, t, clan, mask)
+print(output)
+
+# TODO: create uncompressor / unscaler? 
+# TODO: add sequence / structure again?
 uncompressor = UncompressContinuousLatent("jzlv54wl")
-uncompressor.to(device)
-
-from plaid.diffusion import GaussianDiffusion
-
-diffusion = GaussianDiffusion(model,uncompressor=uncompressor)
+sigma_density_generator = VDiffusionSigmas(
+    max_value=1e3, min_value=1e-3, sigma_data=1
+)
+diffusion = ElucidatedDiffusion(
+    model, sigma_density_generator, sigma_data=1,
+)
 diffusion = diffusion.to(device)
 
 import IPython;IPython.embed()
 
-from plaid.callbacks import SampleCallback
 
 
-callback = SampleCallback(
-        diffusion,
-        log_to_wandb=False,
-        calc_structure= False,
-        calc_sequence= False,
-        calc_perplexity=False,
-        calc_fid = True,
-        fid_holdout_tensor_fpath= "/homefs/home/lux70/plaid_cached_tensors/uniref_esmfold_feats.st",
-        normalize_real_features = True,
-        save_generated_structures = False,
-        num_recycles= 4,
-        outdir = "sampled",
-)
 
-x = callback.sample_compressed_latent((4, 128, 8))[0]
-latent = diffusion.process_x_to_latent(x)
 
-callback.calculate_fid(latent.detach(), device)
+# callback = SampleCallback(
+#         diffusion,
+#         log_to_wandb=False,
+#         calc_structure= False,
+#         calc_sequence= False,
+#         calc_perplexity=False,
+#         calc_fid = True,
+#         fid_holdout_tensor_fpath= "/homefs/home/lux70/plaid_cached_tensors/uniref_esmfold_feats.st",
+#         normalize_real_features = True,
+#         save_generated_structures = False,
+#         num_recycles= 4,
+#         outdir = "sampled",
+# )
+
+# x = callback.sample_compressed_latent((4, 128, 8))[0]
+# latent = diffusion.process_x_to_latent(x)
+
+# callback.calculate_fid(latent.detach(), device)
 
 # optimizer = torch.optim.Adam(dit.parameters(), lr=1e-4)
 # diffusion = GaussianDiffusion(model=dit)
