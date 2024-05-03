@@ -17,7 +17,7 @@ from functools import partial
 from einops import rearrange
 
 from .modules.helpers import to_2tuple
-from .modules.embedders import TimestepEmbedder, get_1d_sincos_pos_embed
+from .modules.embedders import LabelEmbedder, TimestepEmbedder, get_1d_sincos_pos_embed
 
 
 def exists(val):
@@ -289,4 +289,87 @@ class SimpleDiT(BaseDiT):
             x = block(x, c, mask)                # (N, L, D)
         x = self.final_layer(x, c)               # (N, L, out_channels)
         return x
+
+
+class CFGDiT(BaseDiT):
+    """
+    DiT with classifier-free guidance.
+    """
+    def __init__(
+        self,
+        input_dim=8,
+        hidden_size=1024,
+        max_seq_len=512, 
+        depth=28,
+        num_heads=16,
+        mlp_ratio=4.0,
+        use_self_conditioning=False,
+        class_dropout_prob=0.1,
+        num_classes=1000,
+    ):
+        super().__init__(
+            input_dim=input_dim,
+            hidden_size=hidden_size,
+            max_seq_len=max_seq_len,
+            depth=depth,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            use_self_conditioning=use_self_conditioning,
+        )
     
+        self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+        nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
+
+    def make_blocks(self):
+        self.blocks = nn.ModuleList([
+            DiTBlock(self.hidden_size, self.num_heads, mlp_ratio=self.mlp_ratio) for _ in range(self.depth)
+        ])
+    
+    def initialize_block_weights(self):
+        # Zero-out adaLN modulation layers in DiT blocks:
+        for block in self.blocks:
+            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+
+    def forward(self, x, t, y, mask=None, x_self_cond=None):
+        """
+        Forward pass of DiT.
+        x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
+        t: (N,) tensor of diffusion timesteps
+        mask: (N, L) mask where True means to attend and False denotes padding
+        x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
+        """
+        if x_self_cond is not None:
+            assert not self.self_conditioning_mlp is None, "Must instantiate self conditioning MLP first."
+            x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
+        x = self.x_proj(x)
+        x += self.pos_embed[:, :x.shape[1], :]
+        t = self.t_embedder(t)                   # (N, D)
+        y = self.y_embedder(y, self.training)    # (N, D)
+        c = t + y                                # (N, D)
+        
+        if mask is None:
+            mask = torch.ones(x.shape[:2], device=x.device).bool()
+
+        for block in self.blocks:
+            x = block(x, c, mask)                # (N, L, D)
+        x = self.final_layer(x, c)               # (N, L, out_channels)
+        return x
+
+    def forward_with_cfg(self, x, t, y, cfg_scale):
+        """
+        Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
+        """
+        # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
+        half = x[: len(x) // 2]
+        combined = torch.cat([half, half], dim=0)
+        model_out = self.forward(combined, t, y)
+        # For exact reproducibility reasons, we apply classifier-free guidance on only
+        # three channels by default. The standard approach to cfg applies it to all channels.
+        # This can be done by uncommenting the following line and commenting-out the line following that.
+        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        eps, rest = model_out[:, :3], model_out[:, 3:]
+        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
+        eps = torch.cat([half_eps, half_eps], dim=0)
+        return torch.cat([eps, rest], dim=1)
