@@ -86,3 +86,12 @@ callback.calculate_fid(latent.detach(), device)
 
 # callback = SampleCallback(diffusion, calc_fid=True)
 # callback.on_train_batch_end(None, diffusion, None, None, None)
+
+
+from plaid.diffusion.beta_schedulers import VDiffusionSigmas
+
+
+sigma_density = VDiffusionSigmas()
+
+N = 16
+sigmas = sigma_density((N,))

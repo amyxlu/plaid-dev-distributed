@@ -1,0 +1,23 @@
+defaults:
+  - _self_
+  - paths: pcluster 
+  - datamodule: compressed/rocklin
+  - denoiser: utsa
+  - beta_scheduler: adm_cosine 
+  - latent_scaler: esmfold 
+  - diffusion: diffusion
+  - trainer: default
+  - callbacks/checkpoint: diffusion
+  - callbacks/lr_monitor: default
+  - callbacks/sample: pfam_compressed_fid 
+  - callbacks/ema: diffusion
+  - logger: diffusion
+  - experiment: null
+
+dryrun: False 
+run_test: null
+
+resume_from_model_id: null
+compression_model_id: null
+compression_ckpt_dir: null
+shorten_factor: null

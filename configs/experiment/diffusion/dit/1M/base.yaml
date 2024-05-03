@@ -1,0 +1,18 @@
+# @package _global_
+
+compression_model_id: wiepwn5p
+compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
+input_dim: 8 
+
+defaults:
+  - override /denoiser: dit/base.yaml
+  - override /datamodule: compressed/pfam_h5_n1M
+  - override /callbacks/sample: pfam_compressed_fid
+
+datamodule:
+  compression_model_id: ${compression_model_id}
+  batch_size: 128
+
+trainer:
+  limit_val_batches: 0.0
+  gradient_clip_val: 1 

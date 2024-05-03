@@ -275,6 +275,7 @@ class SimpleDiT(BaseDiT):
         x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
         """
         if x_self_cond is not None:
+            assert not self.self_conditioning_mlp is None, "Must instantiate self conditioning MLP first."
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
         x = self.x_proj(x)
         x += self.pos_embed[:, :x.shape[1], :]

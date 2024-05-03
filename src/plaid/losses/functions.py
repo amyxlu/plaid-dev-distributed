@@ -6,6 +6,11 @@ import einops
 import torch
 
 
+
+# sq_error = dct(model_output - target) ** 2
+# f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
+# return (sq_error * f_weight).flatten(1).mean(1) * c_weight
+
 def make_mask(broadcast_shape, mask):
     while len(mask.shape) < len(broadcast_shape):
         mask = mask[..., None]

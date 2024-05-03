@@ -1,10 +1,7 @@
 _target_: plaid.callbacks.SampleCallback
 
-fid_holdout_tensor_fpath: ${paths.data_dir}/rocklin/shards/val/esmfold/seqlen_256/fp32/shard0000.h5
-
-# make seq len explicitly to match
-uncompress_for_fid: False
-normalize_real_features: False
+fid_holdout_tensor_fpath: /homefs/home/lux70/plaid_cached_tensors/uniref_esmfold_feats.st
+normalize_real_features: True 
 
 n_to_sample: 64
 batch_size: 64
@@ -15,7 +12,7 @@ n_to_construct: 16
 calc_sequence: True
 calc_structure: True
 calc_perplexity: True
-calc_fid: False 
+calc_fid: True 
 
 log_to_wandb: True
 
