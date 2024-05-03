@@ -47,8 +47,7 @@ class SampleCallback(Callback):
         calc_structure: bool = True,
         calc_sequence: bool = True,
         calc_fid: bool = True,
-        fid_holdout_tensor_fpath: str = "",
-        uncompress_for_fid: bool = True,
+        fid_holdout_tensor_fpath: str = "/homefs/home/lux70/plaid_cached_tensors/uniref_esmfold_feats.st",
         normalize_real_features: bool = True,
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
@@ -78,7 +77,6 @@ class SampleCallback(Callback):
             assert calc_structure
 
         self.fid_holdout_tensor_fpath = fid_holdout_tensor_fpath
-        self.uncompress_for_fid = uncompress_for_fid 
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
         self.sequence_decode_temperature = sequence_decode_temperature
@@ -112,17 +110,15 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = True
 
     def _fid_setup(self, device):
-
-        # safetensors version - deprecated
-        # def load_saved_features(location, device="cpu"):
-        #     return st.load_file(location)["features"].to(device)
-
         def load_saved_features(location, device="cpu"):
-            import h5py
-            with h5py.File(location, "r") as f:
-                tensor = f['embeddings'][()]
-            tensor = torch.from_numpy(tensor).to(device)
-            return tensor.mean(dim=1)
+            return st.load_file(location)["features"].to(device)
+
+        # def load_saved_features(location, device="cpu"):
+        #     import h5py
+        #     with h5py.File(location, "r") as f:
+        #         tensor = f['embeddings'][()]
+        #     tensor = torch.from_numpy(tensor).to(device)
+        #     return tensor.mean(dim=1)
 
         # load saved features (unnormalized)
         self.real_features = load_saved_features(self.fid_holdout_tensor_fpath, device=device)
@@ -139,7 +135,7 @@ class SampleCallback(Callback):
         print("FID reference tensor mean/std:", self.real_features.mean().item(), self.real_features.std().item())
         self.is_fid_setup = True
 
-    def sample_latent(self, shape, model_kwargs={}):
+    def sample_compressed_latent(self, shape, model_kwargs={}, return_log_dict=True):
         all_samples, n_samples = [], 0
         for _ in trange(0, self.n_to_sample, shape[0]):
             x_sampled = self.diffusion.p_sample_loop(shape, clip_denoised=True, progress=True)
@@ -151,7 +147,10 @@ class SampleCallback(Callback):
             "sampled/unscaled_latent_hist": wandb.Histogram(x_sampled.numpy().flatten())
         }
         all_samples = torch.cat(all_samples)
-        return all_samples, log_dict
+        if return_log_dict:
+            return all_samples, log_dict
+        else:
+            return all_samples
     
     def calculate_fid(self, x_uncompressed, device):
         """
@@ -159,16 +158,17 @@ class SampleCallback(Callback):
         """
         if not self.is_fid_setup:
             self._fid_setup(device)
-        
-        fake_features = x_uncompressed.mean(dim=1)
+
+        if len(x_uncompressed.shape) > 2: 
+            fake_features = x_uncompressed.mean(dim=1)
 
         # just to be consistent, but not necessary
         indices = torch.randperm(self.real_features.size(0))[: fake_features.shape[0]]
         real_features = self.real_features[indices]
         assert real_features.ndim == fake_features.ndim == 2
 
-        fake_features = fake_features.cpu().numpy()
-        real_features = real_features.cpu().numpy()
+        fake_features = npy(fake_features)
+        real_features = npy(real_features)
 
         fid = parmar_fid(fake_features, real_features)
         kid = parmar_kid(fake_features, real_features)
@@ -273,7 +273,7 @@ class SampleCallback(Callback):
 
         # sample latent (implicitly uncompresses and unnormalizes)
         maybe_print("sampling latent...")
-        x, log_dict = self.sample_latent(shape)   # compressed, i.e. (N, L, C_compressed)
+        x, log_dict = self.sample_compressed_latent(shape)   # compressed, i.e. (N, L, C_compressed)
         if log_to_wandb:
             logger.log(log_dict)
 
