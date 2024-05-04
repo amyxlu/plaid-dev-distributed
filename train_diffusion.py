@@ -83,12 +83,19 @@ def train(cfg: DictConfig):
 
     from plaid.utils import count_parameters
 
+    # For the SimpleDiT and UTSA models
+    # diffusion = hydra.utils.instantiate(
+    #     cfg.diffusion,
+    #     model=compiled_denoiser,
+    #     beta_scheduler=beta_scheduler,
+    #     sequence_constructor=sequence_constructor,
+    #     structure_constructor=structure_constructor,
+    #     unscaler=latent_scaler,
+    #     uncompressor=uncompressor
+    # )
     diffusion = hydra.utils.instantiate(
-        cfg.diffusion,
-        model=compiled_denoiser,
-        beta_scheduler=beta_scheduler,
-        sequence_constructor=sequence_constructor,
-        structure_constructor=structure_constructor,
+        denoiser=denoiser,
+        sigma_density_generator=beta_scheduler,
         unscaler=latent_scaler,
         uncompressor=uncompressor
     )

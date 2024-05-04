@@ -1,0 +1,20 @@
+_target_: plaid.denoisers.CFGDit
+
+# diffusion
+sigma_data: 1
+loss_weighting: 'soft-min-snr'
+ema_sigma_rels:  [0.05, 0.3]
+ema_update_every:  10
+ema_checkpoint_every_num_steps:  10
+ema_checkpoint_folder: './post-hoc-ema-checkpoints'
+
+# compression and architecture
+shorten_factor: 1.0
+
+# optimization,
+lr: 1e-4
+adam_betas: [0.9, 0.999]
+lr_sched_type: "constant_with_warmup"
+lr_num_warmup_steps: 7000
+lr_num_training_steps: 10_000_000
+lr_num_cycles: 1
