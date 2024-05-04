@@ -17,7 +17,7 @@ from functools import partial
 from einops import rearrange
 
 from .modules.helpers import to_2tuple
-from .modules.embedders import LabelEmbedder, TimestepEmbedder, get_1d_sincos_pos_embed
+from .modules.embedders import LabelEmbedder, TimestepEmbedder, FourierFeatures, get_1d_sincos_pos_embed
 
 
 def exists(val):
@@ -291,6 +291,38 @@ class SimpleDiT(BaseDiT):
         return x
 
 
+class MappingFeedForwardBlock(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.0):
+        super().__init__()
+        self.norm = nn.LayerNorm(d_model)
+        self.up_proj = nn.Linear(d_model, d_ff, bias=False)
+        self.dropout = nn.Dropout(dropout)
+        self.down_proj = nn.Linear(d_ff, d_model, bias=False)
+
+    def forward(self, x):
+        skip = x
+        x = self.norm(x)
+        x = self.up_proj(x)
+        x = self.dropout(x)
+        x = self.down_proj(x)
+        return x + skip
+
+
+class MappingNetwork(nn.Module):
+    def __init__(self, n_layers, d_model, d_ff, dropout=0.0):
+        super().__init__()
+        self.in_norm = nn.LayerNorm(d_model)
+        self.blocks = nn.ModuleList([MappingFeedForwardBlock(d_model, d_ff, dropout=dropout) for _ in range(n_layers)])
+        self.out_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x):
+        x = self.in_norm(x)
+        for block in self.blocks:
+            x = block(x)
+        x = self.out_norm(x)
+        return x
+
+
 class CFGDiT(BaseDiT):
     """
     DiT with classifier-free guidance.
@@ -318,6 +350,9 @@ class CFGDiT(BaseDiT):
         )
     
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+        self.sigma_proj = InputProj(hidden_size, hidden_size)
+        self.fourier = FourierFeatures(1, hidden_size) 
+        self.mapping_network = MappingNetwork(2, hidden_size, hidden_size * 2)
         nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
     def make_blocks(self):
@@ -331,11 +366,11 @@ class CFGDiT(BaseDiT):
             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
             nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
 
-    def forward(self, x, t, y, mask=None, x_self_cond=None):
+    def forward(self, x, sigma, y, mask=None, x_self_cond=None):
         """
         Forward pass of DiT.
         x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
-        t: (N,) tensor of diffusion timesteps
+        sigma: (N,) tensor of sigmas
         mask: (N, L) mask where True means to attend and False denotes padding
         x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
         """
@@ -344,9 +379,10 @@ class CFGDiT(BaseDiT):
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
         x = self.x_proj(x)
         x += self.pos_embed[:, :x.shape[1], :]
-        t = self.t_embedder(t)                   # (N, D)
-        y = self.y_embedder(y, self.training)    # (N, D)
-        c = t + y                                # (N, D)
+        sigma = self.sigma_proj(self.fourier(sigma))
+        y = self.y_embedder(y, self.training)
+        c = sigma + y
+        c = self.mapping_network(c)
         
         if mask is None:
             mask = torch.ones(x.shape[:2], device=x.device).bool()
@@ -356,14 +392,14 @@ class CFGDiT(BaseDiT):
         x = self.final_layer(x, c)               # (N, L, out_channels)
         return x
 
-    def forward_with_cfg(self, x, t, y, cfg_scale):
+    def forward_with_cfg(self, x, sigma, y, cfg_scale):
         """
         Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
         """
         # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
         half = x[: len(x) // 2]
         combined = torch.cat([half, half], dim=0)
-        model_out = self.forward(combined, t, y)
+        model_out = self.forward(combined, sigma, y)
         # For exact reproducibility reasons, we apply classifier-free guidance on only
         # three channels by default. The standard approach to cfg applies it to all channels.
         # This can be done by uncommenting the following line and commenting-out the line following that.
