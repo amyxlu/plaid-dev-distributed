@@ -189,7 +189,7 @@ class ElucidatedDiffusion(L.LightningModule):
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
         x_self_cond = None
-        if self.self_condition and random.random() < 0.5:
+        if self.use_self_conditioning and random.random() < 0.5:
             with torch.no_grad():
                 x_self_cond = self(x, sigma, mask, noise=noise, label=clan, x_self_cond=x_self_cond)
                 x_self_cond.detach_()
