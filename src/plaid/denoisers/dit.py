@@ -323,9 +323,9 @@ class MappingNetwork(nn.Module):
         return x
 
 
-class CFGDiT(BaseDiT):
+class ClassifierFreeGuidanceDiT(BaseDiT):
     """
-    DiT with classifier-free guidance.
+    DiT with classifier-free guidance and used with k-diffusion.
     """
     def __init__(
         self,

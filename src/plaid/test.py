@@ -1,4 +1,4 @@
-from plaid.denoisers import SimpleDiT, CFGDiT 
+from plaid.denoisers import SimpleDiT, ClassifierFreeGuidanceDiT 
 from plaid.diffusion.beta_schedulers import VDiffusionSigmas
 from plaid.callbacks import SampleCallback
 from plaid.diffusion import GaussianDiffusion, ElucidatedDiffusion
@@ -7,7 +7,7 @@ from plaid.diffusion.guided import GaussianDiffusion
 from plaid.datasets import CompressedH5DataModule
 import torch
 
-model = CFGDiT()
+model = ClassifierFreeGuidanceDiT()
 device = torch.device("cuda")
 model.to(device)
 
