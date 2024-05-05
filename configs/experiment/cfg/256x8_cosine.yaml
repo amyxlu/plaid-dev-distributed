@@ -9,6 +9,7 @@ defaults:
   - override /denoiser: cfg/base.yaml
   - override /datamodule: compressed/pfam_h5_n1M
   - override /callbacks/sample: pfam_compressed_fid
+  - override /beta_scheduler: cosine_interpolated
 
 datamodule:
   compression_model_id: ${compression_model_id}
