@@ -24,3 +24,12 @@ ACCEPTED_LM_EMBEDDER_TYPES = [
     "esm2_t12_35M_UR50D",  # dim=480
     "esm2_t6_8M_UR50D"  # dim=320
 ]
+
+
+COMPRESSED_DATA_STDS = {
+    "qjs33lme": 0.3685586,
+    "jzlv54wl": 0.5509415,
+    "wiepwn5p": 0.5558105,
+    "h9hzw1bp": 0.2876465,
+    "j1v1wv6w": 0.3381734
+}
