@@ -1,7 +1,6 @@
-_target_: plaid.denoisers.ClassifierFreeGuidanceDiT
+_target_: plaid.diffusion.ElucidatedDiffusion
 
 # diffusion
-sigma_data: ${sigma_data} 
 loss_weighting: 'soft-min-snr'
 ema_sigma_rels:  [0.05, 0.3]
 ema_update_every:  10

@@ -135,6 +135,7 @@ def train(cfg: DictConfig):
 
     # make diffusion
     diffusion = hydra.utils.instantiate(
+        cfg.diffusion,
         denoiser=denoiser,
         sigma_data=sigma_data,
         sigma_density_generator=sigma_density_generator,

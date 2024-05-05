@@ -19,4 +19,9 @@ denoiser:
 
 trainer:
   gradient_clip_val: 1
+
+callbacks/sample:
+  calc_sequence: false
+  calc_structure: false
+  calc_perplexity: false
 # val_check_interval=None
