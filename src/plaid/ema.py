@@ -1,6 +1,7 @@
 from pathlib import Path
 from copy import deepcopy
 from functools import partial
+import logging
 
 import torch
 from torch import nn, Tensor
@@ -23,6 +24,7 @@ def get_module_device(m: Module):
     return next(m.parameters()).device
 
 def inplace_copy(tgt: Tensor, src: Tensor, *, auto_move_device = False):
+    logging.info("Performing inplace copying of tensors")
     if auto_move_device:
         src = src.to(tgt.device)
 

@@ -27,8 +27,7 @@ x, mask, clan = batch
 clan = clan.long().squeeze()
 
 
-output = model(x, t, clan, mask)
-print(output)
+
 
 # TODO: create uncompressor / unscaler? 
 # TODO: add sequence / structure again?
@@ -36,13 +35,22 @@ uncompressor = UncompressContinuousLatent("jzlv54wl")
 sigma_density_generator = VDiffusionSigmas(
     max_value=1e3, min_value=1e-3, sigma_data=1
 )
+sigma = sigma_density_generator(x.shape[0])
+sigma = sigma.to(device)
 diffusion = ElucidatedDiffusion(
     model, sigma_density_generator, sigma_data=1,
 )
 diffusion = diffusion.to(device)
 
-import IPython;IPython.embed()
+diffusion_loss = diffusion.loss(
+    x=x,
+    label=clan,
+    sigma=sigma,
+    mask=mask,
+    x_self_cond=None
+)
 
+import IPython;IPython.embed()
 
 
 
