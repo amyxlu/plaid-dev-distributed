@@ -178,7 +178,8 @@ class ElucidatedDiffusion(L.LightningModule):
         return losses.mean()
 
     def forward(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
-        c_skip, c_out, c_in = [append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = [append_dims(s, s.ndim) for s in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = tuple(map(lambda c: append_dims(c, x.ndim), (c_skip, c_out, c_in)))
         model_output = self.denoiser(
             x=x * c_in,
             sigma=sigma,
