@@ -54,14 +54,6 @@ def train(cfg: DictConfig):
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
 
-    # save config
-    dirpath = Path(cfg.paths.checkpoint_dir) / "edm" / job_id
-    dirpath.mkdir(parents=False)
-    config_path = dirpath / "config.yaml"
-    if not config_path.exists():
-        OmegaConf.save(cfg, config_path)
-
-
 
     """
     Auxiliary networks and preprocessing modules
