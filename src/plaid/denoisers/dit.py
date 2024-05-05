@@ -195,7 +195,11 @@ class BaseDiT(nn.Module):
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
         if self.use_self_conditioning:
-            self.self_conditioning_mlp = Mlp(input_dim * 2, input_dim)
+            self.self_conditioning_mlp = Mlp(
+                in_features=input_dim * 2,
+                hidden_features=hidden_size,
+                out_features=input_dim
+            )
         self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
         self.make_blocks()
         self.initialize_base_weights()
@@ -274,6 +278,7 @@ class SimpleDiT(BaseDiT):
         mask: (N, L) mask where True means to attend and False denotes padding
         x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
         """
+        import pdb;pdb.set_trace()
         if x_self_cond is not None:
             assert not self.self_conditioning_mlp is None, "Must instantiate self conditioning MLP first."
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
@@ -338,6 +343,7 @@ class ClassifierFreeGuidanceDiT(BaseDiT):
         use_self_conditioning=False,
         class_dropout_prob=0.1,
         num_classes=659,
+        mapping_network_depth=2,
     ):
         super().__init__(
             input_dim=input_dim,
@@ -352,7 +358,7 @@ class ClassifierFreeGuidanceDiT(BaseDiT):
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         self.sigma_proj = InputProj(hidden_size, hidden_size)
         self.fourier = FourierFeatures(1, hidden_size) 
-        self.mapping_network = MappingNetwork(2, hidden_size, hidden_size * 2)
+        self.mapping_network = MappingNetwork(mapping_network_depth, hidden_size, hidden_size * 2)
         nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
     def make_blocks(self):

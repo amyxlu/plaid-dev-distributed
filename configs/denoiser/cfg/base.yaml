@@ -9,3 +9,4 @@ mlp_ratio: 4.0
 use_self_conditioning: False 
 class_dropout_prob: 0.1
 num_classes: 659
+mapping_network_depth: 4
