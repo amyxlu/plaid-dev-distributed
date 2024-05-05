@@ -1,0 +1,19 @@
+# @package _global_
+
+compression_model_id: qjs33lme 
+compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
+input_dim: 8 
+shorten_factor: 2
+
+defaults:
+  - override /denoiser: dit/base.yaml
+  - override /datamodule: compressed/pfam_h5_n1M
+  - override /callbacks/sample: pfam_compressed_fid
+
+datamodule:
+  compression_model_id: ${compression_model_id}
+  batch_size: 128
+
+trainer:
+  gradient_clip_val: 1 
+# val_check_interval=None

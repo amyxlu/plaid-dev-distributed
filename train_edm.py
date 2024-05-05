@@ -1,5 +1,5 @@
 """
-Elucidated diffusion with classifier-free guidance and multi-GPU scaling.
+Elucidated diffusion model with classifier-free guidance and multi-GPU scaling.
 """
 
 import typing as T
@@ -25,7 +25,7 @@ logger = logging.getLogger("torch._dynamo")
 logger.setLevel(logging.DEBUG)
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
+@hydra.main(version_base=None, config_path="configs", config_name="train_edm")
 def train(cfg: DictConfig):
 
     """

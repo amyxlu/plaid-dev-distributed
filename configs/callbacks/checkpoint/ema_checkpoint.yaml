@@ -1,8 +1,0 @@
-_target_: plaid.callbacks.ema.EMAModelCheckpoint
-filename: "{epoch}-{step}"
-verbose: true
-save_last: true
-every_n_train_steps: 5000
-mode: "min"
-monitor: "val/loss"
-min_steps_before_checkpoint: 5000

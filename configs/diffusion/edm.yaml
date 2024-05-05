@@ -1,12 +1,11 @@
-_target_: plaid.denoisers.CFGDit
+_target_: plaid.denoisers.ClassifierFreeGuidanceDiT
 
 # diffusion
-sigma_data: 1
+sigma_data: ${sigma_data} 
 loss_weighting: 'soft-min-snr'
 ema_sigma_rels:  [0.05, 0.3]
 ema_update_every:  10
 ema_checkpoint_every_num_steps:  10
-ema_checkpoint_folder: './post-hoc-ema-checkpoints'
 
 # compression and architecture
 shorten_factor: 1.0

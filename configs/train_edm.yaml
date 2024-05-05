@@ -1,8 +1,14 @@
+resume_from_model_id: null
+compression_model_id: null
+compression_ckpt_dir: null
+shorten_factor: null
+use_compile: true
+
 defaults:
   - _self_
   - paths: pcluster 
-  - datamodule: compressed/rocklin
-  - denoiser: utsa
+  - datamodule: compressed/pfam_h5_n1M.yaml
+  - denoiser:  
   - beta_scheduler: adm_cosine 
   - latent_scaler: esmfold 
   - diffusion: diffusion
@@ -14,10 +20,5 @@ defaults:
   - logger: diffusion
   - experiment: null
 
-dryrun: False 
+dryrun: false 
 run_test: null
-
-resume_from_model_id: null
-compression_model_id: null
-compression_ckpt_dir: null
-shorten_factor: null
