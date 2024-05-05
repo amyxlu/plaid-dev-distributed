@@ -17,6 +17,4 @@ datamodule:
 denoiser:
   class_dropout_prob: 0.1
 
-trainer:
-  gradient_clip_val: 1
 

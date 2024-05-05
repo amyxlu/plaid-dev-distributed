@@ -2,9 +2,9 @@ _target_: plaid.diffusion.ElucidatedDiffusion
 
 # diffusion
 loss_weighting: 'soft-min-snr'
-ema_sigma_rels:  [0.05, 0.3]
+ema_sigma_rels:  [0.05, 0.10]
 ema_update_every:  10
-ema_checkpoint_every_num_steps:  10
+ema_checkpoint_every_num_steps: 5000
 
 # compression and architecture
 shorten_factor: 1.0

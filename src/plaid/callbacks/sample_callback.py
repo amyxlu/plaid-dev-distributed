@@ -99,6 +99,7 @@ class SampleCallback(Callback):
         self.run_every_n_steps = run_every_n_steps
         self.n_structures_to_log = n_structures_to_log
 
+    @rank_zero_only
     def _save_setup(self):
         if not self.outdir.exists():
             self.outdir.mkdir(parents=True)

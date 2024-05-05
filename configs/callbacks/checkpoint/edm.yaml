@@ -1,4 +1,4 @@
 _target_: lightning.pytorch.callbacks.ModelCheckpoint
 filename: "{epoch}-{step}"
 verbose: true
-every_n_train_steps: 100_000
+every_n_train_steps: 5_000

@@ -79,7 +79,7 @@ class ElucidatedDiffusion(L.LightningModule):
         ema_sigma_rels = (0.05, 0.3),           # a tuple with the hyperparameter for the multiple EMAs. you need at least 2 here to synthesize a new one
         ema_gammas = None,
         ema_update_every = 10,                  # how often to actually update, to save on compute (updates every 10th .update() call). -1 disables EMA
-        ema_checkpoint_every_num_steps = 10,
+        ema_checkpoint_every_num_steps = 1000,
         ema_checkpoint_folder = './post-hoc-ema-checkpoints',   # the folder of saved checkpoints for each sigma_rel (gamma) across timesteps with the hparam above, used to synthesizing a new EMA model after training
         # compression and architecture
         shorten_factor=1.0,
@@ -194,6 +194,7 @@ class ElucidatedDiffusion(L.LightningModule):
         x, mask, clan = batch
         clan = clan.long().squeeze()   # (N,)
         sigma = self.sigma_density_generator((x.shape[0], 1))  # (N, 1)
+        sigma = sigma.to(x.device)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
         x_self_cond = None
@@ -259,7 +260,7 @@ class ElucidatedDiffusion(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=self.lr, betas=self.adam_betas
+            self.parameters(), lr=self.lr, betas=self.adam_betas
         )
         scheduler = get_lr_scheduler(
             optimizer=optimizer,

@@ -40,7 +40,7 @@ def train(cfg: DictConfig):
         job_id = wandb.util.generate_id()
 
     # set up checkpoint and config yaml paths 
-    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
+    dirpath = Path(cfg.paths.checkpoint_dir) / "edm" / job_id
     config_path = dirpath / "config.yaml"
     if config_path.exists():
         cfg = OmegaConf.load(config_path)
@@ -55,7 +55,7 @@ def train(cfg: DictConfig):
         print(OmegaConf.to_yaml(log_cfg))
 
     # save config
-    dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
+    dirpath = Path(cfg.paths.checkpoint_dir) / "edm" / job_id
     dirpath.mkdir(parents=False)
     config_path = dirpath / "config.yaml"
     if not config_path.exists():
@@ -190,7 +190,7 @@ def train(cfg: DictConfig):
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
-        callbacks=[lr_monitor, checkpoint_callback, sample_callback],
+        callbacks=[lr_monitor, checkpoint_callback] #, sample_callback],
     )
 
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
