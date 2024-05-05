@@ -259,7 +259,7 @@ class PostHocEMA(Module):
         gammas: Optional[Tuple[float, ...]] = None,
         checkpoint_every_num_steps: int = 1000,
         checkpoint_folder: str = './post-hoc-ema-checkpoints',
-        checkpoint_dtype: torch.dtype = torch.float16,
+        checkpoint_dtype: torch.dtype = torch.bfloat16,
         **kwargs
     ):
         super().__init__()

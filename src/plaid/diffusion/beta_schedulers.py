@@ -224,7 +224,7 @@ class CosineInterpolatedSigmas(BetaScheduler):
             noise_d_high = self.noise_d_high,
             sigma_data=self.sigma_data,
             min_value=self.min_value,
-            max_value=self.max_vaue,
+            max_value=self.max_value,
         ) 
 
         

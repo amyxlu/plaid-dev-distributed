@@ -18,6 +18,10 @@ from plaid.losses.functions import masked_mse_loss, masked_huber_loss
 # Helper functions
 
 
+def cast_dtype(tensor, parameter):
+    return tensor.to(dtype=parameter.dtype)
+
+
 def append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
@@ -191,9 +195,9 @@ class ElucidatedDiffusion(L.LightningModule):
     
     """Lightning set up"""
     def training_step(self, batch, batch_idx):
-        start = time.time()
         x, mask, clan = batch
         clan = clan.long().squeeze()   # (N,)
+        mask = mask.bool()
         sigma = self.sigma_density_generator((x.shape[0], 1))  # (N, 1)
         sigma = sigma.to(x.device)
 
@@ -203,9 +207,12 @@ class ElucidatedDiffusion(L.LightningModule):
             with torch.no_grad():
                 x_self_cond = self(x=x, sigma=sigma, label=clan, mask=mask, x_self_cond=x_self_cond)
                 x_self_cond.detach_()
+                x_self_cond = cast_dtype(x_self_cond, next(self.parameters()))
 
         # TODO: potentially add other loss terms; currently this would also require reprocessing the dataset
         optimizer = self.optimizers()
+        scheduler = self.lr_schedulers()
+
         loss = self.loss(
             x=x,
             sigma=sigma,
@@ -213,6 +220,7 @@ class ElucidatedDiffusion(L.LightningModule):
             mask=mask,
             x_self_cond=x_self_cond
         )
+        self.log("train/diffusion_loss", loss, batch_size=x.shape[0], on_step=True, on_epoch=True)
 
         # manual optimization
         optimizer.zero_grad()
@@ -222,41 +230,44 @@ class ElucidatedDiffusion(L.LightningModule):
         # accumulate gradients of N batches
         if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
             optimizer.step()
-
-        self.log("train/diffusion_loss", loss, batch_size=x.shape[0], on_step=True, on_epoch=True)
+        
+        # update lr every step
+        scheduler.step()
 
         # EMA updates
         self.ema_wrapper.update()
+
         return loss
     
-    def on_validation_start(self):
-        # the sigma_rel can be adjusted for final experiments; use 0.15 for callbacks.
-        if self.ema_wrapper.num_ema_models < 2:
-            return 
-        logging.info("Current number of EMA models: ", self.ema_wrapper.num_ema_models)
-        ema_denoiser = self.ema_wrapper.synthesize_ema_model(sigma_rel=0.15)
-        logging.info("Referencing self.denoiser to the synthesized ema_denoiser")
-        self.denoiser = ema_denoiser 
+    # def on_validation_start(self):
+    #     # the sigma_rel can be adjusted for final experiments; use 0.15 for callbacks.
+    #     if self.ema_wrapper.num_ema_models < 2:
+    #         return 
+    #     logging.info("Current number of EMA models: ", self.ema_wrapper.num_ema_models)
+    #     ema_denoiser = self.ema_wrapper.synthesize_ema_model(sigma_rel=0.15)
+    #     logging.info("Referencing self.denoiser to the synthesized ema_denoiser")
+    #     self.denoiser = ema_denoiser 
 
-    def on_validation_end(self):
-        logging.info("Inplace copying last online model back to pl_module weights")
-        self.denoiser = self.ema_wrapper.model
+    # def on_validation_end(self):
+    #     logging.info("Inplace copying last online model back to pl_module weights")
+    #     self.denoiser = self.ema_wrapper.model
 
     def validation_step(self, batch):
-        # Remember to call 
         x, mask, clan = batch
-        noise = torch.randn_like(x)
-        sigma = self.sigma_density_generator((x.shape[0],))
-        diffusion_loss = self.loss(
+        sigma = self.sigma_density_generator((x.shape[0], 1))  # (N, 1)
+        sigma = sigma.to(x.device)
+        x, sigma = tuple(map(lambda tensor: cast_dtype(tensor, next(self.parameters())), (x, sigma)))
+        mask = mask.bool()
+        clan = clan.long().squeeze()   # (N,)
+
+        loss = self.loss(
             x=x,
             label=clan,
             sigma=sigma,
             mask=mask,
             x_self_cond=None
         )
-        # TODO: add other loss terms
-        loss = diffusion_loss
-        self.log("train/diffusion_loss", diffusion_loss, batch_size=x.shape[0], on_step=True, on_epoch=True)
+        self.log("val/diffusion_loss", loss, batch_size=x.shape[0], on_step=False, on_epoch=True)
         return loss
 
     def configure_optimizers(self):
