@@ -3,5 +3,5 @@ _target_: plaid.diffusion.beta_schedulers.CosineInterpolatedSigmas
 min_value: 1e-3
 max_value: 1e3
 input_size: 512
-noise_d_low_: 32
+noise_d_low: 32
 noise_d_high: 512
