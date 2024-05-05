@@ -219,10 +219,12 @@ class CosineInterpolatedSigmas(BetaScheduler):
     def __call__(self, shape):
         return rand_cosine_interpolated(
             shape=shape,
-            image_d=self.image_d,
-            noise_d=self.noise_d,
+            image_d=self.input_size,
             noise_d_low = self.noise_d_low,
             noise_d_high = self.noise_d_high
+            sigma_data=self.sigma_data,
+            min_value=self.min_value,
+            max_value=self.max_vaue,
         ) 
 
         
