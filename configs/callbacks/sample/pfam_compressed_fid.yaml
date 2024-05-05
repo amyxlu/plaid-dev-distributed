@@ -9,9 +9,14 @@ gen_seq_len: 128
 
 n_to_construct: 16
 
-calc_sequence: True
-calc_structure: True
-calc_perplexity: True
+# calc_sequence: True
+# calc_structure: True
+# calc_perplexity: True
+
+calc_sequence: False
+calc_structure: False 
+calc_perplexity: False 
+
 calc_fid: True 
 
 log_to_wandb: True

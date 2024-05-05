@@ -86,6 +86,8 @@ class ElucidatedDiffusion(L.LightningModule):
         unscaler: LatentScaler = LatentScaler("identity"),
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
         # optimization,
+        gradient_accumulation_steps: int = 1,
+        gradient_clip_val: float = 0.5,
         lr=1e-4,
         adam_betas=(0.9, 0.999),
         lr_sched_type: str = "constant",
@@ -105,6 +107,8 @@ class ElucidatedDiffusion(L.LightningModule):
         self.use_self_conditioning = denoiser.use_self_conditioning
 
         # learning rates and optimization
+        self.gradient_accumulation_steps = gradient_accumulation_steps
+        self.gradient_clip_val = gradient_clip_val
         self.lr = lr
         self.adam_betas = adam_betas
         self.lr_sched_type = lr_sched_type
@@ -191,7 +195,6 @@ class ElucidatedDiffusion(L.LightningModule):
         clan = clan.long().squeeze()   # (N,)
         sigma = self.sigma_density_generator((x.shape[0], 1))  # (N, 1)
 
-
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
         x_self_cond = None
         if self.use_self_conditioning and random.random() < 0.5:
@@ -199,23 +202,26 @@ class ElucidatedDiffusion(L.LightningModule):
                 x_self_cond = self(x=x, sigma=sigma, label=clan, mask=mask, x_self_cond=x_self_cond)
                 x_self_cond.detach_()
 
-        # manual optimization
+        # TODO: potentially add other loss terms; currently this would also require reprocessing the dataset
         optimizer = self.optimizers()
-        optimizer.zero_grad()
-
-        diffusion_loss = self.loss(
+        loss = self.loss(
             x=x,
             sigma=sigma,
             label=clan,
             mask=mask,
             x_self_cond=x_self_cond
         )
-        # TODO: add other loss terms
-        loss = diffusion_loss
-        self.log("train/diffusion_loss", diffusion_loss, batch_size=x.shape[0], on_step=True, on_epoch=True)
 
+        # manual optimization
+        optimizer.zero_grad()
         self.manual_backward(loss)
-        optimizer.step()
+        self.clip_gradients(optimizer, self.gradient_clip_val, gradient_clip_algorithm="norm")
+
+        # accumulate gradients of N batches
+        if (batch_idx + 1) % self.gradient_accumulation_steps == 0:
+            optimizer.step()
+
+        self.log("train/diffusion_loss", loss, batch_size=x.shape[0], on_step=True, on_epoch=True)
 
         # EMA updates
         self.ema_wrapper.update()

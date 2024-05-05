@@ -12,7 +12,7 @@ defaults:
   - beta_scheduler: vdiffusion
   - latent_scaler: esmfold
   - diffusion: edm
-  - trainer: default
+  - trainer: edm
   - callbacks/checkpoint: edm
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 
