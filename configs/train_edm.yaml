@@ -8,15 +8,14 @@ defaults:
   - _self_
   - paths: pcluster 
   - datamodule: compressed/pfam_h5_n1M.yaml
-  - denoiser:  
-  - beta_scheduler: adm_cosine 
-  - latent_scaler: esmfold 
-  - diffusion: diffusion
+  - denoiser: cfg/base.yaml
+  - beta_scheduler: vdiffusion
+  - latent_scaler: esmfold
+  - diffusion: edm
   - trainer: default
-  - callbacks/checkpoint: diffusion
+  - callbacks/checkpoint: edm
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 
-  - callbacks/ema: diffusion
   - logger: diffusion
   - experiment: null
 

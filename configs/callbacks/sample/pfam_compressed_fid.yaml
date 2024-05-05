@@ -3,7 +3,7 @@ _target_: plaid.callbacks.SampleCallback
 fid_holdout_tensor_fpath: /homefs/home/lux70/plaid_cached_tensors/uniref_esmfold_feats.st
 normalize_real_features: True 
 
-n_to_sample: 64
+n_to_sample: 128 
 batch_size: 64
 gen_seq_len: 128 
 

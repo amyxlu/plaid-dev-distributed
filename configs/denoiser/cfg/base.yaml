@@ -7,5 +7,5 @@ depth: 12
 num_heads: 12 
 mlp_ratio: 4.0
 use_self_conditioning: False 
-class_dropout_prob: 0.1
-num_classes: 660
+class_dropout_prob: ???
+num_classes: 659

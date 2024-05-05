@@ -10,7 +10,6 @@ defaults:
   - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 
-  - callbacks/ema: diffusion
   - logger: diffusion
   - experiment: null
 

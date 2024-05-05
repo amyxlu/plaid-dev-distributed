@@ -7,8 +7,13 @@ structure_module_c_z = 128
 c_s = 1024
 c_z = 128
 
-NUM_CLANS = 660  # 659 clans + the unlabelled clan. Does not include the unconditional index!
 
+# There are 659 labelled clans. During data preprocessing, any protein without a clan
+# is assigned the "unknown" clan index (roughly 50% of the dataset), i.e.
+# there are actually 660 unique labels in the cached dataset, but we will
+# also use this "unknown" index as the unconditional index at sampling time,
+# so the number of clans specified here is 659.
+NUM_CLANS = 659
 DECODER_CKPT_PATH = Path(os.environ["HOME"]) / "plaid_cached_tensors/decoder_mlp.ckpt"
 DECODER_SINGLE_LAYER_CKPT_PATH = Path(os.environ["HOME"]) / "plaid_cached_tensors/decoder_single_layer.ckpt"
 CACHED_TENSORS_DIR = Path(os.environ["HOME"]) / "plaid_cached_tensors"

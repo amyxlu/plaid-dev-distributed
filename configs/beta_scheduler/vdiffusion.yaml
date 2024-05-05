@@ -2,4 +2,3 @@ _target_: plaid.diffusion.beta_schedulers.VDiffusionSigmas
 
 min_value: 1e-3
 max_value: 1e3
-sigma_data: ${sigma_data}

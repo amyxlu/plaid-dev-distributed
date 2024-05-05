@@ -337,7 +337,7 @@ class ClassifierFreeGuidanceDiT(BaseDiT):
         mlp_ratio=4.0,
         use_self_conditioning=False,
         class_dropout_prob=0.1,
-        num_classes=660,
+        num_classes=659,
     ):
         super().__init__(
             input_dim=input_dim,
