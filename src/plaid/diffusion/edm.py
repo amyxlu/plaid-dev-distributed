@@ -195,6 +195,7 @@ class ElucidatedDiffusion(L.LightningModule):
     
     """Lightning set up"""
     def training_step(self, batch, batch_idx):
+        start = time.time()
         x, mask, clan = batch
         clan = clan.long().squeeze()   # (N,)
         mask = mask.bool()
@@ -237,22 +238,13 @@ class ElucidatedDiffusion(L.LightningModule):
         # EMA updates
         self.ema_wrapper.update()
 
+        end = time.time()
+        self.log("train/batch_runtime", (end - start) / 60, on_step=False, on_epoch=True)
+
         return loss
     
-    # def on_validation_start(self):
-    #     # the sigma_rel can be adjusted for final experiments; use 0.15 for callbacks.
-    #     if self.ema_wrapper.num_ema_models < 2:
-    #         return 
-    #     logging.info("Current number of EMA models: ", self.ema_wrapper.num_ema_models)
-    #     ema_denoiser = self.ema_wrapper.synthesize_ema_model(sigma_rel=0.15)
-    #     logging.info("Referencing self.denoiser to the synthesized ema_denoiser")
-    #     self.denoiser = ema_denoiser 
-
-    # def on_validation_end(self):
-    #     logging.info("Inplace copying last online model back to pl_module weights")
-    #     self.denoiser = self.ema_wrapper.model
-
     def validation_step(self, batch):
+        start = time.time()
         x, mask, clan = batch
         sigma = self.sigma_density_generator((x.shape[0], 1))  # (N, 1)
         sigma = sigma.to(x.device)
@@ -267,7 +259,9 @@ class ElucidatedDiffusion(L.LightningModule):
             mask=mask,
             x_self_cond=None
         )
+        end = time.time()
         self.log("val/diffusion_loss", loss, batch_size=x.shape[0], on_step=False, on_epoch=True)
+        self.log("val/batch_runtime", (end - start) / 60, on_step=False, on_epoch=True)
         return loss
 
     def configure_optimizers(self):
