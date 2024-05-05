@@ -1,4 +1,5 @@
 from functools import lru_cache, reduce
+import logging
 from copy import deepcopy
 import time
 import typing as T
@@ -76,6 +77,7 @@ class ElucidatedDiffusion(L.LightningModule):
         loss_weighting='soft-min-snr',
         # post hoc EMA
         ema_sigma_rels = (0.05, 0.3),           # a tuple with the hyperparameter for the multiple EMAs. you need at least 2 here to synthesize a new one
+        ema_gammas = None,
         ema_update_every = 10,                  # how often to actually update, to save on compute (updates every 10th .update() call). -1 disables EMA
         ema_checkpoint_every_num_steps = 10,
         ema_checkpoint_folder = './post-hoc-ema-checkpoints',   # the folder of saved checkpoints for each sigma_rel (gamma) across timesteps with the hparam above, used to synthesizing a new EMA model after training
@@ -119,6 +121,7 @@ class ElucidatedDiffusion(L.LightningModule):
             self.ema_wrapper = PostHocEMA(
                 denoiser,
                 sigma_rels = ema_sigma_rels,                # a tuple with the hyperparameter for the multiple EMAs. you need at least 2 here to synthesize a new one
+                gammas = ema_gammas,
                 update_every = ema_update_every,            # how often to actually update, to save on compute (updates every 10th .update() call)
                 checkpoint_every_num_steps = ema_checkpoint_every_num_steps,
                 checkpoint_folder = ema_checkpoint_folder,  # the folder of saved checkpoints for each sigma_rel (gamma) across timesteps with the hparam above, used to synthesizing a new EMA model after training
@@ -154,27 +157,29 @@ class ElucidatedDiffusion(L.LightningModule):
         return c_skip, c_out, c_in
 
     def loss(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
-        c_skip, c_out, c_in = [append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = [append_dims(s, s.ndim) for s in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = tuple(map(lambda c: append_dims(c, x.ndim), (c_skip, c_out, c_in)))
         c_weight = self.weighting(sigma)
         noise = torch.randn_like(x)
         noised_input = x + noise * append_dims(sigma, x.ndim)
         model_output = self.denoiser(
-            x=noised_input * c_in,
-            t=sigma,
-            mask=mask,
+            x=noised_input * c_in, 
+            sigma=sigma,
             y=label,
+            mask=mask,
             x_self_cond=x_self_cond
         )
-        target = (x - c_skip * noised_input) / c_out
-        return masked_mse_loss(model_output, target) * c_weight
+        target = (x - c_skip * noised_input) / c_out 
+        losses = (masked_mse_loss(model_output, target, mask) * c_weight)
+        return losses.mean()
 
     def forward(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
         c_skip, c_out, c_in = [append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         model_output = self.denoiser(
             x=x * c_in,
-            t=sigma,
-            mask=mask,
+            sigma=sigma,
             y=label,
+            mask=mask,
             x_self_cond=x_self_cond
         )
         return model_output * c_out + x * c_skip
@@ -183,15 +188,15 @@ class ElucidatedDiffusion(L.LightningModule):
     def training_step(self, batch, batch_idx):
         start = time.time()
         x, mask, clan = batch
-        clan = clan.long().squeeze()   # clan idx was cached as (N,1) array of int16
-        noise = torch.randn_like(x)
-        sigma = self.sigma_density_generator((x.shape[0],))
+        clan = clan.long().squeeze()   # (N,)
+        sigma = self.sigma_density_generator((x.shape[0], 1))  # (N, 1)
+
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
         x_self_cond = None
         if self.use_self_conditioning and random.random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self(x, sigma, mask, noise=noise, label=clan, x_self_cond=x_self_cond)
+                x_self_cond = self(x=x, sigma=sigma, label=clan, mask=mask, x_self_cond=x_self_cond)
                 x_self_cond.detach_()
 
         # manual optimization
@@ -201,9 +206,8 @@ class ElucidatedDiffusion(L.LightningModule):
         diffusion_loss = self.loss(
             x=x,
             sigma=sigma,
-            mask=mask,
-            noise=noise,
             label=clan,
+            mask=mask,
             x_self_cond=x_self_cond
         )
         # TODO: add other loss terms
@@ -218,13 +222,17 @@ class ElucidatedDiffusion(L.LightningModule):
         return loss
     
     def on_validation_start(self):
-        self.cur_denoiser = deepcopy(self.denoiser).to(self.device)
-        ema_denoiser = self.ema_wrapper.synthesize_ema_model()
-        inplace_copy(self.denoiser, ema_denoiser)
+        # the sigma_rel can be adjusted for final experiments; use 0.15 for callbacks.
+        if self.ema_wrapper.num_ema_models < 2:
+            return 
+        logging.info("Current number of EMA models: ", self.ema_wrapper.num_ema_models)
+        ema_denoiser = self.ema_wrapper.synthesize_ema_model(sigma_rel=0.15)
+        logging.info("Referencing self.denoiser to the synthesized ema_denoiser")
+        self.denoiser = ema_denoiser 
 
     def on_validation_end(self):
-        inplace_copy(self.denoiser, self.cur_denoiser)
-        self.cur_denoiser = None
+        logging.info("Inplace copying last online model back to pl_module weights")
+        self.denoiser = self.ema_wrapper.model
 
     def validation_step(self, batch):
         # Remember to call 
@@ -233,10 +241,9 @@ class ElucidatedDiffusion(L.LightningModule):
         sigma = self.sigma_density_generator((x.shape[0],))
         diffusion_loss = self.loss(
             x=x,
+            label=clan,
             sigma=sigma,
             mask=mask,
-            noise=noise,
-            label=clan,
             x_self_cond=None
         )
         # TODO: add other loss terms
