@@ -5,6 +5,8 @@ compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 8 
 shorten_factor: 2
 
+use_compile: false
+
 defaults:
   - override /denoiser: cfg/base.yaml
   - override /datamodule: compressed/pfam_h5_n1M
