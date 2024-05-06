@@ -17,7 +17,7 @@ import torch
 
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.utils import count_parameters
-from plaid.constants import COMPRESSED_DATA_STDS
+from plaid import constants
 
 logger = logging.getLogger("lightning.pytorch")
 logger.setLevel(logging.DEBUG)
@@ -110,13 +110,17 @@ def train(cfg: DictConfig):
     Set up denoiser, diffusion, and sigma scheduler
     """
     try:
-        sigma_data = COMPRESSED_DATA_STDS[cfg.compression_model_id]
+        sigma_data = constants.COMPRESSED_DATA_STDS[cfg.compression_model_id]
     except KeyError:
         print(f"Data std. not found in constants.py for compression model {cfg.compression_model_id}.")
         raise
+    
+    # get dimensions
+    input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id] 
+    shorten_factor = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
 
     # make denoiser
-    denoiser = hydra.utils.instantiate(cfg.denoiser)
+    denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
 
     USE_COMPILE = cfg.use_compile
     if USE_COMPILE:
@@ -133,7 +137,8 @@ def train(cfg: DictConfig):
         sigma_density_generator=sigma_density_generator,
         unscaler=latent_scaler,
         uncompressor=uncompressor,
-        ema_checkpoint_folder=str(dirpath / "post-hoc-ema-checkpoints")
+        ema_checkpoint_folder=str(dirpath / "post-hoc-ema-checkpoints"),
+        shorten_factor=shorten_factor
     )
 
     # log parameters

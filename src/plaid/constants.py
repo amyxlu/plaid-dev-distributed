@@ -38,3 +38,21 @@ COMPRESSED_DATA_STDS = {
     "h9hzw1bp": 0.2876465,
     "j1v1wv6w": 0.3381734
 }
+
+
+COMPRESSION_INPUT_DIMENSIONS = {
+    "qjs33lme": 8,
+    "jzlv54wl": 8,
+    "wiepwn5p": 8,
+    "h9hzw1bp": 64,
+    "j1v1wv6w": 32,
+}
+
+
+COMPRESSION_SHORTEN_FACTORS = {
+    "qjs33lme": 2,
+    "jzlv54wl": 1,
+    "wiepwn5p": 1,
+    "h9hzw1bp": 2,
+    "j1v1wv6w": 2,
+}

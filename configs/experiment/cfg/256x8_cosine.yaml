@@ -2,8 +2,6 @@
 
 compression_model_id: qjs33lme 
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
-input_dim: 8 
-shorten_factor: 2
 
 use_compile: false
 
