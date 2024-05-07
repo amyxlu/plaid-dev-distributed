@@ -28,6 +28,25 @@ def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 
+def _forward_with_cfg(x, sigma, y, mask, cfg_scale, model_forward_fn):
+    """
+    Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
+    """
+    # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
+    half = x[: len(x) // 2]
+    combined = torch.cat([half, half], dim=0)
+    model_out = model_forward_fn(combined, sigma, y, mask)
+    # For exact reproducibility reasons, we apply classifier-free guidance on only
+    # three channels by default. The standard approach to cfg applies it to all channels.
+    # This can be done by uncommenting the following line and commenting-out the line following that.
+    # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+    eps, rest = model_out[:, :3], model_out[:, 3:]
+    cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+    half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
+    eps = torch.cat([half_eps, half_eps], dim=0)
+    return torch.cat([eps, rest], dim=1)
+
+
 class Attention(nn.Module):
     def __init__(
         self,
@@ -278,7 +297,6 @@ class SimpleDiT(BaseDiT):
         mask: (N, L) mask where True means to attend and False denotes padding
         x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
         """
-        import pdb;pdb.set_trace()
         if x_self_cond is not None:
             assert not self.self_conditioning_mlp is None, "Must instantiate self conditioning MLP first."
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
@@ -355,23 +373,33 @@ class ClassifierFreeGuidanceDiT(SimpleDiT):
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
 
-    def forward_with_cfg(self, x, t, y, cfg_scale):
+    def forward_with_cfg(self, x, t, y, mask, cfg_scale):
+        return _forward_with_cfg(x, t, y, mask, cfg_scale, self.forward)
+    
+    def forward(self, x, t, y, mask=None, x_self_cond=None):
         """
-        Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
+        Forward pass of DiT.
+        x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
+        t: (N,) tensor of diffusion timesteps
+        mask: (N, L) mask where True means to attend and False denotes padding
+        x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
         """
-        # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
-        half = x[: len(x) // 2]
-        combined = torch.cat([half, half], dim=0)
-        model_out = self.forward(combined, t, y)
-        # For exact reproducibility reasons, we apply classifier-free guidance on only
-        # three channels by default. The standard approach to cfg applies it to all channels.
-        # This can be done by uncommenting the following line and commenting-out the line following that.
-        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
-        eps, rest = model_out[:, :self.input_dim], model_out[:, self.input_dim:]
-        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
-        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
-        eps = torch.cat([half_eps, half_eps], dim=0)
-        return torch.cat([eps, rest], dim=1)
+        if x_self_cond is not None:
+            assert not self.self_conditioning_mlp is None, "Must instantiate self conditioning MLP first."
+            x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
+        x = self.x_proj(x)
+        x += self.pos_embed[:, :x.shape[1], :]
+        t = self.t_embedder(t)                   # (N, D)
+        y = self.y_embedder(y)
+        c = t + y
+        
+        if mask is None:
+            mask = torch.ones(x.shape[:2], device=x.device).bool()
+
+        for block in self.blocks:
+            x = block(x, c, mask)                # (N, L, D)
+        x = self.final_layer(x, c)               # (N, L, out_channels)
+        return x
 
 
 class EDMDiT(BaseDiT):
@@ -445,19 +473,6 @@ class EDMDiT(BaseDiT):
         return x
 
     def forward_with_cfg(self, x, sigma, y, cfg_scale):
-        """
-        Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
-        """
-        # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
-        half = x[: len(x) // 2]
-        combined = torch.cat([half, half], dim=0)
-        model_out = self.forward(combined, sigma, y)
-        # For exact reproducibility reasons, we apply classifier-free guidance on only
-        # three channels by default. The standard approach to cfg applies it to all channels.
-        # This can be done by uncommenting the following line and commenting-out the line following that.
-        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
-        eps, rest = model_out[:, :3], model_out[:, 3:]
-        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
-        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
-        eps = torch.cat([half_eps, half_eps], dim=0)
-        return torch.cat([eps, rest], dim=1)
+        return _forward_with_cfg(x, sigma, y, cfg_scale, self.forward)
+    
+

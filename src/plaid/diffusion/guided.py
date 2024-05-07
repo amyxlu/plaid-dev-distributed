@@ -618,22 +618,21 @@ class GaussianDiffusion(L.LightningModule):
     def forward(
         self,
         x_start,
-        mask,
+        t,
+        y=None,
+        mask=None,
         sequences=None,
         model_kwargs={},
-        noise=None,
     ):
         # x_start was already compressed and bounded to -1 and 1 during dataloader preprocessing
         B, L, _ = x_start.shape
-        t = torch.randint(0, self.num_timesteps, (B,))
-        t = t.long().to(self.device)
 
         # potentially unscale
         x_start *= self.x_downscale_factor
 
         # noise sample
         B, L, C = x_start.shape
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        noise = torch.randn_like(x_start)
         x_t = self.q_sample(x_start=x_start, t=t, noise=noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
@@ -652,7 +651,14 @@ class GaussianDiffusion(L.LightningModule):
             )
 
         # main inner model forward pass
-        model_out = self.model(x_t, t, mask=mask, **model_kwargs)
+        model_out = self.model(
+            x=x_t,
+            y=t,
+            y=y,
+            mask=mask,
+            x_self_cond=x_self_cond,
+            **model_kwargs
+        )
         
         # reconstruction / "main diffusion loss"
         if self.objective == "pred_noise":
@@ -706,13 +712,34 @@ class GaussianDiffusion(L.LightningModule):
             x = self.uncompressor.uncompress(x)
         return self.unscaler.unscale(x)
 
-    def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
-        embs, mask, clan = batch
+    def run_step(self, batch, model_kwargs={}, noise=None):
+        if (len(batch) == 3) and isinstance(batch[-1][0], str):
+            # v1 of the dataloader
+            embs, mask, sequence = batch
+            y = None
+        elif len(batch) == 2:
+            # fasta batch
+            header, sequence = batch
+            # make esmfold, embed batch, make mask, get clan idx as y
+            raise NotImplementedError
+        else:
+            embs, mask, clan = batch
+            y = clan
+            sequence = None
+
+        B = len(batch[0])
+        t = torch.randint(0, self.num_timesteps, (B,))
+        t = t.long().to(self.device)
+
         model_output, x_t, t, diffusion_loss = self(
             x_start=embs,
+            t=t,
+            y=y,
             mask=mask,
             model_kwargs=model_kwargs,
-            noise=noise
+            sequences=None,
+            model_kwargs={},
+            noise=None,
         )
         log_dict = {"diffusion_loss": diffusion_loss}
 
