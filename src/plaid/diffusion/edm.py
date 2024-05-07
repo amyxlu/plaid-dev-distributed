@@ -164,9 +164,8 @@ class ElucidatedDiffusion(L.LightningModule):
         c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         return c_skip, c_out, c_in
 
-    def loss(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
-        c_skip, c_out, c_in = [append_dims(s, s.ndim) for s in self.get_scalings(sigma)]
-        c_skip, c_out, c_in = tuple(map(lambda c: append_dims(c, x.ndim), (c_skip, c_out, c_in)))
+    def loss_preconditioned(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
+        c_skip, c_out, c_in = [append_dims(s, x.ndim) for s in self.get_scalings(sigma)]
         c_weight = self.weighting(sigma)
         noise = torch.randn_like(x)
         noised_input = x + noise * append_dims(sigma, x.ndim)
@@ -182,8 +181,7 @@ class ElucidatedDiffusion(L.LightningModule):
         return losses.mean()
 
     def forward(self, x, sigma, label=None, mask=None, x_self_cond=None, **kwargs):
-        c_skip, c_out, c_in = [append_dims(s, s.ndim) for s in self.get_scalings(sigma)]
-        c_skip, c_out, c_in = tuple(map(lambda c: append_dims(c, x.ndim), (c_skip, c_out, c_in)))
+        c_skip, c_out, c_in = [append_dims(s, x.ndim) for s in self.get_scalings(sigma)]
         model_output = self.denoiser(
             x=x * c_in,
             sigma=sigma,

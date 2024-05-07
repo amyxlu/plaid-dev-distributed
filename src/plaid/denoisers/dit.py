@@ -326,9 +326,55 @@ class MappingNetwork(nn.Module):
             x = block(x)
         x = self.out_norm(x)
         return x
+    
 
 
-class ClassifierFreeGuidanceDiT(BaseDiT):
+class ClassifierFreeGuidanceDiT(SimpleDiT):
+    def __init__(
+        self,
+        input_dim=8,
+        hidden_size=1024,
+        max_seq_len=512, 
+        depth=28,
+        num_heads=16,
+        mlp_ratio=4.0,
+        use_self_conditioning=False,
+        num_classes=569,
+        class_dropout_prob=0.1
+    ):
+        super().__init__(
+            input_dim=input_dim,
+            hidden_size=hidden_size,
+            max_seq_len=max_seq_len,
+            depth=depth,
+            num_heads=num_heads,
+            mlp_ratio=mlp_ratio,
+            use_self_conditioning=use_self_conditioning,
+        )
+        # initialize y-embedding
+        self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+        nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
+
+    def forward_with_cfg(self, x, t, y, cfg_scale):
+        """
+        Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
+        """
+        # https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
+        half = x[: len(x) // 2]
+        combined = torch.cat([half, half], dim=0)
+        model_out = self.forward(combined, t, y)
+        # For exact reproducibility reasons, we apply classifier-free guidance on only
+        # three channels by default. The standard approach to cfg applies it to all channels.
+        # This can be done by uncommenting the following line and commenting-out the line following that.
+        # eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+        eps, rest = model_out[:, :self.input_dim], model_out[:, self.input_dim:]
+        cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
+        half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
+        eps = torch.cat([half_eps, half_eps], dim=0)
+        return torch.cat([eps, rest], dim=1)
+
+
+class EDMDiT(BaseDiT):
     """
     DiT with classifier-free guidance and used with k-diffusion.
     """

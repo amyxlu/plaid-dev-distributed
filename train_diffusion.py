@@ -11,7 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 
 from plaid.proteins import LatentToSequence, LatentToStructure
-
+from plaid import constants
 
 import logging
 logger = logging.getLogger("lightning.pytorch")
@@ -73,11 +73,15 @@ def train(cfg: DictConfig):
 
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
 
+    # get dimensions
+    input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id] 
+    shorten_factor = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
+
     # lightning data and model modules
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
 
-    denoiser = hydra.utils.instantiate(cfg.denoiser)
+    denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
     compiled_denoiser = torch.compile(denoiser)
     beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
 
@@ -90,7 +94,8 @@ def train(cfg: DictConfig):
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
         unscaler=latent_scaler,
-        uncompressor=uncompressor
+        uncompressor=uncompressor,
+        shorten_factor=shorten_factor
     )
 
     trainable_parameters = count_parameters(diffusion, require_grad_only=True)
