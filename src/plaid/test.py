@@ -1,5 +1,5 @@
 from plaid.denoisers import SimpleDiT, ClassifierFreeGuidanceDiT 
-from plaid.diffusion.beta_schedulers import VDiffusionSigmas
+from plaid.diffusion.beta_schedulers import VDiffusionSigmas, ADMCosineBetaScheduler
 from plaid.callbacks import SampleCallback
 from plaid.diffusion import GaussianDiffusion, ElucidatedDiffusion
 from plaid.compression.uncompress import UncompressContinuousLatent
@@ -31,26 +31,30 @@ clan = clan.long().squeeze()
 
 # TODO: create uncompressor / unscaler? 
 # TODO: add sequence / structure again?
-uncompressor = UncompressContinuousLatent("jzlv54wl")
-sigma_density_generator = VDiffusionSigmas(
-    max_value=1e3, min_value=1e-3, sigma_data=1
-)
-sigma = sigma_density_generator(x.shape[0])
-sigma = sigma.to(device)
-diffusion = ElucidatedDiffusion(
-    model, sigma_density_generator, sigma_data=1,
-)
-diffusion = diffusion.to(device)
-
-diffusion_loss = diffusion.loss(
-    x=x,
-    label=clan,
-    sigma=sigma,
-    mask=mask,
-    x_self_cond=None
-)
+# uncompressor = UncompressContinuousLatent("jzlv54wl")
+# sigma_density_generator = VDiffusionSigmas(
+#     max_value=1e3, min_value=1e-3, sigma_data=1
+# )
+# sigma = sigma_density_generator(x.shape[0])
+# sigma = sigma.to(device)
+# diffusion = ElucidatedDiffusion(
+#     model, sigma_density_generator, sigma_data=1,
+# )
+# diffusion = diffusion.to(device)
+beta_scheduler = ADMCosineBetaScheduler()
 
 import IPython;IPython.embed()
+from plaid.diffusion import GaussianDiffusion
+diffusion = GaussianDiffusion(
+    model,
+    beta_scheduler=beta_scheduler,
+    min_snr_loss_weight=True,
+)
+diffusion.to(device)
+x, t, clan, mask = tuple(map(lambda tensor: tensor.to(device), (x, t, clan, mask)))
+
+diffusion(x, t, clan, mask)
+
 
 
 
