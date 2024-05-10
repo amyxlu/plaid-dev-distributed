@@ -1,3 +1,4 @@
+import math
 import warnings
 
 import einops
@@ -802,16 +803,33 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
         mask = torch.arange(self.max_seq_len) < L
         return emb, mask, seq
 
+class MayClanCompressedDataset(CompressedH5Dataset):
+    """The attempt at saving a full dataset which went far enough but not all the way"""
+    def __init__(self, h5_path):
+        super().__init__(h5_path)
+
+    def __getitem__(self, idx):
+        group = self.fh[str(idx)]
+        emb, clan, original_l = group[:], group.attrs['clan'], group.attrs['len']
+        emb, clan, original_l = tuple(map(lambda x: torch.tensor(x), (emb, clan, original_l)))
+        s = self.shorten_factor
+        effective_max_l = math.ceil(self.max_seq_len / s)
+        effective_cur_l = math.ceil(original_l[0] / s)
+        emb = trim_or_pad_length_first(emb, effective_max_l)
+        mask = torch.arange(len(emb)) < effective_cur_l
+        return emb, mask, clan
+
 
 class CompressedH5DataModule(L.LightningDataModule):
     def __init__(
         self,
-        compression_model_id="jzlv54wl",
-        h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
-        max_seq_len=512,
+        compression_model_id,
+        h5_root_dir,
+        max_seq_len,
         batch_size=128,
         num_workers=8,
-        shuffle_val_dataset=False
+        shuffle_val_dataset=False,
+        mayclan_version=False
     ):
         
         super().__init__()
@@ -822,16 +840,21 @@ class CompressedH5DataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
 
+        if mayclan_version:
+            self.dataset_fn = MayClanCompressedDataset
+        else:
+            self.dataset_fn = CompressedH5Dataset
+
         base_dir = Path(h5_root_dir) / f"hourglass_{compression_model_id}" / f"seqlen_{max_seq_len}"
         self.train_h5_path = base_dir / "train.h5"
         self.val_h5_path = base_dir / "val.h5"
         
     def setup(self, stage: str = "fit"):
         if stage == "fit":
-            self.train_dataset = CompressedH5Dataset(self.train_h5_path) 
-            self.val_dataset = CompressedH5Dataset(self.val_h5_path)
+            self.train_dataset = self.dataset_fn(self.train_h5_path) 
+            # self.val_dataset = self.dataset_fn(self.val_h5_path)
         elif stage == "predict":
-            self.test_dataset = CompressedH5Dataset(self.val_h5_path)
+            self.test_dataset = self.dataset_fn(self.val_h5_path)
         else:
             return ValueError(f"Stage must be 'fit' or 'predict', got {stage}.")
     
@@ -861,8 +884,14 @@ class CompressedH5DataModule(L.LightningDataModule):
 
 
 if __name__ == "__main__":
-    dm = CompressedH5DataModule(batch_size=16)
+    dm = CompressedH5DataModule(
+        compression_model_id="j1v1wv6w",
+        h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_1M_with_clan/fp16/",
+        max_seq_len=512,
+        batch_size=16,
+        mayclan_version=True
+    )
     dm.setup("fit")
     dl = dm.train_dataloader()
     batch = next(iter(dl))
-    import pdb;pdb.set_trace()
+    import IPython;IPython.embed()
