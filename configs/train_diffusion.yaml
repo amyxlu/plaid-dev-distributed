@@ -1,8 +1,8 @@
 defaults:
   - _self_
   - paths: pcluster 
-  - datamodule: compressed/rocklin
-  - denoiser: utsa
+  - datamodule: /compressed/pfam_h5
+  - denoiser: dit
   - beta_scheduler: adm_cosine 
   - latent_scaler: esmfold 
   - diffusion: diffusion

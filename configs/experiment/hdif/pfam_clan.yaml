@@ -1,0 +1,18 @@
+# @package _global_
+
+compression_model_id: j1v1wv6w
+compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
+input_dim: 32 
+shorten_factor: 2
+
+datamodule:
+  compression_model_id: ${compression_model_id}
+  h5_root_dir: /homefs/home/lux70/storage/data/pfam/compressed/subset_1M_with_clan/fp16
+  num_workers: 16
+  mayclan_version: True
+
+dit:
+  input_dim: ${input_dim}
+
+diffusion:
+  shorten_factor: ${shorten_factor}

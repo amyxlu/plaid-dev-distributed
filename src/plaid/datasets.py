@@ -852,7 +852,7 @@ class CompressedH5DataModule(L.LightningDataModule):
     def setup(self, stage: str = "fit"):
         if stage == "fit":
             self.train_dataset = self.dataset_fn(self.train_h5_path) 
-            # self.val_dataset = self.dataset_fn(self.val_h5_path)
+            self.val_dataset = self.dataset_fn(self.val_h5_path)
         elif stage == "predict":
             self.test_dataset = self.dataset_fn(self.val_h5_path)
         else:
