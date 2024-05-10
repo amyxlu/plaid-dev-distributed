@@ -1,10 +1,7 @@
 _target_: plaid.ema.EMAModelCheckpoint
 dirpath: null # directory to save the model file
-filename: "{epoch}-{step}"
+filename: "epoch{epoch}-step{step}"
 verbose: true
 save_last: False 
 every_n_train_steps: 5000
-monitor: "val/loss"
-save_top_k: 1 # save k best models (determined by above metric)
-mode: "min" # "max" means higher metric value is better, can be also "min"
-auto_insert_metric_name: False
+max_keep_ckpts: 2  # also keep EMA
