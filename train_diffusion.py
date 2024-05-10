@@ -92,8 +92,8 @@ def train(cfg: DictConfig):
 
     trainable_parameters = count_parameters(diffusion, require_grad_only=True)
     total_parameters = count_parameters(diffusion, require_grad_only=False)
-    log_cfg['trainable_params'] = trainable_parameters
-    log_cfg['total_params'] = total_parameters
+    log_cfg['trainable_params_millions'] = trainable_parameters / 1_000_000
+    log_cfg['total_params_millions'] = total_parameters / 1_000_000
 
     # save config
     dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
