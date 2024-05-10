@@ -37,6 +37,7 @@ from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.compression.uncompress import UncompressContinuousLatent
+from plaid.ema import EMAOptimizer
 
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
@@ -597,6 +598,7 @@ class GaussianDiffusion(L.LightningModule):
         optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=self.lr, betas=self.adam_betas
         )
+        optimizer = EMAOptimizer(optimizer, device=self.device, decay=0.9999, every_n_steps=1)
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
             sched_type=self.lr_sched_type,
