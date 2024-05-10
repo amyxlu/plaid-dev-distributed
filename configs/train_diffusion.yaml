@@ -7,9 +7,10 @@ defaults:
   - latent_scaler: esmfold 
   - diffusion: diffusion
   - trainer: default
-  - callbacks/checkpoint: diffusion
+  - callbacks/checkpoint: ema
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 
+  - callbacks/ema: default
   - logger: diffusion
   - experiment: null
 
