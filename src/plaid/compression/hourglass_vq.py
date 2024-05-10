@@ -148,8 +148,10 @@ class HourglassVQLightningModule(L.LightningModule):
     def check_valid_compression_method(self, method):
         return method in ['fsq', 'vq', 'tanh', None]
     
-    def forward_no_quantize(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
+    def forward_no_quantize(self, x, mask, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
         z_e, downsampled_mask = self.enc(x, mask, verbose)
+        if infer_only:
+            return z_e
         z_e_out = z_e.clone()
         x_recons = self.dec(z_e, downsampled_mask, verbose)
         recons_loss = masked_mse_loss(x_recons, x, mask)
@@ -160,7 +162,7 @@ class HourglassVQLightningModule(L.LightningModule):
         }
         return x_recons, loss, log_dict, z_e_out
 
-    def forward(self, x, mask, verbose=False, log_wandb=True, *args, **kwargs):
+    def forward(self, x, mask, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
         if self.quantize_scheme is None:
             return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
 
@@ -174,11 +176,12 @@ class HourglassVQLightningModule(L.LightningModule):
         # quantize and get z_q
         if self.quantize_scheme == "vq": 
             quant_out = self.quantizer(z_e, verbose)
-            z_q = quant_out['z_q']
-            vq_loss = quant_out['loss']
-            log_dict["vq_loss"] = quant_out['loss']
-            log_dict["vq_perplexity"] = quant_out['perplexity']
-            compressed_representation = quant_out['min_encoding_indices'].detach().cpu().numpy()
+            if not infer_only:
+                z_q = quant_out['z_q']
+                vq_loss = quant_out['loss']
+                log_dict["vq_loss"] = quant_out['loss']
+                log_dict["vq_perplexity"] = quant_out['perplexity']
+                compressed_representation = quant_out['min_encoding_indices'].detach().cpu().numpy()
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
@@ -192,6 +195,9 @@ class HourglassVQLightningModule(L.LightningModule):
             vq_loss = 0
         else:
             raise NotImplementedError
+        
+        if infer_only:
+            return compressed_representation
 
         if self.post_quant_proj is not None:
             z_q = self.post_quant_proj(z_q)
@@ -255,10 +261,12 @@ class HourglassVQLightningModule(L.LightningModule):
         # get masks and ground truth tokens and move to device
         tokens, mask, _, _, _ = batch_encode_sequences(sequences)
 
-        # if shortened and using a Fasta loader, the latent might not be a multiple of 2
+        # if shortened and using a Fasta loader, the latent might not be a multiple of shorten factor 
         s = self.enc.shorten_factor 
-        if x.shape[1] % s != 0:
-            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + x.shape[1] % s, pad_idx=0)
+        extra = x.shape[1] % s
+        if extra != 0:
+            needed = s - extra
+            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + needed, pad_idx=0)
 
         # In any case where the mask and token generated from sequence strings don't match latent, make it match
         if mask.shape[1] != x.shape[1]:
