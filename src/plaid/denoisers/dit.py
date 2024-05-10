@@ -17,7 +17,7 @@ from functools import partial
 from einops import rearrange
 
 from .modules.helpers import to_2tuple
-from .modules.embedders import TimestepEmbedder, get_1d_sincos_pos_embed
+from .modules.embedders import TimestepEmbedder, LabelEmbedder, get_1d_sincos_pos_embed
 
 
 def exists(val):
@@ -184,19 +184,29 @@ class SimpleDiT(nn.Module):
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
-        use_self_conditioning=False
+        use_self_conditioning=False,/
+        class_dropout_prob=0.1,
+        num_classes=-1,
     ):
         super().__init__()
         self.max_seq_len = max_seq_len
         self.input_dim = input_dim
         self.num_heads = num_heads
         self.use_self_conditioning = use_self_conditioning
+        self.class_dropout_prob = class_dropout_prob
+        self.num_classes = num_classes
 
         self.x_proj = InputProj(input_dim, hidden_size, bias=True)
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
+
         if self.use_self_conditioning:
             self.self_conditioning_mlp = Mlp(input_dim * 2, input_dim)
+
+        if not num_classes == -1:
+            self.y_embedder == LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
+        else:
+            self.y_embedder = None
 
         self.blocks = nn.ModuleList([
             DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
@@ -217,6 +227,10 @@ class SimpleDiT(nn.Module):
         pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], np.arange(self.max_seq_len))
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
+        # Initialize label embedding table:
+        if self.y_embedder is not None:
+            nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
+
         # Initialize timestep embedding MLP:
         nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
         nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
@@ -232,7 +246,7 @@ class SimpleDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, x, t, mask=None, x_self_cond=None):
+    def forward(self, x, t, mask=None, y=None, x_self_cond=None):
         """
         Forward pass of DiT.
         x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
@@ -245,7 +259,12 @@ class SimpleDiT(nn.Module):
         x = self.x_proj(x)
         x += self.pos_embed[:, :x.shape[1], :]
         t = self.t_embedder(t)                   # (N, D)
-        c = t  # TODO: add y embedding and clf guidance
+        if not self.y_embedder is None:
+            assert not y is None
+            y = self.y_embedder(y, self.training)
+            c = t + y
+        else:
+            c = t
         
         if mask is None:
             mask = torch.ones(x.shape[:2], device=x.device).bool()
