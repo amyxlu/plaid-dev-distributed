@@ -11,6 +11,7 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 
 from plaid.proteins import LatentToSequence, LatentToStructure
+from plaid import constants
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
@@ -69,7 +70,11 @@ def train(cfg: DictConfig):
     datamodule = hydra.utils.instantiate(cfg.datamodule)
     datamodule.setup(stage="fit")
 
-    denoiser = hydra.utils.instantiate(cfg.denoiser)
+    # dimensions
+    input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
+    shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
+
+    denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
     beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
 
     from plaid.utils import count_parameters
@@ -81,7 +86,8 @@ def train(cfg: DictConfig):
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
         unscaler=latent_scaler,
-        uncompressor=uncompressor
+        uncompressor=uncompressor,
+        shorten_factor=shorten_factor
     )
 
     trainable_parameters = count_parameters(diffusion, require_grad_only=True)
