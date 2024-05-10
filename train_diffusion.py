@@ -24,9 +24,18 @@ def train(cfg: DictConfig):
         job_id = cfg.resume_from_model_id 
     else:
         job_id = wandb.util.generate_id() 
-    
-    # TODO: load config if resuming run
 
+    # set up checkpoint and config yaml paths 
+    dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
+    config_path = dirpath / "config.yaml"
+    if config_path.exists():
+        cfg = OmegaConf.load(config_path)
+        print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
+    else:
+        dirpath.mkdir(parents=False)
+        if not config_path.exists():
+            OmegaConf.save(cfg, config_path)    
+        
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
@@ -95,13 +104,6 @@ def train(cfg: DictConfig):
     log_cfg['trainable_params_millions'] = trainable_parameters / 1_000_000
     log_cfg['total_params_millions'] = total_parameters / 1_000_000
 
-    # save config
-    dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
-    dirpath.mkdir(parents=False)
-    config_path = dirpath / "config.yaml"
-    if not config_path.exists():
-        OmegaConf.save(cfg, config_path)
-
     # other callbacks
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
@@ -136,7 +138,13 @@ def train(cfg: DictConfig):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if not cfg.dryrun:
-        trainer.fit(diffusion, datamodule=datamodule)
+        if cfg.resume_from_model_id is None:
+            trainer.fit(diffusion, datamodule=datamodule)
+        else:
+            # job id / dirpath was already updated to match the to-be-resumed directory 
+            trainer.fit(diffusion, datamodule=datamodule, ckpt_path=dirpath / "last.ckpt")
+
+
 
 
 if __name__ == "__main__":
