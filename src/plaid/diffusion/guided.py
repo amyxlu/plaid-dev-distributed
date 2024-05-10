@@ -148,7 +148,6 @@ class GaussianDiffusion(L.LightningModule):
             "pred_v",
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
 
-
         """
         If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
         roughly between (-1, 1). If self.x_clip_val is not None, at each p_sample loop, the value will
@@ -289,8 +288,6 @@ class GaussianDiffusion(L.LightningModule):
     
     def model_predictions(self, x, t, mask = None, x_self_cond = None, model_kwargs = {}):
         """Based on a noised sample and self-conditioning, denoise as x_start and eps."""
-        if model_kwargs is None:
-            model_kwargs = {}
         model_output = self.model(x, t, mask, x_self_cond, **model_kwargs)
         return self.model_output_conversion_wrapper(model_output, x, t)
     
@@ -576,7 +573,7 @@ class GaussianDiffusion(L.LightningModule):
     def training_step(self, batch):
         start = time.time()
         loss, log_dict = self.run_step(
-            batch, model_kwargs={}, noise=None, clip_x_start=True
+            batch, model_kwargs={}, clip_x_start=True
         )
         end = time.time()
         log_dict['batch_runtime'] = (end - start) / 60
@@ -589,7 +586,7 @@ class GaussianDiffusion(L.LightningModule):
     def validation_step(self, batch):
         # Extract the starting images from data batch
         loss, log_dict = self.run_step(
-            batch, model_kwargs={}, noise=None, clip_x_start=True
+            batch, model_kwargs={}, clip_x_start=True
         )
         N = len(batch[0])
         self.log_dict(
@@ -653,11 +650,10 @@ class GaussianDiffusion(L.LightningModule):
         # main inner model forward pass
         model_out = self.model(
             x=x_t,
-            y=t,
+            t=t,
             y=y,
             mask=mask,
             x_self_cond=x_self_cond,
-            **model_kwargs
         )
         
         # reconstruction / "main diffusion loss"
@@ -712,7 +708,7 @@ class GaussianDiffusion(L.LightningModule):
             x = self.uncompressor.uncompress(x)
         return self.unscaler.unscale(x)
 
-    def run_step(self, batch, model_kwargs={}, noise=None):
+    def run_step(self, batch, model_kwargs={}):
         if (len(batch) == 3) and isinstance(batch[-1][0], str):
             # v1 of the dataloader
             embs, mask, sequence = batch
@@ -738,8 +734,6 @@ class GaussianDiffusion(L.LightningModule):
             mask=mask,
             model_kwargs=model_kwargs,
             sequences=None,
-            model_kwargs={},
-            noise=None,
         )
         log_dict = {"diffusion_loss": diffusion_loss}
 

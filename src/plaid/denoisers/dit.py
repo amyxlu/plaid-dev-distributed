@@ -289,7 +289,7 @@ class SimpleDiT(BaseDiT):
             nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
             nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
 
-    def forward(self, x, t, mask=None, x_self_cond=None):
+    def forward(self, x, t, mask=None, x_self_cond=None, *args, **kwargs):
         """
         Forward pass of DiT.
         x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
@@ -360,6 +360,7 @@ class ClassifierFreeGuidanceDiT(SimpleDiT):
         num_classes=569,
         class_dropout_prob=0.1
     ):
+        # same as previous one but adds the y embedder
         super().__init__(
             input_dim=input_dim,
             hidden_size=hidden_size,
@@ -390,7 +391,7 @@ class ClassifierFreeGuidanceDiT(SimpleDiT):
         x = self.x_proj(x)
         x += self.pos_embed[:, :x.shape[1], :]
         t = self.t_embedder(t)                   # (N, D)
-        y = self.y_embedder(y)
+        y = self.y_embedder(y, self.training)
         c = t + y
         
         if mask is None:
@@ -404,7 +405,7 @@ class ClassifierFreeGuidanceDiT(SimpleDiT):
 
 class EDMDiT(BaseDiT):
     """
-    DiT with classifier-free guidance and used with k-diffusion.
+    DiT with classifier-free guidance and used with continuous time. Main difference is in the timestep embedding
     """
     def __init__(
         self,

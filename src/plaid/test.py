@@ -12,7 +12,7 @@ device = torch.device("cuda")
 model.to(device)
 
 batch_size = 16
-t = torch.randint(0, 100, (batch_size,)).to(device).long()
+t = torch.randint(0, 100, (batch_size, 1)).to(device).long()
 
 dm = CompressedH5DataModule(
     compression_model_id="jzlv54wl",
@@ -43,7 +43,6 @@ clan = clan.long().squeeze()
 # diffusion = diffusion.to(device)
 beta_scheduler = ADMCosineBetaScheduler()
 
-import IPython;IPython.embed()
 from plaid.diffusion import GaussianDiffusion
 diffusion = GaussianDiffusion(
     model,
@@ -108,10 +107,10 @@ diffusion(x, t, clan, mask)
 # callback.on_train_batch_end(None, diffusion, None, None, None)
 
 
-from plaid.diffusion.beta_schedulers import VDiffusionSigmas
+# from plaid.diffusion.beta_schedulers import VDiffusionSigmas
 
 
-sigma_density = VDiffusionSigmas()
+# sigma_density = VDiffusionSigmas()
 
-N = 16
-sigmas = sigma_density((N,))
+# N = 16
+# sigmas = sigma_density((N,))

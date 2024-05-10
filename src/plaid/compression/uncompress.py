@@ -6,10 +6,10 @@ from copy import deepcopy
 
 
 class UncompressionLatent:
-    def __init__(self, compression_model_id, compression_ckpt_dir):
+    def __init__(self, compression_model_id, compression_ckpt_dir, compression_ckpt_name="last.ckpt"):
         self.device = torch.device("cpu")
 
-        ckpt_path = Path(compression_ckpt_dir) / str(compression_model_id) / "last.ckpt"
+        ckpt_path = Path(compression_ckpt_dir) / str(compression_model_id) / compression_ckpt_name 
         model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path).cpu()
 
         # we only keep the decoder weights and some attributes for downstream

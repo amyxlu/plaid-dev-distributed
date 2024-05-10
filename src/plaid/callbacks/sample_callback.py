@@ -326,27 +326,3 @@ class SampleCallback(Callback):
             outpath = write_pdb_to_disk(pdbstr, outpath)
             paths.append(outpath)
         return paths
-
-    def _get_ema_callback(self, trainer) -> T.Optional[EMA]:
-        ema_callback = None
-        for callback in trainer.callbacks:
-            if isinstance(callback, EMA):
-                ema_callback = callback
-        return ema_callback
-
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        if (pl_module.global_step % self.run_every_n_steps == 0) and not (pl_module.global_step == 0):
-            ema_callback = self._get_ema_callback(trainer)
-            if ema_callback is not None:
-                # replace module weights with the EMA copy
-                ema_callback.replace_model_weights(pl_module)
-
-                # run sampling eval
-                shape = (self.batch_size, self.gen_seq_len, self.diffusion.model.input_dim)
-                self._run(pl_module, shape, log_to_wandb=True)
-                torch.cuda.empty_cache()
-
-                # restore the non-EMA weights
-                ema_callback.restore_original_weights(pl_module)
-        else:
-            pass
