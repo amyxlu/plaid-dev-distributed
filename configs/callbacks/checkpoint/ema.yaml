@@ -1,6 +1,6 @@
 _target_: plaid.ema.EMAModelCheckpoint
 dirpath: null # directory to save the model file
-filename: "epoch{epoch}-step{step}"
+filename: "{epoch}-{step}"
 verbose: true
 save_last: False 
 every_n_train_steps: 5000

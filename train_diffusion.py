@@ -9,9 +9,29 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
 from omegaconf import DictConfig, OmegaConf
 import torch
+import re
 
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid import constants
+
+
+# Helpers for loading latest checkpoint
+
+def find_latest_checkpoint(folder):
+    checkpoint_files = [f for f in os.listdir(folder) if f.endswith('.ckpt')]
+    checkpoint_files = list(filter(lambda x: "EMA" not in x, checkpoint_files))
+    if not checkpoint_files:
+        return None
+    
+    latest_checkpoint = max(checkpoint_files, key=lambda x: extract_step(x))
+    return latest_checkpoint
+
+
+def extract_step(checkpoint_file):
+    match = re.search(r'(\d+)-(\d+)\.ckpt', checkpoint_file)
+    if match:
+        return int(match.group(2))
+    return -1
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
@@ -22,8 +42,10 @@ def train(cfg: DictConfig):
     # maybe use prior job id, else generate new ID
     if cfg.resume_from_model_id is not None:
         job_id = cfg.resume_from_model_id 
+        IS_RESUMED = True
     else:
         job_id = wandb.util.generate_id() 
+        IS_RESUMED = False
 
     # set up checkpoint and config yaml paths 
     dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
@@ -138,13 +160,14 @@ def train(cfg: DictConfig):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if not cfg.dryrun:
-        if cfg.resume_from_model_id is None:
-            trainer.fit(diffusion, datamodule=datamodule)
-        else:
+        if IS_RESUMED:
             # job id / dirpath was already updated to match the to-be-resumed directory 
-            trainer.fit(diffusion, datamodule=datamodule, ckpt_path=dirpath / "last.ckpt")
-
-
+            ckpt_fname = dirpath / find_latest_checkpoint(dirpath)
+            print("Resuming from ", ckpt_fname)
+            assert ckpt_fname.exists()
+            trainer.fit(diffusion, datamodule=datamodule, ckpt_path=dirpath / ckpt_fname)
+        else:
+            trainer.fit(diffusion, datamodule=datamodule)
 
 
 if __name__ == "__main__":
