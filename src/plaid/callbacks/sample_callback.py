@@ -267,7 +267,7 @@ class SampleCallback(Callback):
             logger.log(log_dict)
 
         # uncompress
-        uncompressed = self.diffusion.uncompressor.uncompress(x)
+        uncompressed = self.diffusion.uncompressor.uncompress(x).detach()
 
         # calculate FID with uncompressed (but still standardized!) 
         if self.calc_fid:
