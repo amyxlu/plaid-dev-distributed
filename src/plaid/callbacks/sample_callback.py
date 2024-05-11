@@ -50,8 +50,6 @@ class SampleCallback(Callback):
         calc_sequence: bool = True,
         calc_fid: bool = True,
         fid_holdout_tensor_fpath: str = "",
-        uncompress_for_fid: bool = True,
-        normalize_real_features: bool = True,
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
         num_recycles: int = 4,
@@ -66,7 +64,6 @@ class SampleCallback(Callback):
         self.outdir = Path(outdir)
         self.diffusion = diffusion
         self.log_to_wandb = log_to_wandb
-        self.normalize_real_features = normalize_real_features
         self.gen_seq_len = gen_seq_len
 
         self.calc_fid = calc_fid
@@ -80,7 +77,6 @@ class SampleCallback(Callback):
             assert calc_structure
 
         self.fid_holdout_tensor_fpath = fid_holdout_tensor_fpath
-        self.uncompress_for_fid = uncompress_for_fid 
         self.n_to_sample = n_to_sample
         self.num_recycles = num_recycles
         self.sequence_decode_temperature = sequence_decode_temperature
@@ -90,10 +86,7 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = False
         self.sequence_constructor = sequence_constructor
         self.structure_constructor = structure_constructor
-        if self.normalize_real_features:
-            self.scaler = LatentScaler()
-        else:
-            self.scaler = LatentScaler('identity')
+        self.scaler = LatentScaler()
 
         batch_size = self.n_to_sample if batch_size == -1 else batch_size
         n_to_construct = self.n_to_sample if n_to_construct == -1 else n_to_construct
@@ -114,17 +107,15 @@ class SampleCallback(Callback):
         self.is_perplexity_setup = True
 
     def _fid_setup(self, device):
-
-        # safetensors version - deprecated
-        # def load_saved_features(location, device="cpu"):
-        #     return st.load_file(location)["features"].to(device)
-
         def load_saved_features(location, device="cpu"):
-            import h5py
-            with h5py.File(location, "r") as f:
-                tensor = f['embeddings'][()]
-            tensor = torch.from_numpy(tensor).to(device)
-            return tensor.mean(dim=1)
+            return st.load_file(location)["features"].to(device)
+
+        # def load_saved_features(location, device="cpu"):
+        #     import h5py
+        #     with h5py.File(location, "r") as f:
+        #         tensor = f['embeddings'][()]
+        #     tensor = torch.from_numpy(tensor).to(device)
+        #     return tensor.mean(dim=1)
 
         # load saved features (unnormalized)
         self.real_features = load_saved_features(self.fid_holdout_tensor_fpath, device=device)
@@ -135,8 +126,7 @@ class SampleCallback(Callback):
         ]
 
         # calculate FID/KID in the normalized space
-        if self.normalize_real_features:
-            self.real_features = self.scaler.scale(self.real_features)
+        self.real_features = self.scaler.scale(self.real_features)
     
         print("FID reference tensor mean/std:", self.real_features.mean().item(), self.real_features.std().item())
         self.is_fid_setup = True
@@ -270,21 +260,24 @@ class SampleCallback(Callback):
         device = pl_module.device
         logger = pl_module.logger.experiment
 
-        # sample latent (implicitly uncompresses and unnormalizes)
+        # sample latent (compressed and standardized)
         maybe_print("sampling latent...")
         x, log_dict = self.sample_latent(shape)   # compressed, i.e. (N, L, C_compressed)
         if log_to_wandb:
             logger.log(log_dict)
 
-        # uncompress and unnormalize the sampled x
-        latent = self.diffusion.process_x_to_latent(x)  # (N, L, C_comp) -> (N, L, C_lat)
+        # uncompress
+        uncompressed = self.diffusion.uncompressor.uncompress(x)
 
-        # calculate FID 
+        # calculate FID with uncompressed (but still standardized!) 
         if self.calc_fid:
             maybe_print("calculating FID...")
-            log_dict = self.calculate_fid(latent, device)
+            log_dict = self.calculate_fid(uncompressed, device)
             if log_to_wandb:
                 logger.log(log_dict)
+
+        # unstandardize
+        latent = self.scaler.unscale(uncompressed)
 
         # subset, and perhaps calculate sequence and structure
         if not self.n_to_construct == -1:
