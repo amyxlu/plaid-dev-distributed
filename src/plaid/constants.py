@@ -47,3 +47,26 @@ COMPRESSION_SHORTEN_FACTORS = {
     "h9hzw1bp": 2,
     "j1v1wv6w": 2,
 }
+
+RESTYPES = [
+    "A",
+    "R",
+    "N",
+    "D",
+    "C",
+    "Q",
+    "E",
+    "G",
+    "H",
+    "I",
+    "L",
+    "K",
+    "M",
+    "F",
+    "P",
+    "S",
+    "T",
+    "W",
+    "Y",
+    "V",
+]
