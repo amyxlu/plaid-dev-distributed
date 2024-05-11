@@ -2,6 +2,7 @@ import torch
 import os
 import os.path
 import warnings
+import glob
 
 import pytorch_lightning as pl
 
@@ -180,7 +181,15 @@ class EMAModelCheckpoint(ModelCheckpoint):
             if self.verbose:
                 rank_zero_info(f"Saving EMA weights to separate checkpoint {filepath}")
             super()._save_checkpoint(trainer, filepath)
+            self._delete_prev_emas(filepath)
             ema_callback.restore_original_weights(trainer.lightning_module)
 
     def _ema_format_filepath(self, filepath: str) -> str:
         return filepath.replace(self.FILE_EXTENSION, f"-EMA{self.FILE_EXTENSION}")
+    
+    def _delete_prev_emas(self, filepath) -> None:
+        ckpt_dir = Path(filepath).parent
+        ema_paths = glob.glob(str(ckpt_dir / f"*-EMA{self.FILE_EXTENSION}"))
+        for path in ema_paths:
+            if path != filepath:
+                os.remove(path) 
