@@ -221,7 +221,7 @@ class SampleCallback(Callback):
             log_dict[f"sampled/perplexity_mean"] = np.mean(perplexities)
             log_dict[f"sampled/perplexity_hist"] = np.histogram(
                 np.array(perplexities).flatten(),
-                num_bins=min(len(perplexities), 50)
+                bins=min(len(perplexities), 50)
             )
         return strs, log_dict
 
@@ -257,15 +257,15 @@ class SampleCallback(Callback):
         log_dict = {
             f"sampled/plddt_mean": np.mean(plddt),
             f"sampled/plddt_median": np.median(plddt),
-            f"sampled/plddt_hist": np.histogram(plddt, num_bins=min(N, 50)),
-            f"sampled/plddt_per_position_hist": np.histogram(plddt_per_position, num_bins=min(N, 50)),
+            f"sampled/plddt_hist": np.histogram(plddt, bins=min(N, 50)),
+            f"sampled/plddt_per_position_hist": np.histogram(plddt_per_position, bins=min(N, 50)),
             f"sampled/pae_mean": np.mean(pae),
             f"sampled/pae_median": np.median(pae),
-            f"sampled/pae_hist": np.histogram(pae, num_bins=min(pae.shape[0], 50)),
-            f"sampled/pae_per_position_hist": np.histogram(pae_per_position, num_bins=min(N, 50)),
+            f"sampled/pae_hist": np.histogram(pae, bins=min(pae.shape[0], 50)),
+            f"sampled/pae_per_position_hist": np.histogram(pae_per_position, bins=min(N, 50)),
             f"sampled/ptm_mean": np.mean(pae),
             f"sampled/ptm_median": np.median(pae),
-            f"sampled/ptm_hist": np.histogram(ptm, num_bins=min(ptm.shape[0], 50))
+            f"sampled/ptm_hist": np.histogram(ptm, bins=min(ptm.shape[0], 50))
         }
         return pdb_strs, metrics, log_dict
 
