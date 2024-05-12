@@ -30,6 +30,15 @@ def maybe_print(msg):
         print(msg)
 
 
+def _wandb_log(logger, log_dict):
+    for k, v in log_dict.item():
+        if "_hist" in k:
+            log_dict[k] = wandb.Histogram(np_histogram=v)
+        if "_df" in k:
+            log_dict[k] = wandb.Table(dataframe=v)
+    logger.log(log_dict)
+
+
 class SampleCallback(Callback):
     """
     Calls the `p_sample_loop` functions in the diffusion module,
@@ -144,7 +153,7 @@ class SampleCallback(Callback):
             n_samples += x_sampled.shape[0]
 
         log_dict = {
-            "sampled/unscaled_latent_hist": wandb.Histogram(x_sampled.numpy().flatten())
+            "sampled/unscaled_latent_hist": np.Histogram(x_sampled.numpy().flatten())
         }
         all_samples = torch.cat(all_samples)
         return all_samples, log_dict
@@ -202,7 +211,7 @@ class SampleCallback(Callback):
                 df=sequence_results, sequence_col="sequences"
             )
 
-        log_dict = {f"sampled/sequences": wandb.Table(dataframe=sequence_results)}
+        log_dict = {f"sampled/sequences_df": sequence_results}
 
         if self.calc_perplexity:
             if not self.is_perplexity_setup:
@@ -210,7 +219,7 @@ class SampleCallback(Callback):
             perplexities = self.perplexity_calc.batch_eval(strs, return_mean=False)
             print(f"Mean perplexity: {np.mean(perplexities):.3f}")
             log_dict[f"sampled/perplexity_mean"] = np.mean(perplexities)
-            log_dict[f"sampled/perplexity_hist"] = wandb.Histogram(
+            log_dict[f"sampled/perplexity_hist"] = np.Histogram(
                 np.array(perplexities).flatten(),
                 num_bins=min(len(perplexities), 50)
             )
@@ -248,15 +257,15 @@ class SampleCallback(Callback):
         log_dict = {
             f"sampled/plddt_mean": np.mean(plddt),
             f"sampled/plddt_median": np.median(plddt),
-            f"sampled/plddt_hist": wandb.Histogram(plddt, num_bins=min(N, 50)),
-            f"sampled/plddt_per_position_hist": wandb.Histogram(plddt_per_position, num_bins=min(N, 50)),
+            f"sampled/plddt_hist": np.Histogram(plddt, num_bins=min(N, 50)),
+            f"sampled/plddt_per_position_hist": np.Histogram(plddt_per_position, num_bins=min(N, 50)),
             f"sampled/pae_mean": np.mean(pae),
             f"sampled/pae_median": np.median(pae),
-            f"sampled/pae_hist": wandb.Histogram(pae, num_bins=min(pae.shape[0], 50)),
-            f"sampled/pae_per_position_hist": wandb.Histogram(pae_per_position, num_bins=min(N, 50)),
+            f"sampled/pae_hist": np.Histogram(pae, num_bins=min(pae.shape[0], 50)),
+            f"sampled/pae_per_position_hist": np.Histogram(pae_per_position, num_bins=min(N, 50)),
             f"sampled/ptm_mean": np.mean(pae),
             f"sampled/ptm_median": np.median(pae),
-            f"sampled/ptm_hist": wandb.Histogram(ptm, num_bins=min(ptm.shape[0], 50))
+            f"sampled/ptm_hist": np.Histogram(ptm, num_bins=min(ptm.shape[0], 50))
         }
         return pdb_strs, metrics, log_dict
 
@@ -276,7 +285,7 @@ class SampleCallback(Callback):
         maybe_print("sampling latent...")
         x, log_dict = self.sample_latent(shape)   # compressed, i.e. (N, L, C_compressed)
         if log_to_wandb:
-            logger.log(log_dict)
+            _wandb_log(logger, log_dict)
 
         # uncompress
         uncompressed = self.diffusion.uncompressor.uncompress(x).detach()
@@ -286,7 +295,7 @@ class SampleCallback(Callback):
             maybe_print("calculating FID...")
             log_dict = self.calculate_fid(uncompressed, device)
             if log_to_wandb:
-                logger.log(log_dict)
+                _wandb_log(logger, log_dict)
 
         # unstandardize
         latent = self.scaler.unscale(uncompressed)
@@ -302,13 +311,13 @@ class SampleCallback(Callback):
             maybe_print("constructing sequence...")
             seq_str, log_dict = self.construct_sequence(latent, device)
             if log_to_wandb:
-                logger.log(log_dict)
+                _wandb_log(logger, log_dict)
 
         if self.calc_structure:
             maybe_print("constructing structure...")
             pdb_strs, metrics, log_dict = self.construct_structure(latent, seq_str, device)
             if log_to_wandb:
-                logger.log(log_dict)
+                _wandb_log(logger, log_dict)
 
             if self.save_generated_structures:
                 all_pdb_paths = self.save_structures_to_disk(pdb_strs, pl_module.global_step)
@@ -319,7 +328,7 @@ class SampleCallback(Callback):
                     df = df.sort_values(by="plddt", ascending=False) 
                     df = df.iloc[:self.n_structures_to_log, :]
                     df['protein'] = df['pdb_path'].map(lambda x: wandb.Molecule(str(x)))
-                    wandb.log({"sampled_proteins": wandb.Table(dataframe=df)})
+                    wandb.log({"sampled_proteins_df": df})
 
 
     def save_structures_to_disk(self, pdb_strs, cur_step: int):
