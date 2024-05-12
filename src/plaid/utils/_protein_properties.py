@@ -97,18 +97,20 @@ def calculate_df_protein_property(df, sequence_col="sequences", properties=DEFAU
     return df
 
 
+def process_chunk(chunk, prop, sequence_col):
+    return chunk[sequence_col].map(lambda seq: _protein_property(seq, prop))
+
+
 def calculate_df_protein_property_mp(df, sequence_col="sequences", properties=DEFAULT_PROPERTIES):
     num_processes = min(mp.cpu_count(), df.shape[0]) 
 
-    def process_chunk(chunk, prop):
-        return chunk[sequence_col].map(lambda seq: _protein_property(seq, prop))
 
     for prop in properties:  
         chunk_size = len(df) // num_processes  # Size of each chunk
         chunks = [df[i:i+chunk_size] for i in range(0, len(df), chunk_size)]
         
         pool = mp.Pool(processes=num_processes)
-        fn = partial(process_chunk, prop=prop)
+        fn = partial(process_chunk, prop=prop, sequence_col=sequence_col)
         results = pool.map(fn, chunks)
         pool.close()
         pool.join()

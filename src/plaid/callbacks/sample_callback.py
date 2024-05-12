@@ -49,6 +49,7 @@ class SampleCallback(Callback):
         calc_structure: bool = True,
         calc_sequence: bool = True,
         calc_fid: bool = True,
+        calc_sequence_properties: bool = False,
         fid_holdout_tensor_fpath: str = "",
         calc_perplexity: bool = True,
         save_generated_structures: bool = False,
@@ -70,8 +71,11 @@ class SampleCallback(Callback):
         self.calc_structure = calc_structure
         self.calc_sequence = calc_sequence
         self.calc_perplexity = calc_perplexity
+        self.calc_sequence_properties = calc_sequence_properties
         self.save_generated_structures = save_generated_structures
         if calc_perplexity:
+            assert calc_sequence
+        if calc_sequence_properties:
             assert calc_sequence
         if save_generated_structures:
             assert calc_structure
@@ -191,6 +195,13 @@ class SampleCallback(Callback):
                 "mean_residue_confidence": probs.mean(dim=1).cpu().numpy(),
             }
         )
+
+        if self.calc_sequence_properties:
+            from plaid.utils import calculate_df_protein_property_mp
+            sequence_results = calculate_df_protein_property_mp(
+                df=sequence_results, sequence_col="sequences"
+            )
+
         log_dict = {f"sampled/sequences": wandb.Table(dataframe=sequence_results)}
 
         if self.calc_perplexity:
@@ -258,7 +269,8 @@ class SampleCallback(Callback):
         log_to_wandb = self.log_to_wandb and log_to_wandb
 
         device = pl_module.device
-        logger = pl_module.logger.experiment
+        if log_to_wandb:
+            logger = pl_module.logger.experiment
 
         # sample latent (compressed and standardized)
         maybe_print("sampling latent...")
