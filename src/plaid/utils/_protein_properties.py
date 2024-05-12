@@ -1,9 +1,15 @@
 """ Calculate additional protein attributes from sequence for conditioning.
 """
 
-from Bio.SeqUtils.ProtParam import ProteinAnalysis
+import multiprocessing as mp
+from functools import partial
+
 import numpy as np
 import typing as T
+import pandas as pd
+from Bio.SeqUtils.ProtParam import ProteinAnalysis
+
+from plaid.constants import RESTYPES
 
 
 # Calculated using a random subset of 40399 UniRef90 sequences,
@@ -23,6 +29,9 @@ SS_BOUNDARIES = {
         "sheet": [0.1875, 0.2265625, 0.2578125, 0.296875, 0.3359375],
     },
 }
+
+
+DEFAULT_PROPERTIES = ['molecular_weight', 'aromaticity', 'instability_index', 'isoelectric_point', 'gravy', 'charge_at_pH']
 
 
 def _quantize_frac(arr: np.ndarray, boundaries: np.ndarray):
@@ -69,7 +78,40 @@ def sequences_to_secondary_structure_fracs(
         return np.array(fracs)
 
 
-if __name__ == "__main__":
-    import IPython
+"""
+Per-sequence protein properties
+"""
 
-    IPython.embed()
+def _protein_property(protein_sequence, prop):
+    protein_sequence = "".join(list(filter(lambda char: char in RESTYPES, protein_sequence)))
+    analyzer = ProteinAnalysis(protein_sequence)
+    if prop == "charge_at_pH":
+        return getattr(analyzer, prop)(pH=7)
+    else:
+        return getattr(analyzer, prop)()
+
+
+def calculate_df_protein_property(df, sequence_col="sequences", properties=DEFAULT_PROPERTIES):
+    for prop in properties:
+        df[prop] = df[sequence_col].map(lambda seq: _protein_property(seq, prop))
+    return df
+
+
+def calculate_df_protein_property_mp(df, sequence_col="sequences", properties=DEFAULT_PROPERTIES):
+    num_processes = min(mp.cpu_count(), df.shape[0]) 
+
+    def process_chunk(chunk, prop):
+        return chunk[sequence_col].map(lambda seq: _protein_property(seq, prop))
+
+    for prop in properties:  
+        chunk_size = len(df) // num_processes  # Size of each chunk
+        chunks = [df[i:i+chunk_size] for i in range(0, len(df), chunk_size)]
+        
+        pool = mp.Pool(processes=num_processes)
+        fn = partial(process_chunk, prop=prop)
+        results = pool.map(fn, chunks)
+        pool.close()
+        pool.join()
+        df[prop] = pd.concat(results)
+        
+    return df
