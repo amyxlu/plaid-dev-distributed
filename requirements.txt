@@ -20,6 +20,8 @@ scikit-learn
 py3Dmol
 pyarrow  # for pandas dataframe
 plotly   # to log wandb plots
+jupyter
+ninja
 
 # for openfold, use this hack to get around clunky imports while
 # making sure the custom CUDA kernels used are being created: 
