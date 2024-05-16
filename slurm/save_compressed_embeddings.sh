@@ -1,4 +1,9 @@
-sbatch save_compressed_embeddings.slrm \
-    --batch_size 256 \
-    --seq_len 512 \
-    --compression_model_id kyytc8i9
+sbatch save_compressed_embeddings.slrm --compression_model_id 8ebs7j9h
+sbatch save_compressed_embeddings.slrm --compression_model_id s8qx4uic
+sbatch save_compressed_embeddings.slrm --compression_model_id tk3g5edg
+sbatch save_compressed_embeddings.slrm --compression_model_id fbbrfqzk
+sbatch save_compressed_embeddings.slrm --compression_model_id 13lltqha
+sbatch save_compressed_embeddings.slrm --compression_model_id uhg29zk4
+sbatch save_compressed_embeddings.slrm --compression_model_id ich20c3q
+sbatch save_compressed_embeddings.slrm --compression_model_id 7str7fhl
+sbatch save_compressed_embeddings.slrm --compression_model_id g8e83omk
