@@ -31,7 +31,7 @@ def maybe_print(msg):
 
 
 def _wandb_log(logger, log_dict):
-    for k, v in log_dict.item():
+    for k, v in log_dict.items():
         if "_hist" in k:
             log_dict[k] = wandb.Histogram(np_histogram=v)
         if "_df" in k:
