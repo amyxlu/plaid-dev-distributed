@@ -19,7 +19,6 @@ from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.losses.functions import masked_mse_loss
 
 
-
 class HourglassVQLightningModule(L.LightningModule):
     def __init__(
         self,
@@ -162,7 +161,21 @@ class HourglassVQLightningModule(L.LightningModule):
         }
         return x_recons, loss, log_dict, z_e_out
 
-    def forward(self, x, mask, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
+    def forward(self, x, mask=None, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
+        if mask is None:
+            mask = torch.ones((x.shape[0], x.shape[1])).bool().to(x.device)
+        
+        s = self.enc.shorten_factor 
+        extra = x.shape[1] % s
+        if extra != 0:
+            needed = s - extra
+            x = trim_or_pad_batch_first(x, pad_to=x.shape[1] + needed, pad_idx=0)
+
+        # In any case where the mask and token generated from sequence strings don't match latent, make it match
+        if mask.shape[1] != x.shape[1]:
+            # pad with False
+            mask = trim_or_pad_batch_first(mask, x.shape[1], pad_idx=0)
+
         if self.quantize_scheme is None:
             return self.forward_no_quantize(x, mask, verbose, log_wandb, *args, **kwargs)
 
@@ -291,7 +304,6 @@ class HourglassVQLightningModule(L.LightningModule):
         # unscale to decode into sequence and/or structure
         x_recons_unscaled = self.latent_scaler.unscale(x_recons)
         batch_size = x_recons_unscaled.shape[0]
-
         # sequence loss
         if self.log_sequence_loss:
             seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True)
