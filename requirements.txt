@@ -13,6 +13,7 @@ modelcif
 ml_collections
 omegaconf
 h5py
+lmdb
 safetensors
 git+https://github.com/amyxlu/evo.git
 scipy
@@ -22,6 +23,7 @@ pyarrow  # for pandas dataframe
 plotly   # to log wandb plots
 jupyter
 ninja
+biotite
 
 # for openfold, use this hack to get around clunky imports while
 # making sure the custom CUDA kernels used are being created: 
