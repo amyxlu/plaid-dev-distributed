@@ -89,8 +89,14 @@ class PLAID(nn.Module, core.Configurable):
         readout (str, optional): readout function. Available functions are ``pooler``, ``sum`` and ``mean``.
     """
 
-    def __init__(self, compression_model_id="identity", hourglass_weights_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq"):
+    def __init__(
+            self,
+            compression_model_id="identity",
+            hourglass_weights_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
+            pool="mean"
+        ):
         super().__init__()
+        assert pool in ['mean', 'attention']
         from plaid.compression.hourglass_vq import HourglassVQLightningModule
         from plaid.utils import LatentScaler
         from plaid.esmfold import esmfold_v1
@@ -104,11 +110,12 @@ class PLAID(nn.Module, core.Configurable):
             self.output_dim = 1024
         else:
             self.hourglass = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
+            self.hourglass.eval().requires_grad_(False)
             self.shorten_factor = self.hourglass.enc.shorten_factor
             self.output_dim = 1024 // self.hourglass.enc.downproj_factor
         
         self.scaler = LatentScaler()
-        self.esmfold = esmfold_v1()
+        self.esmfold = esmfold_v1().eval().requires_grad_(False)
         self.pad_idx = 0
 
     def forward(self, graph, input, all_loss=None, metric=None):
@@ -117,16 +124,18 @@ class PLAID(nn.Module, core.Configurable):
         residues, mask = functional.variadic_to_padded(residues, size, value=self.pad_idx)
         mask = mask.to(self.device)
 
-        sequences = [to_sequence(residues[i, ...]) for i in range(len(residues))]
-        latent = self.esmfold.infer_embedding(sequences)['s']
-        latent = self.scaler.scale(latent)
-        latent = latent.to(self.device)
+        with torch.no_grad():
+            sequences = [to_sequence(residues[i, ...]) for i in range(len(residues))]
+            latent = self.esmfold.infer_embedding(sequences)['s']
+            latent = self.scaler.scale(latent)
+            latent = latent.to(self.device)
 
         if not self.hourglass is None: 
-            residue_feature = self.hourglass(latent, mask, infer_only=True)
-            residue_feature = to_tensor(residue_feature).to(self.device)
+            with torch.no_grad():
+                residue_feature = self.hourglass(latent, mask, infer_only=True)
+                residue_feature = to_tensor(residue_feature).to(self.device)
         else:
-            residue_feature = latent.detach()
+            residue_feature = to_tensor(latent.detach()).to(self.device)
 
         # mean pool with mask
         mask = pad_to_multiple(mask, self.shorten_factor)

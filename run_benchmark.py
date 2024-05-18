@@ -1,4 +1,5 @@
 import os
+import hydra
 import sys
 import math
 import pprint
@@ -9,38 +10,23 @@ import numpy as np
 import time
 import yaml
 import easydict
+from pathlib import Path
+from random import random
 
 import torch
 from torch import distributed as dist
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 
 import torchdrug
 from torchdrug import core, datasets, tasks, models, layers
 from torchdrug.utils import comm
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from plaid.benchmarking import flip, ousrs
+from plaid.benchmarking import ours, flip
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-c", "--config", help="yaml configuration file",
-                        default="config/single_task/CNN/beta_CNN.yaml")
-    parser.add_argument("--seed", help="random seed", type=int, default=0)
-
-    return parser.parse_known_args()[0]
-
-
-########################################################################################
-# Helpers
-########################################################################################
-
-def load_config(cfg_file):
-    with open(cfg_file, "r") as fin:
-        raw_text = fin.read()
-    cfg = yaml.load(raw_text, Loader=yaml.CLoader)
+def resolve_cfg(cfg: DictConfig):
+    cfg = OmegaConf.to_container(cfg, resolve=True)
     cfg = easydict.EasyDict(cfg)
-
     return cfg
 
 
@@ -71,7 +57,11 @@ def create_working_directory(cfg):
     if comm.get_rank() == 0:
         with open(file_name, "w") as fout:
             fout.write(output_dir)
-        os.makedirs(output_dir)
+        if not Path(output_dir).exists():
+            os.makedirs(output_dir)
+        else:
+            os.makedirs(output_dir + str(random.choice(range(0, 1000))))
+        
     comm.synchronize()
     if comm.get_rank() != 0:
         with open(file_name, "r") as fin:
@@ -116,14 +106,14 @@ def build_solver(cfg, logger):
     task = core.Configurable.load_config_dict(cfg.task)
 
     # fix the pre-trained encoder if specified
-    fix_encoder = cfg.get("fix_encoder", False)
-    fix_encoder2 = cfg.get("fix_encoder2", False)
-    if fix_encoder:
-        for p in task.model.parameters():
-            p.requires_grad = False
-    if fix_encoder2:
-        for p in task.model2.parameters():
-            p.requires_grad = False
+    # fix_encoder = cfg.get("fix_encoder", False)
+    # fix_encoder2 = cfg.get("fix_encoder2", False)
+    # if fix_encoder:
+    #     for p in task.model.parameters():
+    #         p.requires_grad = False
+    # if fix_encoder2:
+    #     for p in task.model2.parameters():
+    #         p.requires_grad = False
 
     # build solver
     cfg.optimizer.params = task.parameters()
@@ -161,7 +151,7 @@ def train_and_validate(cfg, solver):
         kwargs["num_epoch"] = min(step, cfg.train.num_epoch - i)
         solver.model.split = "train"
         solver.train(**kwargs)
-        solver.save("model_epoch_%d.pth" % solver.epoch)
+        # solver.save("model_epoch_%d.pth" % solver.epoch)
         if "test_batch_size" in cfg:
             solver.batch_size = cfg.test_batch_size
         solver.model.split = "valid"
@@ -180,8 +170,8 @@ def train_and_validate(cfg, solver):
             best_score = score
             best_epoch = solver.epoch
 
-    solver.load("model_epoch_%d.pth" % best_epoch)
-    return solver, best_epoch
+    # solver.load("model_epoch_%d.pth" % best_epoch)
+    # return solver, best_epoch
 
 
 def test(cfg, solver):
@@ -195,23 +185,21 @@ def test(cfg, solver):
     return
 
 
-if __name__ == "__main__":
-    args = parse_args()
-    args.config = os.path.realpath(args.config)
-    cfg = load_config(args.config)
+@hydra.main(version_base=None, config_path="configs/benchmark", config_name="beta")
+def main(cfg: DictConfig) -> None:
+    cfg = resolve_cfg(cfg)
+    set_seed(0)  # TODO: run with more seeds
 
-    set_seed(args.seed)
     output_dir = create_working_directory(cfg)
     logger = get_root_logger()
-    if comm.get_rank() == 0:
-        logger.warning("Config file: %s" % args.config)
-        logger.warning(pprint.pformat(cfg))
-        logger.warning("Output dir: %s" % output_dir)
-        shutil.copyfile(args.config, os.path.basename(args.config))
     os.chdir(output_dir)
 
     solver = build_solver(cfg, logger)
     solver, best_epoch = train_and_validate(cfg, solver)
-    if comm.get_rank() == 0:
-        logger.warning("Best epoch on valid: %d" % best_epoch)
-    test(cfg, solver)
+    # if comm.get_rank() == 0:
+    #     logger.warning("Best epoch on valid: %d" % best_epoch)
+    # test(cfg, solver)
+
+
+if __name__ == "__main__":
+    main()

@@ -16,7 +16,5 @@ echo "SLURM_JOB_ID = ${SLURM_JOB_ID}"
 echo "SLURMD_NODENAME = ${SLURMD_NODENAME}"
 echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
-cd /homefs/home/lux70/code/plaid/scripts
-
-# usage: <id> <task1> <task2>
-srun python peer_benchmark.py --c /homefs/home/lux70/code/PEER_Benchmark/config/single_task/PLAID/$1/$2.yaml
+cd /homefs/home/lux70/code/plaid
+srun python run_benchmark.py $@
