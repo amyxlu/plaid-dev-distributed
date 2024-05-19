@@ -1,9 +1,7 @@
-# @package _global_
-
 output_dir: /homefs/home/lux70/storage/data/torchdrug/outputs
 
 dataset:
-  class: ProteinNet
+  class: SecondaryStructure
   path: /homefs/home/lux70/storage/data/torchdrug
   atom_feature: null
   bond_feature: null
@@ -11,29 +9,25 @@ dataset:
     class: Compose
     transforms:
       - class: TruncateProtein
-        max_length: 512 
+        max_length: 1022
         random: False
       - class: ProteinView
         view: "residue"
 
-test_split: test
-test_batch_size: 1
+test_split: cb513
 
 task:
-  class: ContactPrediction
+  class: NodePropertyPrediction
   model:
     class: PLAID
     compression_model_id: ???
     hourglass_weights_dir: /homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq
-  criterion: bce
-  metric: ["accuracy", "prec@L5", "prec@5"]
-  max_length: 400
-  random_truncate: yes
-  threshold: 8.0
-  gap: 6
+  criterion: ce
+  metric: ["micro_acc", "macro_acc"]
   num_mlp_layer: 2
+  num_class: 3
 
-eval_metric: prec@L5
+eval_metric: macro_acc
 
 optimizer:
   class: Adam
