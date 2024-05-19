@@ -91,14 +91,6 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
-    # callback options
-    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
-    dirpath.mkdir(parents=False)
-    config_path = dirpath / "config.yaml"
-    
-    if not config_path.exists():
-        OmegaConf.save(cfg, config_path)
-
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
