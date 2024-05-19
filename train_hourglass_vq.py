@@ -49,7 +49,7 @@ def train(cfg: DictConfig):
         IS_RESUMED = False
 
     # set up checkpoint and config yaml paths 
-    dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
+    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
     config_path = dirpath / "config.yaml"
     if config_path.exists():
         cfg = OmegaConf.load(config_path)
