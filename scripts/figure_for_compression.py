@@ -122,4 +122,4 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
 if __name__ == "__main__":
     x, x_norm, mask, latent_scaler, sequences = load_batch()
     for model_id in models:
-        compress_and_save(x, x_norm, mask, latent_scaler, sequences)
+        compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences)
