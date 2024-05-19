@@ -114,17 +114,20 @@ class FastaToH5:
         del feats
 
         x_norm, mask = x_norm.to(device), mask.to(device)
-
-        # for now, this is only for the Rocklin dataset, thus hardcard the target length
-        if self.pad_to_even_number:
-            self.max_seq_len = 64 
-            x_norm = trim_or_pad_batch_first(x_norm, pad_to=64)
-            mask = trim_or_pad_batch_first(mask, pad_to=64)
+        s = self.hourglass_model.enc.shorten_factor 
+        extra = x_norm.shape[1] % s
+        if extra != 0:
+            needed = s - extra
+            x_norm = trim_or_pad_batch_first(x_norm, pad_to=x_norm.shape[1] + needed, pad_idx=0)
+        # In any case where the mask and token generated from sequence strings don't match latent, make it match
+        if mask.shape[1] != x_norm.shape[1]:
+            # pad with False
+            mask = trim_or_pad_batch_first(mask, x_norm.shape[1], pad_idx=0)
 
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
-            _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
+            compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False, infer_only=True)
         return compressed_representation
     
     def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
@@ -191,12 +194,12 @@ class FastaToH5:
 
 def main():
     fasta_to_h5 = FastaToH5(
-        compression_model_id="jzlv54wl",
+        compression_model_id="qjs33lme",
         hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
         fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
-        batch_size=128,
-        max_dataset_size=5000,
+        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_1M",
+        batch_size=64,
+        max_dataset_size=1_000_000,
     )
     fasta_to_h5.run()
 
