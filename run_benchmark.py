@@ -195,7 +195,7 @@ def main(cfg: DictConfig) -> None:
     os.chdir(output_dir)
 
     solver = build_solver(cfg, logger)
-    solver, best_epoch = train_and_validate(cfg, solver)
+    train_and_validate(cfg, solver)
     # if comm.get_rank() == 0:
     #     logger.warning("Best epoch on valid: %d" % best_epoch)
     # test(cfg, solver)
