@@ -37,6 +37,16 @@ COMPRESSION_INPUT_DIMENSIONS = {
     "wiepwn5p": 8,
     "h9hzw1bp": 64,
     "j1v1wv6w": 32,
+    ## CATH, 256 ##
+    "8ebs7j9h": 4,
+    "mm9fe6x9": 8,
+    "kyytc8i9": 16,
+    "fbbrfqzk": 32,
+    "13lltqha": 64,
+    "uhg29zk4": 128,
+    "ich20c3q": 256,
+    "7str7fhl": 512,
+    "g8e83omk": 1024,
 }
 
 
@@ -46,6 +56,16 @@ COMPRESSION_SHORTEN_FACTORS = {
     "wiepwn5p": 1,
     "h9hzw1bp": 2,
     "j1v1wv6w": 2,
+    ## CATH, 512 ##
+    "8ebs7j9h": 2, 
+    "mm9fe6x9": 2, 
+    "kyytc8i9": 2, 
+    "fbbrfqzk": 2, 
+    "13lltqha": 2, 
+    "uhg29zk4": 2, 
+    "ich20c3q": 2, 
+    "7str7fhl": 2, 
+    "g8e83omk": 2,
 }
 
 RESTYPES = [
