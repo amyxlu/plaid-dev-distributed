@@ -36,4 +36,4 @@ engine:
   logger: "wandb"
 
 train:
-  num_epoch: 50
+  num_epoch: 100 

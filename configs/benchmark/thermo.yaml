@@ -6,10 +6,13 @@ dataset:
   transform:
     class: Compose
     transforms:
+    - class: TruncateProtein
+      max_length: 768 
+      random: False
     - class: ProteinView
       view: residue
 engine:
-  batch_size: 64
+  batch_size: 32 
   gpus:
   - 0
   logger: wandb
@@ -33,4 +36,4 @@ task:
   normalization: false
   num_mlp_layer: 2
 train:
-  num_epoch: 100
+  num_epoch: 200

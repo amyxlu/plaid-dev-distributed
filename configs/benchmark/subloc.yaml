@@ -32,4 +32,4 @@ task:
   num_class: 10
   num_mlp_layer: 2
 train:
-  num_epoch: 100
+  num_epoch: 200
