@@ -12,6 +12,7 @@ calc_sequence: True
 calc_structure: True
 calc_perplexity: True
 calc_fid: True 
+calc_sequence_properties: True
 
 log_to_wandb: True
 
