@@ -147,6 +147,15 @@ class PLAID(nn.Module, core.Configurable):
             downsampled_mask = trim_or_pad_batch_first(downsampled_mask, residue_feature.shape[1], pad_idx=0)
         graph_feature = (residue_feature * downsampled_mask.long()).sum(dim=1) / downsampled_mask.sum(dim=1)
 
+        if self.shorten_factor == 1:
+            # hack -- only uses this for the contact prediction tasks, which needs full sequence
+            adjusted_size = size // self.shorten_factor
+            residue_feature = functional.padded_to_variadic(residue_feature, adjusted_size)
+            starts = adjusted_size.cumsum(0) - adjusted_size
+            ends = starts + size
+            mask = functional.multi_slice_mask(starts, ends, len(residue_feature))
+            residue_feature = residue_feature[mask]
+
         return {
             "graph_feature": graph_feature,
             "residue_feature": residue_feature
