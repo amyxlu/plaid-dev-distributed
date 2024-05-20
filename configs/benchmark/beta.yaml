@@ -35,4 +35,4 @@ task:
   normalization: false
   num_mlp_layer: 2
 train:
-  num_epoch: 150
+  num_epoch: 200

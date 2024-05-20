@@ -11,7 +11,7 @@ import time
 import yaml
 import easydict
 from pathlib import Path
-from random import random
+import uuid
 
 import torch
 from torch import distributed as dist
@@ -45,22 +45,20 @@ def get_root_logger(file=True):
 
 def create_working_directory(cfg):
     file_name = "working_dir.tmp"
+    hashid = uuid.uuid4().hex[:7]
     world_size = comm.get_world_size()
     if world_size > 1 and not dist.is_initialized():
         comm.init_process_group("nccl", init_method="env://")
 
     output_dir = os.path.join(os.path.expanduser(cfg.output_dir),
                               cfg.task["class"], cfg.dataset["class"],
-                              cfg.task.model["class"] + "_" + time.strftime("%Y-%m-%d-%H-%M-%S"))
+                              cfg.task.model["class"] + "_" + time.strftime("%Y-%m-%d-%H-%M-%S") + "_" + hashid)
 
     # synchronize working directory
     if comm.get_rank() == 0:
         with open(file_name, "w") as fout:
             fout.write(output_dir)
-        if not Path(output_dir).exists():
-            os.makedirs(output_dir)
-        else:
-            os.makedirs(output_dir + str(random.choice(range(0, 1000))))
+        os.makedirs(output_dir)
         
     comm.synchronize()
     if comm.get_rank() != 0:
@@ -68,7 +66,10 @@ def create_working_directory(cfg):
             output_dir = fin.read()
     comm.synchronize()
     if comm.get_rank() == 0:
-        os.remove(file_name)
+        try:
+            os.remove(file_name)
+        except:
+            pass
 
     os.chdir(output_dir)
     return output_dir
