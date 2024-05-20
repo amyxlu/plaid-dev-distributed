@@ -103,16 +103,6 @@ def train(cfg: DictConfig):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if not cfg.dryrun:
-        if cfg.resume_from_model_id is None:
-            trainer.fit(model, datamodule=datamodule)
-        else:
-            # job id / dirpath was already updated to match the to-be-resumed directory 
-            trainer.fit(model, datamodule=datamodule, ckpt_path=dirpath / "last.ckpt")
-
-
-
-
-    if not cfg.dryrun:
         if IS_RESUMED:
             # job id / dirpath was already updated to match the to-be-resumed directory 
             ckpt_fname = dirpath / find_latest_checkpoint(dirpath)
