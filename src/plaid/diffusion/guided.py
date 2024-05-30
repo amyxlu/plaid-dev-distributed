@@ -571,7 +571,6 @@ class GaussianDiffusion(L.LightningModule):
         )
         self.need_to_setup_structure_decoder = False
 
-
     def training_step(self, batch):
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
@@ -703,20 +702,26 @@ class GaussianDiffusion(L.LightningModule):
         return self.unscaler.unscale(x)
 
     def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
-        embs, mask, sequences = batch
-        model_output, x_t, t, diffusion_loss = self(
-            x_start=embs,
-            mask=mask,
-            sequences=sequences,
-            model_kwargs=model_kwargs,
-            noise=noise
-        )
-        log_dict = {"diffusion_loss": diffusion_loss}
+        # use different batch unpacking strategies
+        if True:
+            out = self._run_diffusion_step_saved_embeddings(batch, model_kwargs, noise)
+        else:
+            raise NotImplementedError
 
+        # unpack outputs 
+        diffusion_loss = out.get("diffusion_loss")
+        model_output = out.get("model_output")
+        sequences = out.get("sequences")
+        x_t = out.get("x_t")
+        t = out.get("t")
+
+        log_dict = {"diffusion_loss": diffusion_loss}
         using_seq_loss = self.sequence_decoder_weight > 0.0 
         using_struct_loss = self.structure_decoder_weight > 0.0
 
-        # Compressor and unscaler are only used if using sequence or structure loss
+        ###############
+        # Auxiliary losses: structure and sequence constraint
+        ###############
         if using_seq_loss or using_struct_loss:
             pred_x_start = self.model_output_conversion_wrapper(model_output, x_t, t).pred_x_start
             pred_latent = self.process_x_to_latent(pred_x_start)
@@ -750,3 +755,35 @@ class GaussianDiffusion(L.LightningModule):
         log_dict["loss"] = loss
         return loss, log_dict
 
+    def _run_diffusion_step_saved_embeddings(self, batch, model_kwargs={}, noise=None):
+        """
+        Runs the diffusion step (without auxiliary losses) for a batch of pre-computed embeddings & clan.
+        """
+        embs = batch.get("emb")
+        mask = batch.get("mask")
+        clan = batch.get("clan")
+        sequences = batch.get("sequence")
+
+        model_output, x_t, t, diffusion_loss = self(
+            x_start=embs,
+            mask=mask,
+            sequences=sequences,
+            model_kwargs=model_kwargs,
+            noise=noise
+        )
+        return {
+            "diffusion_loss": diffusion_loss,
+            "model_output": model_output,
+            "sequences": sequences,
+            "x_t": x_t,
+            "t": t
+        }
+
+    def _run_diffusion_step_embed_on_the_fly(self, batch):
+        """
+        Runs the diffusion step assuming a batch of header and sequence.
+        In this case, the sequence must be embedded and compressed, and the
+        header parsed to map to the clan. If these models aren't already created,
+        the method will trigger its creation.
+        """
+        pass
