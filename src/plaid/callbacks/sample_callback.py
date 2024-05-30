@@ -305,7 +305,7 @@ class SampleCallback(Callback):
             maybe_print(
                 f"subsampling to only reconstruct {self.n_to_construct} samples..."
             )
-            x = x[torch.randperm(x.shape[0])][: self.n_to_construct]
+            latent = latent[torch.randperm(x.shape[0])][: self.n_to_construct]
 
         if self.calc_sequence:
             maybe_print("constructing sequence...")
