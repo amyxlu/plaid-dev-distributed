@@ -450,7 +450,8 @@ class HourglassDecoder(nn.Module):
         if exists(self.attn_resampling_post_valley):
             x = self.attn_resampling_post_valley(
                 rearrange(upsampled, 'b (n s) d -> (b n) s d', s = s),
-                rearrange(z_q, 'b n d -> (b n) () d')
+                rearrange(z_q, 'b n d -> (b n) () d'),
+                upsampled_mask
             )
             x = rearrange(x, '(b n) s d -> b (n s) d', b = b)
         

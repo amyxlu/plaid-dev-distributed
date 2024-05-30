@@ -35,9 +35,10 @@ class HourglassVQLightningModule(L.LightningModule):
         norm_out=False,
         use_quantizer="vq",
         # quantizer
-        n_e=16,
+        n_e=512,
         e_dim=64,
         vq_beta=0.25,
+        enforce_single_codebook_per_position: bool = False,
         fsq_levels: T.Optional[T.List[int]] = None,
         lr=1e-4,
         lr_adam_betas=(0.9, 0.999),
@@ -81,8 +82,25 @@ class HourglassVQLightningModule(L.LightningModule):
         if self.quantize_scheme == "vq":
             self.quantizer = VectorQuantizer(n_e, e_dim, vq_beta)
             self.quantizer.to(self.device)
+
+            # if this is enforced, then we'll project down the channel dimension to make sure that the
+            # output of the encoder has the same dimension as the embedding codebook.
+            # otherwise, the excess channel dimensions will be tiled up lengthwise,
+            # which combinatorially increases the size of the codebook. The latter will
+            # probably lead to better results, but is not the convention and may lead to
+            # an excessively large codebook for purposes such as training an AR model downstream.
+            if enforce_single_codebook_per_position and (dim / downproj_factor != e_dim):
+                self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, e_dim)
+                self.post_quant_proj = torch.nn.Linear(e_dim, dim // downproj_factor)
+
         elif self.quantize_scheme == "fsq":
             if not len(fsq_levels) == (dim / downproj_factor):
+                # similarly, project down to the length of the FSQ vectors.
+                # unlike with VQ-VAE, the convention with FSQ *is* to have combinatorially increasing
+                # codebook sizes, though the size of each position are usually much smaller, such that
+                # the resulting codebook size is comparable for both.
+                # we'll by default add another projection layer of the downprojection factor from the
+                # encoder doesn't automatically match the quantizer dimension.
                 self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, len(fsq_levels)) 
                 self.post_quant_proj = torch.nn.Linear(len(fsq_levels), dim // downproj_factor)
             self.fsq_levels = fsq_levels
