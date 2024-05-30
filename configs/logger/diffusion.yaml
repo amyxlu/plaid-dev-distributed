@@ -1,4 +1,5 @@
 _target_: lightning.pytorch.loggers.WandbLogger
 
-project: plaid-compressed-diffusion 
-entity: ${paths.entity}
+project: plaid
+# entity: ${paths.entity}
+entity: prescient-design
