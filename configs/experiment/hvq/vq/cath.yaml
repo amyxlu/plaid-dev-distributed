@@ -1,0 +1,53 @@
+# @package _global_
+
+defaults:
+  - override /datamodule: seqrep_cached/cath_h5
+
+datamodule:
+  batch_size: 128 
+  seq_len: 512
+  num_workers: 4
+
+logger:
+  name: "cath-vqvae"
+
+
+# from https://github.com/google-deepmind/sonnet/blob/v1/sonnet/examples/vqvae_example.ipynb:
+
+# These hyper-parameters define the size of the model (number of parameters and layers).
+# The hyper-parameters in the paper were (For ImageNet):
+# batch_size = 128
+# image_size = 128
+# num_hiddens = 128
+# num_residual_hiddens = 32
+# num_residual_layers = 2
+
+# This value is not that important, usually 64 works.
+# This will not change the capacity in the information-bottleneck.
+# embedding_dim = 64
+
+# The higher this value, the higher the capacity in the information bottleneck.
+# num_embeddings = 512
+
+# commitment_cost should be set appropriately. It's often useful to try a couple
+# of values. It mostly depends on the scale of the reconstruction cost
+# (log p(x|z)). So if the reconstruction cost is 100x higher, the
+# commitment_cost should also be multiplied with the same amount.
+# commitment_cost = 0.25
+
+hourglass:
+  n_e: 512
+  e_dim: 64
+  vq_beta: 0.25
+  enforce_single_codebook_per_position: true
+  downproj_factor: 4
+  shorten_factor: 1
+
+  lr: 8e-5 
+  lr_sched_type: cosine_with_restarts
+  lr_num_warmup_steps: 3000 
+  lr_num_training_steps: 1_000_000
+  lr_num_cycles: 2
+
+
+

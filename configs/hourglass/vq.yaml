@@ -1,7 +1,7 @@
 _target_: plaid.compression.hourglass_vq.HourglassVQLightningModule
 
 dim: 1024
-depth: 4
+depth: 6
 shorten_factor: 1
 downproj_factor: 1
 attn_resampling: true
