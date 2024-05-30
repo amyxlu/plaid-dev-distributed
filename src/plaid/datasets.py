@@ -829,7 +829,8 @@ class CompressedH5DataModule(L.LightningDataModule):
         batch_size=128,
         num_workers=8,
         shuffle_val_dataset=False,
-        mayclan_version=False
+        mayclan_version=False,
+        aprclan_version=False,
     ):
         
         super().__init__()
@@ -842,6 +843,8 @@ class CompressedH5DataModule(L.LightningDataModule):
 
         if mayclan_version:
             self.dataset_fn = MayClanCompressedDataset
+        elif aprclan_version:
+            self.dataset_fn = CompressedH5ClansDataset
         else:
             self.dataset_fn = CompressedH5Dataset
 
@@ -881,6 +884,30 @@ class CompressedH5DataModule(L.LightningDataModule):
 
     def predict_dataloader(self):
         return self.val_dataloader()
+
+
+class CompressedH5ClansDataset(torch.utils.data.Dataset):
+    def __init__(self, h5_path):
+        fh = h5py.File(h5_path, "r")
+        self.max_seq_len = fh.attrs['max_seq_len']
+        self.shorten_factor = fh.attrs['shorten_factor']
+        self.compressed_hid_dim = fh.attrs['compressed_hid_dim'] 
+        self.dataset_size = fh.attrs['dataset_size']
+        self.fh = fh
+
+    def __len__(self):
+        return self.dataset_size
+
+    def __getitem__(self, idx):
+        group = self.fh[str(idx)]
+        emb, clan, original_l = group[:], group.attrs['clan'], group.attrs['len']
+        emb, clan, original_l = tuple(map(lambda x: torch.tensor(x), (emb, clan, original_l)))
+        s = self.shorten_factor
+        effective_max_l = math.ceil(self.max_seq_len / s)
+        effective_cur_l = math.ceil(original_l[0] / s)
+        emb = trim_or_pad_length_first(emb, effective_max_l)
+        mask = torch.arange(len(emb)) < effective_cur_l
+        return emb, mask, clan
 
 
 if __name__ == "__main__":
