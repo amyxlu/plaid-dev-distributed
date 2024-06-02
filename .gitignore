@@ -18,3 +18,4 @@ artifacts
 *outputs
 *wandb*
 sampled/*
+log_dir/*

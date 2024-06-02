@@ -7,6 +7,10 @@ import hydra
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only
+import torch.profiler
+from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler
+
+
 from omegaconf import DictConfig, OmegaConf
 import torch
 import re
@@ -151,9 +155,24 @@ def train(cfg: DictConfig):
     )
 
     # run training
+    profiler = PyTorchProfiler(
+        schedule=torch.profiler.schedule(
+            wait=2,
+            warmup=2,
+            active=6,
+            repeat=1
+        ),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('./log_dir'),
+        record_shapes=True,
+        profile_memory=True,
+        with_stack=True,
+        with_flops=True
+    )
+
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
+        profiler=profiler,
         callbacks=[lr_monitor, checkpoint_callback, sample_callback, ema_callback],
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
