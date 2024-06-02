@@ -577,7 +577,7 @@ class GaussianDiffusion(L.LightningModule):
         )
         N = self._get_batch_size(batch)
         self.log_dict(
-            {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=True, batch_size=N
+            {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=False, batch_size=N
         )
         return loss
 
