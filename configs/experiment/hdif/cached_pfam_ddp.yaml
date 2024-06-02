@@ -6,6 +6,7 @@ input_dim: 8
 
 defaults:
   - override /denoiser: dit.yaml
+  - override /trainer: ddp.yaml
   - override /datamodule: compressed/pfam_h5
   - override /callbacks/sample: pfam_compressed_fid
 

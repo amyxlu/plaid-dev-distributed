@@ -9,8 +9,8 @@ parser.add_argument("--flags", type=str, default="")
 args = parser.parse_args()
 
 flags = ""
-if args.n_gpus > 1:
-    flags += " ++trainer.device=-1 ++trainer.strategy=ddp_find_unused_parameters_true "
+# if args.n_gpus > 1:
+#     flags += " ++trainer.device=-1 ++trainer.strategy=ddp_find_unused_parameters_true "
 flags += args.flags
 
 defaults = f"""#!/usr/bin/env bash
@@ -27,6 +27,7 @@ conda activate plaid
 
 export HYDRA_FULL_ERROR=1
 export TOKENIZERS_PARALLELISM=false
+export NCCL_DEBUG=INFO
 cd /homefs/home/lux70/code/plaid/
 
 nvidia-smi
