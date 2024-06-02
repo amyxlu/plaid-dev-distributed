@@ -801,7 +801,11 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
         L, C = emb.shape
         emb = trim_or_pad_length_first(emb, self.max_seq_len)
         mask = torch.arange(self.max_seq_len) < L
-        return emb, mask, seq
+        return {
+            "emb": emb,
+            "mask": mask,
+            "sequence": seq 
+        }
 
 class MayClanCompressedDataset(CompressedH5Dataset):
     """The attempt at saving a full dataset which went far enough but not all the way"""
@@ -817,7 +821,11 @@ class MayClanCompressedDataset(CompressedH5Dataset):
         effective_cur_l = math.ceil(original_l[0] / s)
         emb = trim_or_pad_length_first(emb, effective_max_l)
         mask = torch.arange(len(emb)) < effective_cur_l
-        return emb, mask, clan
+        return {
+            "emb": emb,
+            "mask": mask,
+            "clan": clan
+        }
 
 
 class CompressedH5DataModule(L.LightningDataModule):
@@ -907,7 +915,11 @@ class CompressedH5ClansDataset(torch.utils.data.Dataset):
         effective_cur_l = math.ceil(original_l[0] / s)
         emb = trim_or_pad_length_first(emb, effective_max_l)
         mask = torch.arange(len(emb)) < effective_cur_l
-        return emb, mask, clan
+        return {
+            "emb": emb,
+            "mask": mask,
+            "clan": clan
+        }
 
 
 if __name__ == "__main__":

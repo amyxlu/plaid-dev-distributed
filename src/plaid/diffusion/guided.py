@@ -575,7 +575,7 @@ class GaussianDiffusion(L.LightningModule):
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
-        N = len(batch[0])
+        N = self._get_batch_size(batch)
         self.log_dict(
             {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=True, batch_size=N
         )
@@ -586,7 +586,7 @@ class GaussianDiffusion(L.LightningModule):
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
-        N = len(batch[0])
+        N = self._get_batch_size(batch)
         self.log_dict(
             {f"val/{k}": v for k, v in log_dict.items()}, on_step=False, on_epoch=True, batch_size=N, sync_dist=True
         )
@@ -787,3 +787,11 @@ class GaussianDiffusion(L.LightningModule):
         the method will trigger its creation.
         """
         pass
+
+    def _get_batch_size(self, batch):
+        if isinstance(batch, dict):
+            return len(batch['emb'])
+        elif isinstance(batch, tuple):
+            return len(batch[0])
+        else:
+            raise TypeError(f"Expected batch to be dict or tuple, got {type(batch)}.")
