@@ -115,7 +115,7 @@ class ESMFold(nn.Module):
         )
 
         end = time.time()
-        print(f"ESMFold model loaded in {(end - start) / 60:.2} minutes.")
+        print(f"ESMFold model loaded in {(end - start):.2} seconds.")
 
     @staticmethod
     def _af2_to_esm(d: Alphabet):

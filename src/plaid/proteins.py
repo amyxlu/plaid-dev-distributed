@@ -243,12 +243,7 @@ class LatentToStructure:
     def __init__(self, esmfold=None, chunk_size=64):
         self.device = torch.device("cpu")
         if esmfold is None:
-            import time
-            print("loading esmfold model...")
-            start = time.time()
             esmfold = esmfold_v1() 
-            end = time.time()
-            print(f"ESMFold model created in {end-start:.2f} seconds.")
         
         self.esmfold = esmfold
         self.esmfold.set_chunk_size(chunk_size)
