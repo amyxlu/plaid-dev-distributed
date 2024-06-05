@@ -21,3 +21,4 @@ resume_from_model_id: null
 compression_model_id: null
 compression_ckpt_dir: null
 shorten_factor: null
+run_sample_callback: true

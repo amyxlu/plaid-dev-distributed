@@ -41,8 +41,10 @@ def extract_step(checkpoint_file):
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
+    ####################################################################################################
+    # Load old config if resuming 
+    ####################################################################################################
     import torch
-    # general set up
     torch.set_float32_matmul_precision("medium")
 
     # maybe use prior job id, else generate new ID
@@ -55,6 +57,8 @@ def train(cfg: DictConfig):
 
     # set up checkpoint and config yaml paths 
     dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
+    outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
+    
     config_path = dirpath / "config.yaml"
     if config_path.exists():
         cfg = OmegaConf.load(config_path)
@@ -68,9 +72,13 @@ def train(cfg: DictConfig):
     if rank_zero_only.rank == 0:
         print(OmegaConf.to_yaml(log_cfg))
 
+    ####################################################################################################
+    # Set up auxiliary losses and callbacks
+    ####################################################################################################
+
     def to_load_sequence_constructor(cfg):
         if (cfg.diffusion.sequence_decoder_weight > 0.0) or (
-            cfg.callbacks.sample.calc_perplexity
+            cfg.callbacks.sample.calc_perplexity and cfg.run_sample_callback
         ):
             # this loads the trained decoder:
             return LatentToSequence(temperature=1.0)
@@ -79,7 +87,7 @@ def train(cfg: DictConfig):
 
     def to_load_structure_constructor(cfg):
         if (cfg.diffusion.structure_decoder_weight > 0.0) or (
-            cfg.callbacks.sample.calc_structure
+            cfg.callbacks.sample.calc_structure and cfg.run_sample_callback
         ):
             # this creates the esmfold trunk on CPU, without the LM:
             return LatentToStructure()
@@ -100,8 +108,29 @@ def train(cfg: DictConfig):
     sequence_constructor = to_load_sequence_constructor(cfg)
     structure_constructor = to_load_structure_constructor(cfg)
     uncompressor = to_load_uncompressor(cfg)
-
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
+
+    # callbacks
+    lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
+    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
+
+    callbacks = [lr_monitor, checkpoint_callback, ema_callback]
+
+    if cfg.run_sample_callback:
+        sample_callback = hydra.utils.instantiate(
+            cfg.callbacks.sample,
+            outdir=outdir,
+            diffusion=diffusion,
+            log_to_wandb=not cfg.dryrun,
+            sequence_constructor=sequence_constructor,
+            structure_constructor=structure_constructor,
+        )
+        callbacks += [sample_callback]
+
+    ####################################################################################################
+    # Model and datamodule
+    ####################################################################################################
 
     # lightning data and model modules
     datamodule = hydra.utils.instantiate(cfg.datamodule)
@@ -132,11 +161,6 @@ def train(cfg: DictConfig):
     log_cfg['trainable_params_millions'] = trainable_parameters / 1_000_000
     log_cfg['total_params_millions'] = total_parameters / 1_000_000
 
-    # other callbacks
-    lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
-    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
-
     if not cfg.dryrun:
         # this will automatically log to the same wandb page
         logger = hydra.utils.instantiate(cfg.logger, id=job_id)
@@ -144,19 +168,11 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
-    # todo: add a wasserstein distance callback
-    outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
 
-    sample_callback = hydra.utils.instantiate(
-        cfg.callbacks.sample,
-        outdir=outdir,
-        diffusion=diffusion,
-        log_to_wandb=not cfg.dryrun,
-        sequence_constructor=sequence_constructor,
-        structure_constructor=structure_constructor,
-    )
+    ####################################################################################################
+    # Train 
+    ####################################################################################################
 
-    # run training
     profiler = PyTorchProfiler(
         schedule=torch.profiler.schedule(
             wait=2,
@@ -175,12 +191,10 @@ def train(cfg: DictConfig):
         cfg.trainer,
         logger=logger,
         profiler=profiler,
-        callbacks=[lr_monitor, checkpoint_callback, sample_callback, ema_callback],
+        callbacks=callbacks,
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
-
-    print_cuda_info()
 
     if not cfg.dryrun:
         if IS_RESUMED:

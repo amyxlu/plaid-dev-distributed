@@ -3,6 +3,7 @@
 compression_model_id: jzlv54wl
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 8 
+run_sample_callback: false
 
 defaults:
   - override /denoiser: dit.yaml
