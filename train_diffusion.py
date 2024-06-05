@@ -17,6 +17,7 @@ import re
 
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid import constants
+from plaid.utils import print_cuda_info
 
 
 # Helpers for loading latest checkpoint
@@ -40,6 +41,7 @@ def extract_step(checkpoint_file):
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
+    import torch
     # general set up
     torch.set_float32_matmul_precision("medium")
 
@@ -177,6 +179,8 @@ def train(cfg: DictConfig):
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
+
+    print_cuda_info()
 
     if not cfg.dryrun:
         if IS_RESUMED:

@@ -464,6 +464,27 @@ def print_cuda_memory_usage():
         )
 
 
+def print_cuda_info():
+    # Number of visible CUDA GPUs
+    print("=" * 10, "\n")
+    num_gpus = torch.cuda.device_count()
+    print(f'Number of visible CUDA GPUs: {num_gpus}')
+
+    # Current GPU ID device number
+    if num_gpus > 0:
+        current_gpu_id = torch.cuda.current_device()
+        print(f'Current GPU ID device number: {current_gpu_id}')
+    else:
+        print('No CUDA GPU available.')
+
+    print_cuda_memory_usage()
+
+    # Number of visible CPUs
+    num_cpus = torch.get_num_threads()
+    print(f'Number of visible CPUs: {num_cpus}')
+    print("=" * 10, "\n")
+
+
 def view_py3Dmol(pdbstr):
     import py3Dmol
 

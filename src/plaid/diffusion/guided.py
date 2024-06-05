@@ -28,7 +28,8 @@ from plaid.utils import (
     LatentScaler,
     get_lr_scheduler,
     sequences_to_secondary_structure_fracs,
-    to_tensor
+    to_tensor,
+    print_cuda_info
 )
 from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
 from plaid.losses.functions import masked_mse_loss, masked_huber_loss
@@ -572,6 +573,8 @@ class GaussianDiffusion(L.LightningModule):
         self.need_to_setup_structure_decoder = False
 
     def training_step(self, batch):
+        print_cuda_info()
+
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
