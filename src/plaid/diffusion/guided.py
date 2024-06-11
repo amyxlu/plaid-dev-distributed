@@ -4,6 +4,7 @@ https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_di
 """
 
 import typing as T
+from pathlib import Path
 from random import random
 from functools import partial
 from collections import namedtuple
@@ -117,6 +118,8 @@ class GaussianDiffusion(L.LightningModule):
         shorten_factor=1.0,
         unscaler: LatentScaler = LatentScaler("identity"),
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
+        sequence_to_latent_fn: T.Optional[T.Callable] = lambda x: x,
+        pfam_to_clan_fpath: T.Optional[T.Union[str, Path]] = None,
         # sampling
         sampling_timesteps=500,  # None,
         sampling_seq_len=64,
@@ -142,6 +145,9 @@ class GaussianDiffusion(L.LightningModule):
         self.objective = objective
         self.shorten_factor = shorten_factor
         self.uncompressor = uncompressor
+        self.sequence_to_latent_fn = sequence_to_latent_fn
+        if pfam_to_clan_fpath is not None:
+            self.pfam_to_clan = pd.read_csv()
         assert objective in {
             "pred_noise",
             "pred_x0",
@@ -287,11 +293,11 @@ class GaussianDiffusion(L.LightningModule):
             pred_noise = self.predict_noise_from_start(x, t, x_start)
         return ModelPrediction(pred_noise=pred_noise, pred_x_start=x_start)
     
-    def model_predictions(self, x, t, mask = None, x_self_cond = None, model_kwargs = {}):
+    def model_predictions(self, x, t, y=None, mask = None, x_self_cond = None, model_kwargs = {}):
         """Based on a noised sample and self-conditioning, denoise as x_start and eps."""
         if model_kwargs is None:
             model_kwargs = {}
-        model_output = self.model(x, t, mask, x_self_cond, **model_kwargs)
+        model_output = self.model(x=x, t=t, y=y, mask=mask, x_self_cond=x_self_cond, **model_kwargs)
         return self.model_output_conversion_wrapper(model_output, x, t)
     
     """
@@ -356,7 +362,7 @@ class GaussianDiffusion(L.LightningModule):
     """Backward process functions
     """
     def p_mean_variance(
-        self, x, t, x_self_cond=None, clip_denoised=True, model_kwargs={}
+        self, x, t, y=None, mask=None, x_self_cond=None, clip_denoised=True, model_kwargs={}
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -378,7 +384,14 @@ class GaussianDiffusion(L.LightningModule):
                  - 'log_variance': the log of 'variance'.
                  - 'pred_xstart': the prediction for x_0.
         """
-        predictions = self.model_predictions(x, t, x_self_cond, model_kwargs)
+        predictions = self.model_predictions(
+            x=x,
+            t=t,
+            y=y,
+            mask=mask,
+            x_self_cond=x_self_cond,
+            model_kwargs=model_kwargs,
+        )
         pred_xstart = predictions.pred_x_start
 
         if clip_denoised:
@@ -425,6 +438,8 @@ class GaussianDiffusion(L.LightningModule):
         self,
         x,
         t,
+        y=None,
+        mask=None,
         x_self_cond = None,
         clip_denoised = True,
         cond_fn=None,
@@ -450,6 +465,8 @@ class GaussianDiffusion(L.LightningModule):
         out = self.p_mean_variance(
             x,
             t,
+            y=y,
+            mask=mask,
             x_self_cond=x_self_cond,
             clip_denoised=clip_denoised,
             model_kwargs=model_kwargs
@@ -468,6 +485,8 @@ class GaussianDiffusion(L.LightningModule):
     def p_sample_loop(
         self,
         shape,
+        y=None,
+        mask=None,
         noise=None,
         clip_denoised=True,
         cond_fn=None,
@@ -495,6 +514,8 @@ class GaussianDiffusion(L.LightningModule):
         for sample in self.p_sample_loop_progressive(
             shape,
             noise=noise,
+            y=y,
+            mask=mask,
             clip_denoised=clip_denoised,
             cond_fn=cond_fn,
             model_kwargs=model_kwargs,
@@ -506,6 +527,8 @@ class GaussianDiffusion(L.LightningModule):
     def p_sample_loop_progressive(
         self,
         shape,
+        y=None,
+        mask=None,
         noise=None,
         clip_denoised=True,
         cond_fn=None,
@@ -536,8 +559,10 @@ class GaussianDiffusion(L.LightningModule):
             t = torch.tensor([i] * shape[0], device=self.device)
             with torch.no_grad():
                 out = self.p_sample(
-                    img,
-                    t,
+                    x=img,
+                    t=t,
+                    y=y,
+                    mask=mask,
                     clip_denoised=clip_denoised,
                     cond_fn=cond_fn,
                     model_kwargs=model_kwargs,
@@ -573,8 +598,7 @@ class GaussianDiffusion(L.LightningModule):
         self.need_to_setup_structure_decoder = False
 
     def training_step(self, batch):
-        print_cuda_info()
-
+        # print_cuda_info()
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
@@ -585,6 +609,7 @@ class GaussianDiffusion(L.LightningModule):
         return loss
 
     def validation_step(self, batch):
+        # print_cuda_info()
         # Extract the starting images from data batch
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
@@ -617,6 +642,7 @@ class GaussianDiffusion(L.LightningModule):
         self,
         x_start,
         mask,
+        clan_idx=None,
         sequences=None,
         model_kwargs={},
         noise=None,
@@ -638,7 +664,14 @@ class GaussianDiffusion(L.LightningModule):
         x_self_cond = None
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
-                x_self_cond = self.model_predictions(x_t, t, mask, x_self_cond, model_kwargs).pred_x_start
+                x_self_cond = self.model_predictions(
+                    x_t=x_t,
+                    t=t,
+                    mask=mask,
+                    y=clan_idx,
+                    x_self_cond=x_self_cond,
+                    model_kwargs=model_kwargs,
+                ).pred_x_start
                 x_self_cond.detach_()
         model_kwargs["x_self_cond"] = x_self_cond
 
@@ -650,7 +683,7 @@ class GaussianDiffusion(L.LightningModule):
             )
 
         # main inner model forward pass
-        model_out = self.model(x_t, t, mask=mask, **model_kwargs)
+        model_out = self.model(x_t, t, y=clan_idx, mask=mask, **model_kwargs)
         
         # reconstruction / "main diffusion loss"
         if self.objective == "pred_noise":
@@ -770,6 +803,7 @@ class GaussianDiffusion(L.LightningModule):
         model_output, x_t, t, diffusion_loss = self(
             x_start=embs,
             mask=mask,
+            clan_idx=clan,
             sequences=sequences,
             model_kwargs=model_kwargs,
             noise=noise
@@ -779,6 +813,7 @@ class GaussianDiffusion(L.LightningModule):
             "model_output": model_output,
             "sequences": sequences,
             "x_t": x_t,
+            "clan": clan,
             "t": t
         }
 
@@ -789,7 +824,25 @@ class GaussianDiffusion(L.LightningModule):
         header parsed to map to the clan. If these models aren't already created,
         the method will trigger its creation.
         """
-        pass
+        headers, sequences = batch
+        embedding, mask = self.sequence_to_latent_fn(sequences)
+        clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
+
+        model_output, x_t, t, diffusion_loss = self(
+            x_start=embedding,
+            mask=mask,
+            clan_idx=clan_idxs,
+            sequences=sequences,
+            clan_idxs=clan_idxs
+        )
+        return {
+            "diffusion_loss": diffusion_loss,
+            "model_output": model_output,
+            "sequences": sequences,
+            "x_t": x_t,
+            "clan": clan_idxs,
+            "t": t
+        }
 
     def _get_batch_size(self, batch):
         if isinstance(batch, dict):
@@ -798,3 +851,34 @@ class GaussianDiffusion(L.LightningModule):
             return len(batch[0])
         else:
             raise TypeError(f"Expected batch to be dict or tuple, got {type(batch)}.")
+        
+    def _make_accession_to_clan_data_structures(self):
+        fam_to_clan_df = pd.read_csv(
+            self.accession_to_clan_file,
+            sep="\t",
+            header=None
+    )
+        # read accession to clan dataframe and grab the first clan for each pfam family accession
+        header = ["accession", "clan", "short_name", "gene_name", "description"]
+        fam_to_clan_df.columns = header
+        accession_to_clan = fam_to_clan_df.groupby("accession").first().filter(['accession','clan'], axis=1)
+        accession_to_clan = accession_to_clan.to_dict()['clan']
+
+        # create an unique index representer for each clan
+        clans = fam_to_clan_df.clan.dropna().unique()
+        clans.sort()
+
+        # store mapping
+        self.clans_to_idx = dict(zip(clans, np.arange(len(clans))))
+        self.accession_to_clan = accession_to_clan
+        self.clans = clans
+    
+    def _header_to_clan_idx(self, header):
+        subid = header.split(" ")[-1]
+        accession = subid.split(".")[0]
+        clan_id = self.accession_to_clan[accession]
+        if clan_id is None:
+            return len(self.clans)  # dummy idx for unknown clan
+        else:
+            return self.clans_to_idx[clan_id]
+    

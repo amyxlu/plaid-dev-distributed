@@ -73,7 +73,7 @@ def train(cfg: DictConfig):
         print(OmegaConf.to_yaml(log_cfg))
 
     ####################################################################################################
-    # Set up auxiliary losses and callbacks
+    # Set up auxiliary losses 
     ####################################################################################################
 
     def to_load_sequence_constructor(cfg):
@@ -109,24 +109,6 @@ def train(cfg: DictConfig):
     structure_constructor = to_load_structure_constructor(cfg)
     uncompressor = to_load_uncompressor(cfg)
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
-
-    # callbacks
-    lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
-    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
-
-    callbacks = [lr_monitor, checkpoint_callback, ema_callback]
-
-    if cfg.run_sample_callback:
-        sample_callback = hydra.utils.instantiate(
-            cfg.callbacks.sample,
-            outdir=outdir,
-            diffusion=diffusion,
-            log_to_wandb=not cfg.dryrun,
-            sequence_constructor=sequence_constructor,
-            structure_constructor=structure_constructor,
-        )
-        callbacks += [sample_callback]
 
     ####################################################################################################
     # Model and datamodule
@@ -168,6 +150,26 @@ def train(cfg: DictConfig):
     else:
         logger = None
 
+    ####################################################################################################
+    # Set up callbacks
+    ####################################################################################################
+
+    lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
+    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
+
+    callbacks = [lr_monitor, checkpoint_callback, ema_callback]
+
+    if cfg.run_sample_callback:
+        sample_callback = hydra.utils.instantiate(
+            cfg.callbacks.sample,
+            outdir=outdir,
+            diffusion=diffusion,
+            log_to_wandb=not cfg.dryrun,
+            sequence_constructor=sequence_constructor,
+            structure_constructor=structure_constructor,
+        )
+        callbacks += [sample_callback]
 
     ####################################################################################################
     # Train 

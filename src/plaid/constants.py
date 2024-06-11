@@ -90,3 +90,20 @@ RESTYPES = [
     "Y",
     "V",
 ]
+
+
+UNIREF_SS_BOUNDARIES = {
+    "helix": [0.1647, 0.3294, 0.4941, 0.6589, 0.8236],
+    "turn": [0.1628, 0.3255, 0.4883, 0.6510, 0.8138],
+    "sheet": [0.1524, 0.3048, 0.4571, 0.6095, 0.7619],
+}
+
+
+CATH_SS_BOUNDARIES = {
+    "helix": [0.2109375, 0.25, 0.2734375, 0.296875, 0.3203125],
+    "turn": [0.171875, 0.2109375, 0.234375, 0.265625, 0.3046875],
+    "sheet": [0.1875, 0.2265625, 0.2578125, 0.296875, 0.3359375],
+}
+
+# for quantizing secondary structure fraction for conditioning
+NUM_SECONDARY_STRUCTURE_BINS = 6
