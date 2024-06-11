@@ -95,7 +95,7 @@ def train(cfg: DictConfig):
             return None
     
     def to_load_uncompressor(cfg):
-        if isinstance(cfg.compression_model_id, str):
+        if isinstance(cfg.compression_model_id, str) and cfg.run_sample_callback:
             from plaid.compression.uncompress import UncompressContinuousLatent
             return UncompressContinuousLatent(
                 cfg.compression_model_id,

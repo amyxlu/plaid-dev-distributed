@@ -9,18 +9,17 @@ parser.add_argument("--flags", type=str, default="")
 args = parser.parse_args()
 
 flags = ""
-# if args.n_gpus > 1:
-#     flags += " ++trainer.device=-1 ++trainer.strategy=ddp_find_unused_parameters_true "
 flags += args.flags
 
 defaults = f"""#!/usr/bin/env bash
-#SBATCH --job-name train 
-#SBATCH --nodes 1 
-#SBATCH --gpus-per-node {args.n_gpus} 
-#SBATCH --partition gpu2
-#SBATCH --cpus-per-gpu 20
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -p gpu2
+#SBATCH -c 64
+#SBATCH --gpus {args.n_gpus}
 #SBATCH --mem 100G
 #SBATCH --time=10-00:00:00
+#SBATCH --job-name train 
 
 eval "$(conda shell.bash hook)"
 conda activate plaid 
