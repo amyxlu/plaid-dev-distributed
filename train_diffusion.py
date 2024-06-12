@@ -16,6 +16,9 @@ import torch
 import re
 
 from plaid.proteins import LatentToSequence, LatentToStructure
+from plaid.datasets import FastaDataModule
+from plaid.compression.uncompress import UncompressContinuousLatent
+from plaid.transforms import ESMFoldEmbed
 from plaid import constants
 from plaid.utils import print_cuda_info
 
@@ -73,7 +76,23 @@ def train(cfg: DictConfig):
         print(OmegaConf.to_yaml(log_cfg))
 
     ####################################################################################################
-    # Set up auxiliary losses 
+    # Data and beta scheduler 
+    ####################################################################################################
+
+    # lightning data and model modules
+    datamodule = hydra.utils.instantiate(cfg.datamodule)
+    datamodule.setup(stage="fit")
+    BATCH_FASTA_MODE = isinstance(datamodule, FastaDataModule)
+
+    # dimensions
+    input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
+    shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
+
+    denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
+    beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
+
+    ####################################################################################################
+    # Load auxiliary model weights
     ####################################################################################################
 
     def to_load_sequence_constructor(cfg):
@@ -90,41 +109,63 @@ def train(cfg: DictConfig):
             cfg.callbacks.sample.calc_structure and cfg.run_sample_callback
         ):
             # this creates the esmfold trunk on CPU, without the LM:
-            return LatentToStructure()
-        else:
-            return None
-    
-    def to_load_uncompressor(cfg):
-        if isinstance(cfg.compression_model_id, str) and cfg.run_sample_callback:
-            from plaid.compression.uncompress import UncompressContinuousLatent
-            return UncompressContinuousLatent(
-                cfg.compression_model_id,
-                cfg.compression_ckpt_dir
-            ) 
+            if BATCH_FASTA_MODE:
+                return LatentToStructure(delete_esm_lm=False)
+            else:
+                return LatentToStructure(delete_esm_lm=True)
         else:
             return None
 
+    def to_load_uncompressor(cfg):
+        if not isinstance(cfg.compression_model_id, str):
+            return None
+        else:
+            if isinstance(datamodule, FastaDataModule) or cfg.run_sample_callback:
+                return UncompressContinuousLatent(
+                    cfg.compression_model_id,
+                    cfg.compression_ckpt_dir,
+                    init_compress_mode=BATCH_FASTA_MODE,
+                    latent_scaler=latent_scaler,
+                ) 
+            else:
+                return None
+
+    def to_load_esmfold_embed_fn(cfg, esmfold=None, hourglass_model=None, unscale_and_compress=True):
+        if isinstance(datamodule, FastaDataModule):
+            seq_emb_fn = ESMFoldEmbed(
+                esmfold=esmfold,
+                shorten_len_to=cfg.datamodule.seq_len,
+                hourglass_model=hourglass_model,
+                latent_scaler=latent_scaler,
+                unscale_and_compress=unscale_and_compress,
+            )
+        else:
+            seq_emb_fn = None
+        return seq_emb_fn
+    
     # maybe make sequence/structure constructors
     sequence_constructor = to_load_sequence_constructor(cfg)
     structure_constructor = to_load_structure_constructor(cfg)
-    uncompressor = to_load_uncompressor(cfg)
     latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
 
+    # is esmfold already loaded?
+    if structure_constructor is not None:
+        esmfold = structure_constructor.esmfold
+    else:
+        esmfold = None
+
+    hourglass_model = to_load_uncompressor(cfg)
+    unscale_and_compress = isinstance(cfg.compression_model_id, str)
+    esmfold_emb_fn = to_load_esmfold_embed_fn(
+        cfg=cfg,
+        esmfold=esmfold,
+        hourglass_model=hourglass_model,
+        unscale_and_compress=unscale_and_compress
+    )
+
     ####################################################################################################
-    # Model and datamodule
+    # Diffusion module 
     ####################################################################################################
-
-    # lightning data and model modules
-    datamodule = hydra.utils.instantiate(cfg.datamodule)
-    datamodule.setup(stage="fit")
-
-    # dimensions
-    input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
-    shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
-
-    denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
-    beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
-
     from plaid.utils import count_parameters
 
     diffusion = hydra.utils.instantiate(
@@ -133,9 +174,10 @@ def train(cfg: DictConfig):
         beta_scheduler=beta_scheduler,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
+        sequence_to_latent_fn=esmfold_emb_fn,
         unscaler=latent_scaler,
-        uncompressor=uncompressor,
-        shorten_factor=shorten_factor
+        uncompressor=hourglass_model,
+        shorten_factor=shorten_factor,
     )
 
     trainable_parameters = count_parameters(diffusion, require_grad_only=True)
