@@ -144,7 +144,7 @@ class GaussianDiffusion(L.LightningModule):
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective
         self.shorten_factor = shorten_factor
-        self.uncompressor = uncompressor
+        self.hourglass_model = uncompressor
         self.sequence_to_latent_fn = sequence_to_latent_fn
         if pfam_to_clan_fpath is not None:
             self.pfam_to_clan = pd.read_csv()
@@ -596,9 +596,19 @@ class GaussianDiffusion(L.LightningModule):
             self.structure_constructor, weight=self.structure_decoder_weight
         )
         self.need_to_setup_structure_decoder = False
+    
+    def _move_auxiliary_models_to_device(self):
+        if self.hourglass_model is not None:
+            self.hourglass_model.to(self.device)
+        if self.structure_constructor is not None:
+            self.structure_constructor.to(self.device)
+        if self.sequence_constructor is not None:
+            self.sequence_constructor.to(self.device)
 
     def training_step(self, batch):
         # print_cuda_info()
+        self._move_auxiliary_models_to_device()
+        
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
         )
@@ -610,6 +620,8 @@ class GaussianDiffusion(L.LightningModule):
 
     def validation_step(self, batch):
         # print_cuda_info()
+        self._move_auxiliary_models_to_device()
+
         # Extract the starting images from data batch
         loss, log_dict = self.run_step(
             batch, model_kwargs={}, noise=None, clip_x_start=True
@@ -733,16 +745,18 @@ class GaussianDiffusion(L.LightningModule):
 
     def process_x_to_latent(self, x):
         """Decompress and undo channel-wise scaling"""
-        if self.uncompressor is not None:
-            x = self.uncompressor.uncompress(x)
+        if self.hourglass_model is not None:
+            x = self.hourglass_model.uncompress(x)
         return self.unscaler.unscale(x)
 
     def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
         # use different batch unpacking strategies
-        if True:
+        if isinstance(batch, dict):
+            # hack: embedding batch output is a dict
             out = self._run_diffusion_step_saved_embeddings(batch, model_kwargs, noise)
-        else:
-            raise NotImplementedError
+        elif isinstance(batch, list) or isinstance(batch, tuple):
+            # hack: fasta datamodule outputs (header, sequence) 
+            out = self._run_diffusion_step_embed_on_the_fly(batch)
 
         # unpack outputs 
         diffusion_loss = out.get("diffusion_loss")
@@ -817,7 +831,7 @@ class GaussianDiffusion(L.LightningModule):
             "t": t
         }
 
-    def _run_diffusion_step_embed_on_the_fly(self, batch):
+    def _run_diffusion_step_embed_on_the_fly(self, batch, model_kwargs={}, noise=None):
         """
         Runs the diffusion step assuming a batch of header and sequence.
         In this case, the sequence must be embedded and compressed, and the
@@ -825,7 +839,7 @@ class GaussianDiffusion(L.LightningModule):
         the method will trigger its creation.
         """
         headers, sequences = batch
-        embedding, mask = self.sequence_to_latent_fn(sequences)
+        embedding, mask = self.sequence_to_latent_fn(sequences)  # possibly already scaled and compressed
         clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(
@@ -833,7 +847,9 @@ class GaussianDiffusion(L.LightningModule):
             mask=mask,
             clan_idx=clan_idxs,
             sequences=sequences,
-            clan_idxs=clan_idxs
+            clan_idxs=clan_idxs,
+            model_kwargs=model_kwargs,
+            noise=noise,
         )
         return {
             "diffusion_loss": diffusion_loss,
