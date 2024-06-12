@@ -240,14 +240,15 @@ class LatentToSequence:
 
 
 class LatentToStructure:
-    def __init__(self, esmfold=None, chunk_size=64):
+    def __init__(self, esmfold=None, chunk_size=128, delete_esm_lm=True):
         self.device = torch.device("cpu")
         if esmfold is None:
             esmfold = esmfold_v1() 
         
         self.esmfold = esmfold
         self.esmfold.set_chunk_size(chunk_size)
-        del self.esmfold.esm  # save some GPU space
+        if delete_esm_lm:
+            del self.esmfold.esm  # save some GPU space
         assert not self.esmfold.trunk is None
 
         self.esmfold.eval()
