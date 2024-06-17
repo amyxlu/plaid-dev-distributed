@@ -37,7 +37,7 @@ COMPRESSION_INPUT_DIMENSIONS = {
     "wiepwn5p": 8,
     "h9hzw1bp": 64,
     "j1v1wv6w": 32,
-    ## CATH, 256 ##
+    ## CATH, len 256 ##
     "8ebs7j9h": 4,
     "mm9fe6x9": 8,
     "kyytc8i9": 16,
@@ -47,6 +47,15 @@ COMPRESSION_INPUT_DIMENSIONS = {
     "ich20c3q": 256,
     "7str7fhl": 512,
     "g8e83omk": 1024,
+    ## CATH, len 512 ##
+    "q3m9fhii": 4,
+    "5z4iaak9": 8,
+    "3rs1hxky": 16,
+    "2tjrgcde": 32,
+    "v2cer77t": 64,
+    "yfel5fnl": 128,
+    "1hr1x9r5": 256,
+    "1b64t79h": 512,
 }
 
 
@@ -56,7 +65,7 @@ COMPRESSION_SHORTEN_FACTORS = {
     "wiepwn5p": 1,
     "h9hzw1bp": 2,
     "j1v1wv6w": 2,
-    ## CATH, 512 ##
+    ## CATH, len 256 ##
     "8ebs7j9h": 2, 
     "mm9fe6x9": 2, 
     "kyytc8i9": 2, 
@@ -66,6 +75,15 @@ COMPRESSION_SHORTEN_FACTORS = {
     "ich20c3q": 2, 
     "7str7fhl": 2, 
     "g8e83omk": 2,
+    ## CATH, len 512 ##
+    "q3m9fhii": 1,
+    "5z4iaak9": 1,
+    "3rs1hxky": 1,
+    "2tjrgcde": 1,
+    "v2cer77t": 1,
+    "yfel5fnl": 1,
+    "1hr1x9r5": 1,
+    "1b64t79h": 1
 }
 
 RESTYPES = [
