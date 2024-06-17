@@ -288,7 +288,7 @@ class SampleCallback(Callback):
             _wandb_log(logger, log_dict)
 
         # uncompress
-        uncompressed = self.diffusion.uncompressor.uncompress(x).detach()
+        uncompressed = self.diffusion.hourglass_model.uncompress(x).detach()
 
         # calculate FID with uncompressed (but still standardized!) 
         if self.calc_fid:
