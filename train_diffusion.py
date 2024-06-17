@@ -50,29 +50,29 @@ def train(cfg: DictConfig):
     import torch
     torch.set_float32_matmul_precision("medium")
 
-    # maybe use prior job id, else generate new ID
-    if cfg.resume_from_model_id is not None:
-        job_id = cfg.resume_from_model_id 
-        IS_RESUMED = True
-    else:
-        job_id = wandb.util.generate_id() 
-        IS_RESUMED = False
-
-    # set up checkpoint and config yaml paths 
-    dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
-    outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
-    
-    config_path = dirpath / "config.yaml"
-    if config_path.exists():
-        cfg = OmegaConf.load(config_path)
-        print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
-    else:
-        dirpath.mkdir(parents=True)
-        if not config_path.exists():
-            OmegaConf.save(cfg, config_path)    
-        
-    log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
+        # maybe use prior job id, else generate new ID
+        if cfg.resume_from_model_id is not None:
+            job_id = cfg.resume_from_model_id 
+            IS_RESUMED = True
+        else:
+            job_id = wandb.util.generate_id() 
+            IS_RESUMED = False
+
+        # set up checkpoint and config yaml paths 
+        dirpath = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
+        outdir = Path(cfg.paths.artifacts_dir) / "samples" / job_id
+    
+        config_path = dirpath / "config.yaml"
+        if config_path.exists():
+            cfg = OmegaConf.load(config_path)
+            print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
+        else:
+            dirpath.mkdir(parents=True)
+            if not config_path.exists():
+                OmegaConf.save(cfg, config_path)    
+            
+        log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
         print(OmegaConf.to_yaml(log_cfg))
 
     ####################################################################################################

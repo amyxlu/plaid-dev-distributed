@@ -49,18 +49,18 @@ def train(cfg: DictConfig):
         IS_RESUMED = False
 
     # set up checkpoint and config yaml paths 
-    dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
-    config_path = dirpath / "config.yaml"
-    if config_path.exists():
-        cfg = OmegaConf.load(config_path)
-        print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
-    else:
-        dirpath.mkdir(parents=True)
-        if not config_path.exists():
-            OmegaConf.save(cfg, config_path)    
-
-    log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     if rank_zero_only.rank == 0:
+        dirpath = Path(cfg.paths.checkpoint_dir) / "hourglass_vq" / job_id
+        config_path = dirpath / "config.yaml"
+        if config_path.exists():
+            cfg = OmegaConf.load(config_path)
+            print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
+        else:
+            dirpath.mkdir(parents=True)
+            if not config_path.exists():
+                OmegaConf.save(cfg, config_path)    
+
+        log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
         print(OmegaConf.to_yaml(log_cfg))
 
     # lightning data modules
