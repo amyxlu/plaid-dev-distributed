@@ -125,7 +125,6 @@ def train(cfg: DictConfig):
                     cfg.compression_model_id,
                     cfg.compression_ckpt_dir,
                     init_compress_mode=BATCH_FASTA_MODE,
-                    latent_scaler=latent_scaler,
                 ) 
             else:
                 return None

@@ -14,3 +14,4 @@ defaults:
 datamodule:
   compression_model_id: ${compression_model_id}
   num_workers: 4
+  mayclan_version: True

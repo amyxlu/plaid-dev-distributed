@@ -97,7 +97,14 @@ def trim_or_pad_batch_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0)
 
 
 class ESMFoldEmbed:
-    def __init__(self, esmfold=None, shorten_len_to=None):
+    def __init__(
+        self,
+        esmfold=None,
+        shorten_len_to=None,
+        hourglass_model=None,
+        latent_scaler=None,
+        unscale_and_compress=False
+    ):
         if esmfold is None:
             esmfold = esmfold_v1()
         self.esmfold = esmfold
@@ -106,18 +113,32 @@ class ESMFoldEmbed:
             self.transform = lambda x: x
         else:
             self.transform = lambda batch: get_random_sequence_crop_batch(batch, max_len=shorten_len_to)
+        
+        # maybe also scale and compress
+        self.hourglass_model = hourglass_model
+        self.scaler = latent_scaler
+        self.unscale_and_compress = unscale_and_compress
 
-    def embed_fn(self, sequence: List[str]) -> Tuple[torch.Tensor, List[str]]:
+    def embed_fn(self, sequence: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:
         with torch.no_grad():
             output = self.esmfold.infer_embedding(sequence)
-        return output["s"]
+        embedding = output["s"]
+        mask = output["mask"]
+
+        if self.unscale_and_compress:
+            assert not self.hourglass_model is None
+            assert not self.scaler is None
+            embedding = self.scaler.scale(embedding)
+            embedding = self.hourglass_model.compress(embedding)
+        
+        return embedding, mask
 
     def __call__(self, sequence, device=None):
         sequence = self.transform(sequence)
         if not device is None:
             self.esmfold = self.esmfold.to(device)
         return self.embed_fn(sequence)
-
+    
 
 class ESMEmbed:
     def __init__(self, lm_embedder_type, device=None):

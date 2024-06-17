@@ -677,10 +677,10 @@ class GaussianDiffusion(L.LightningModule):
         if self.self_condition and random() < 0.5:
             with torch.no_grad():
                 x_self_cond = self.model_predictions(
-                    x_t=x_t,
+                    x=x_t,
                     t=t,
-                    mask=mask,
                     y=clan_idx,
+                    mask=mask,
                     x_self_cond=x_self_cond,
                     model_kwargs=model_kwargs,
                 ).pred_x_start

@@ -583,6 +583,7 @@ class FastaDataModule(L.LightningDataModule):
         train_frac: float = 0.8,
         num_workers: int = 0,
         shuffle_val_dataset: bool = False,
+        seq_len: int = 512,
         *args,
         **kwargs,
     ):
@@ -592,6 +593,8 @@ class FastaDataModule(L.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.shuffle_val_dataset = shuffle_val_dataset
+        # hack, cropping is actually done in ESMFold emb
+        self.seq_len = seq_len
 
     def setup(self, stage: str = "fit"):
         ds = FastaDataset(self.fasta_file, cache_indices=True)
@@ -807,8 +810,8 @@ class CompressedH5Dataset(torch.utils.data.Dataset):
             "sequence": seq 
         }
 
+
 class MayClanCompressedDataset(CompressedH5Dataset):
-    """The attempt at saving a full dataset which went far enough but not all the way"""
     def __init__(self, h5_path):
         super().__init__(h5_path)
 

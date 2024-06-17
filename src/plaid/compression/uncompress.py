@@ -1,12 +1,16 @@
 from pathlib import Path
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
-# from plaid.utils import LatentScaler
 import torch
 from copy import deepcopy
 
 
 class UncompressionLatent:
-    def __init__(self, compression_model_id, compression_ckpt_dir):
+    def __init__(
+        self,
+        compression_model_id,
+        compression_ckpt_dir,
+        init_compress_mode=False,
+    ):
         self.device = torch.device("cpu")
 
         ckpt_path = Path(compression_ckpt_dir) / str(compression_model_id) / "last.ckpt"
@@ -24,7 +28,11 @@ class UncompressionLatent:
         else:
             self.post_quant_proj = None
 
-        del model
+        # if we also want to init the weights necessary to compress, don't delete the encoder
+        if init_compress_mode:
+            self.hourglass_model = model
+        else:
+            del model
 
     def to(self, device):
         self.device = device
@@ -33,7 +41,7 @@ class UncompressionLatent:
     
     def uncompress(self, *args, **kwargs):
         raise NotImplementedError
-
+    
 
 class UncompressContinuousLatent(UncompressionLatent):
     """ For models without any quantization."""
@@ -41,9 +49,9 @@ class UncompressContinuousLatent(UncompressionLatent):
             self,
             compression_model_id,
             compression_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
-            # latent_scaler: LatentScaler = LatentScaler(),
+            init_compress_mode=False,
         ):
-        super().__init__(compression_model_id, compression_ckpt_dir)
+        super().__init__(compression_model_id, compression_ckpt_dir, init_compress_mode)
 
     def uncompress(self, z_q, mask=None, verbose=False):
         """Uncompresses by decoder (does not rescale the input)"""
@@ -57,8 +65,22 @@ class UncompressContinuousLatent(UncompressionLatent):
             z_q = self.post_quant_proj(z_q)
 
         return self.decoder(z_q, mask, verbose)
-        # return self.latent_scaler.unscale(x_recons_norm)
+    
+    def compress(self, feats, mask=None):
+        """
+        scale latent and compress with hourglass transformer
+        """
+        if mask is not None:
+            mask = torch.ones((x_norm.shape[0], x_norm.shape[1]))
+        del feats
 
+        x_norm, mask = x_norm.to(self.device), mask.to(self.device)
+
+        # compressed_representation manipulated in the Hourglass compression module forward pass
+        # to return the detached and numpy-ified representation based on the quantization mode.
+        _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
+        return compressed_representation
+        
 
 class UncompressDiscreteLatent:
     def __init__(
@@ -82,15 +104,10 @@ class UncompressDiscreteLatent:
 
 
 
-
-
-
-
 if __name__ == "__main__":
     compression_model_id = "2024-03-21T18-49-51"
     device = torch.device("cuda")
 
-    # scaler = LatentScaler("identity")
     uncompressor = UncompressContinuousLatent(compression_model_id)
     uncompressor.to(device)
     model = uncompressor.model
