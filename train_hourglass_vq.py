@@ -55,7 +55,7 @@ def train(cfg: DictConfig):
         cfg = OmegaConf.load(config_path)
         print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
     else:
-        dirpath.mkdir(parents=False)
+        dirpath.mkdir(parents=True)
         if not config_path.exists():
             OmegaConf.save(cfg, config_path)    
 
@@ -93,10 +93,13 @@ def train(cfg: DictConfig):
 
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
-    compression_callback = hydra.utils.instantiate(cfg.callbacks.compression)  # creates ESMFold on CPU
+    callbacks = [checkpoint_callback, lr_monitor]
+
+    if cfg.use_compression_callback:
+        callbacks += [hydra.utils.instantiate(cfg.callbacks.compression)]  # creates ESMFold on CPU
 
     trainer = hydra.utils.instantiate(
-        cfg.trainer, logger=logger, callbacks=[compression_callback, checkpoint_callback, lr_monitor]
+        cfg.trainer, logger=logger, callbacks=callbacks
     )
 
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):

@@ -67,7 +67,7 @@ def train(cfg: DictConfig):
         cfg = OmegaConf.load(config_path)
         print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
     else:
-        dirpath.mkdir(parents=False)
+        dirpath.mkdir(parents=True)
         if not config_path.exists():
             OmegaConf.save(cfg, config_path)    
         
