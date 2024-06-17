@@ -1,12 +1,12 @@
 defaults:
   - _self_
   - paths: pcluster 
+  - trainer: default
   - datamodule: /compressed/pfam_h5
   - denoiser: dit
   - beta_scheduler: adm_cosine 
   - latent_scaler: esmfold 
   - diffusion: diffusion
-  - trainer: default
   - callbacks/checkpoint: diffusion # ema
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 

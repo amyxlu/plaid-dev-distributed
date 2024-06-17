@@ -319,24 +319,29 @@ class HourglassEncoder(nn.Module):
 
         # naive average pool along length dimension
         downsampled = self.downsample(x)
+        maybe_shape_check(downsampled, verbose)
+
         if exists(mask):
             downsampled_mask = reduce(mask, 'b (n s) -> b n', 'sum', s = s) > 0
+            maybe_shape_check(downsampled_mask, verbose)
         else:
             downsampled_mask = None
-        maybe_shape_check(downsampled, verbose)
 
         # pre-valley "attention resampling" - they have the pooled token in each bucket attend to the tokens pre-pooled
         if exists(self.attn_resampling_pre_valley):
             if exists(mask):
-                attn_resampling_mask = rearrange(mask, 'b (n s) -> (b n) s', s = s)
+                attn_resampling_mask = rearrange(downsampled_mask, 'b (n s) -> (b n) s', s = s)
+                maybe_shape_check(attn_resampling_mask, verbose)
             else:
                 attn_resampling_mask = None
+            
             downsampled = self.attn_resampling_pre_valley(
                 rearrange(downsampled, 'b n d -> (b n) () d'),
                 rearrange(x, 'b (n s) d -> (b n) s d', s = s),
                 mask = attn_resampling_mask
             )
             downsampled = rearrange(downsampled, '(b n) () d -> b n d', b = b)
+            maybe_shape_check(downsampled, verbose)
 
         # also possibly reduce along dim=-1
         out = self.down_projection(downsampled)
@@ -439,20 +444,28 @@ class HourglassDecoder(nn.Module):
         s, b, n = self.elongate_factor, *z_q.shape[:2]
 
         upsampled = self.upsample(z_q)
-        maybe_shape_check(upsampled, verbose)
+        maybe_shape_check(upsampled, verbose, "Upsampled:")
 
         if exists(mask):
             upsampled_mask = einops.repeat(mask, 'b n -> b (n s)', s = s) > 0
+            maybe_shape_check(upsampled_mask, verbose, "Upsampled mask:")
         else:
             upsampled_mask = None
         
         # post-valley "attention resampling"
         if exists(self.attn_resampling_post_valley):
-            x = self.attn_resampling_post_valley(
-                rearrange(upsampled, 'b (n s) d -> (b n) s d', s = s),
-                rearrange(z_q, 'b n d -> (b n) () d'),
-                upsampled_mask
-            )
+            if exists(upsampled_mask):
+                attn_resampling_mask = rearrange(upsampled_mask, 'b (n s) -> (b n) s', s = s)
+                maybe_shape_check(attn_resampling_mask, verbose)
+            else:
+                attn_resampling_mask = None
+
+            x = rearrange(upsampled, 'b (n s) d -> (b n) s d', s = s)
+            context = rearrange(z_q, 'b n d -> (b n) () d')
+            maybe_shape_check(x, verbose, "Post-valley transformer input:")
+            maybe_shape_check(context, verbose, "Post-valley transformer context:")
+
+            x = self.attn_resampling_post_valley(x, context, attn_resampling_mask)
             x = rearrange(x, '(b n) s d -> b (n s) d', b = b)
         
         x = self.up_projection(x)
