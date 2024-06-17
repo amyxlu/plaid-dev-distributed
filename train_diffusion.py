@@ -197,9 +197,9 @@ def train(cfg: DictConfig):
 
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
-    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
+    # ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
 
-    callbacks = [lr_monitor, checkpoint_callback, ema_callback]
+    callbacks = [lr_monitor, checkpoint_callback] # , ema_callback]
 
     if cfg.run_sample_callback:
         sample_callback = hydra.utils.instantiate(

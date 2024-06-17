@@ -17,7 +17,7 @@ vq_beta: 0.25
 
 seq_loss_weight: 0.0
 struct_loss_weight: 0.0
-log_sequence_loss: True 
+log_sequence_loss: False 
 log_structure_loss: False
 
 lr: 1e-4

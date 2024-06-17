@@ -16,6 +16,8 @@ logger:
   name: "cath-fsq-large"
 
 hourglass:
+  log_sequence_loss: false
+  log_structure_loss: false
   use_quantizer: "fsq"
   fsq_levels: [8,8,8,6,5]
   shorten_factor: 1 
