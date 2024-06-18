@@ -63,8 +63,11 @@ class HourglassVQLightningModule(L.LightningModule):
         none (i.e. output of encoder goes directly back into the decoder).
         """
 
+        ignored_hparams = ["latent_scaler"]
+
         if esmfold is not None:
             self.esmfold = esmfold
+            ignored_hparams += ["esmfold"]
 
         if isinstance(use_quantizer,  bool):
             if use_quantizer:
@@ -162,10 +165,10 @@ class HourglassVQLightningModule(L.LightningModule):
             self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
 
         if self.log_structure_loss:
-            self.structure_constructor = LatentToStructure()
+            self.structure_constructor = LatentToStructure(esmfold=esmfold)
             self.structure_constructor.to(self.device)
             self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["esmfold"])
 
     def check_valid_compression_method(self, method):
         return method in ['fsq', 'vq', 'tanh', None]
