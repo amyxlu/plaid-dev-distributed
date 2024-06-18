@@ -647,6 +647,3 @@ def cosine_schedule(t, start=0, end=1, tau=1, clip_min=1e-9):
     output = math.cos((t * (end - start) + start) * math.pi / 2) ** (2 * tau)
     output = (v_end - output) / (v_end - v_start)
     return np.clip(output, clip_min, 1.0)
-
-
-######

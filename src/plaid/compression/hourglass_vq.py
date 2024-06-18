@@ -356,7 +356,6 @@ class HourglassVQLightningModule(L.LightningModule):
         return self.run_batch(batch, prefix="val")
 
     def state_dict(self):
-        # Customize state dict to include only the model's state_dict
         state = super().state_dict()
         state = {k: v for k, v in state.items() if "esmfold" not in k}
         return state

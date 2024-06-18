@@ -6,11 +6,11 @@ input_dim: 8
 run_sample_callback: false
 
 defaults:
+  - _self_
   - override /denoiser: dit.yaml
   - override /trainer: ddp.yaml
   - override /datamodule: compressed/pfam_h5
   - override /callbacks/sample: pfam_compressed_fid
-  - _self_
 
 datamodule:
   compression_model_id: ${compression_model_id}

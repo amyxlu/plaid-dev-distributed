@@ -89,7 +89,6 @@ def train(cfg: DictConfig):
     shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
 
     denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
-    beta_scheduler = hydra.utils.instantiate(cfg.beta_scheduler)
 
     ####################################################################################################
     # Load auxiliary model weights
@@ -170,7 +169,6 @@ def train(cfg: DictConfig):
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
         model=denoiser,
-        beta_scheduler=beta_scheduler,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
         sequence_to_latent_fn=esmfold_emb_fn,

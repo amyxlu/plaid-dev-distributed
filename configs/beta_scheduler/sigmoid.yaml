@@ -1,5 +1,0 @@
-_target_: plaid.diffusion.beta_schedulers.SigmoidBetaScheduler
-
-start: -3 
-end: 3
-tau: 0.5 

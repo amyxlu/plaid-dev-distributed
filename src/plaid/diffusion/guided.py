@@ -32,7 +32,7 @@ from plaid.utils import (
     to_tensor,
     print_cuda_info
 )
-from plaid.diffusion.beta_schedulers import BetaScheduler, ADMCosineBetaScheduler
+from plaid.diffusion.beta_schedulers import make_beta_scheduler 
 from plaid.losses.functions import masked_mse_loss, masked_huber_loss
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.esmfold.misc import batch_encode_sequences
@@ -106,8 +106,11 @@ class GaussianDiffusion(L.LightningModule):
     def __init__(
         self,
         model: torch.nn.Module,  # denoiser
-        beta_scheduler: BetaScheduler = ADMCosineBetaScheduler(),
         *,
+        beta_scheduler_name="adm_cosine",
+        beta_scheduler_start=None,
+        beta_scheduler_end=None,
+        beta_scheduler_tau=None,
         x_downscale_factor: float = 1.0,
         timesteps=1000,
         objective="pred_v",
@@ -139,7 +142,9 @@ class GaussianDiffusion(L.LightningModule):
     ):
         super().__init__()
         self.model = model
-        self.beta_scheduler = beta_scheduler
+        self.beta_scheduler = make_beta_scheduler(
+            beta_scheduler_name, beta_scheduler_start, beta_scheduler_end, beta_scheduler_tau
+        )
         self.self_condition = self.model.use_self_conditioning
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective

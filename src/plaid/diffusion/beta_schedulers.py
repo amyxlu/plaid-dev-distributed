@@ -72,7 +72,7 @@ def betas_for_alpha_bar(num_diffusion_timesteps, alpha_bar, max_beta=0.999):
 
 
 class BetaScheduler(abc.ABC):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, start=None, end=None, *args, **kwargs):
         pass
 
     @abc.abstractmethod
@@ -81,9 +81,9 @@ class BetaScheduler(abc.ABC):
 
 
 class LinearBetaScheduler(BetaScheduler):
-    def __init__(self, beta_start=0.0001, beta_end=0.02):
-        self.beta_start = beta_start
-        self.beta_end = beta_end
+    def __init__(self, start=0.0001, end=0.02):
+        self.beta_start = start
+        self.beta_end = end
 
     def __call__(self, timesteps):
         scale = 1000 / timesteps
@@ -128,3 +128,14 @@ class ADMCosineBetaScheduler(BetaScheduler):
 
     def __call__(self, timesteps):
         return betas_for_alpha_bar(timesteps, lambda t: adm_cosine_schedule(t))
+
+
+def make_beta_scheduler(sched_name, start=None, end=None, tau=None):
+    if sched_name == "chen_cosine":
+        return CosineBetaScheduler(start=start, end=end, tau=tau)
+    elif sched_name == "adm_cosine":
+        return ADMCosineBetaScheduler()
+    elif sched_name == "sigmoid":
+        return SigmoidBetaScheduler(start=start, end=end, tau=tau)
+    else:
+        raise
