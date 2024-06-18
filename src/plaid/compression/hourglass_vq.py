@@ -54,12 +54,17 @@ class HourglassVQLightningModule(L.LightningModule):
         struct_loss_weight: float = 0.0,
         log_sequence_loss=False,
         log_structure_loss=False,
+        # !!!
+        esmfold=None
     ):
         super().__init__()
         
         """Make quantizer. Can be either the traditional VQ-VAE, the FSQ, or
         none (i.e. output of encoder goes directly back into the decoder).
         """
+
+        if esmfold is not None:
+            self.esmfold = esmfold
 
         if isinstance(use_quantizer,  bool):
             if use_quantizer:
@@ -283,9 +288,9 @@ class HourglassVQLightningModule(L.LightningModule):
             x, sequences, gt_structures = batch
         elif len(batch) == 2:
             # using a FastaLoader, sequence only
-            assert not self.seq_emb_fn is None
+            assert not self.esmfold is None
             headers, sequences = batch
-            x = self.seq_emb_fn(sequences, device=self.device)
+            x = self.esmfold.infer_embedding(sequences)['s']
         else:
             raise
 
@@ -346,3 +351,9 @@ class HourglassVQLightningModule(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         return self.run_batch(batch, prefix="val")
+
+    def state_dict(self):
+        # Customize state dict to include only the model's state_dict
+        state = super().state_dict()
+        state = {k: v for k, v in state.items() if "esmfold" not in k}
+        return state
