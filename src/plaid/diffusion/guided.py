@@ -601,6 +601,7 @@ class GaussianDiffusion(L.LightningModule):
         self.need_to_setup_structure_decoder = False
 
     def _move_auxiliary_models_to_device(self):
+        # do this after init to make sure we can access the right self.device in multi-GPU mode
         if self.hourglass_model is not None:
             self.hourglass_model.to(self.device)
         if self.structure_constructor is not None:

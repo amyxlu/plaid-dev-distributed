@@ -1,8 +1,15 @@
-_target_: lightning.pytorch.callbacks.ModelCheckpoint
-filename: "epoch{epoch}-step{step}-{structure_reconstruction/rmsd_mean:.3f}"
+# _target_: lightning.pytorch.callbacks.ModelCheckpoint
+# filename: "epoch{epoch}-step{step}-{structure_reconstruction/rmsd_mean:.3f}"
+# verbose: true
+# save_last: true
+# every_n_train_steps: 1000
+# monitor: 'structure_reconstruction/rmsd_mean'
+# auto_insert_metric_name: false
+# mode: # _target_: lightning.pytorch.callbacks.ModelCheckpoint
+filename: "epoch{epoch}-step{step}-{val_loss:.3f}"
 verbose: true
 save_last: true
-every_n_train_steps: 1000
-monitor: 'structure_reconstruction/rmsd_mean'
+every_n_train_steps: 8000
+monitor: 'val/loss'
 auto_insert_metric_name: false
 mode: min

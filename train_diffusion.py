@@ -89,7 +89,6 @@ def train(cfg: DictConfig):
     # dimensions
     input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
     shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
-
     denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
 
     ####################################################################################################
@@ -160,7 +159,6 @@ def train(cfg: DictConfig):
         esmfold=esmfold,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
-        uncompressor=hourglass_model,
         shorten_factor=shorten_factor,
     )
 
