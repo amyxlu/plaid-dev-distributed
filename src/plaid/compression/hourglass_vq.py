@@ -140,7 +140,6 @@ class HourglassVQLightningModule(L.LightningModule):
         # other misc settings
         self.z_q_dim = dim // np.prod(dim) 
         self.n_e = n_e
-        self.latent_scaler = latent_scaler
 
         self.lr = lr
         self.lr_adam_betas = lr_adam_betas
@@ -149,7 +148,6 @@ class HourglassVQLightningModule(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        self.seq_emb_fn = seq_emb_fn
         self.log_sequence_loss = log_sequence_loss or (seq_loss_weight > 0.)
         self.log_structure_loss = log_structure_loss or (struct_loss_weight > 0.)
         self.seq_loss_weight = seq_loss_weight

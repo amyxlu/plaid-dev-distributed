@@ -120,7 +120,7 @@ class GaussianDiffusion(L.LightningModule):
         # compression and architecture
         shorten_factor=1.0,
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
-        sequence_to_latent_fn: T.Optional[T.Callable] = lambda x: x,
+        esmfold: torch.nn.Module = None,
         pfam_to_clan_fpath: T.Optional[T.Union[str, Path]] = None,
         # sampling
         sampling_timesteps=500,  # None,
@@ -140,6 +140,14 @@ class GaussianDiffusion(L.LightningModule):
         structure_decoder_weight: float = 0.0,
     ):
         super().__init__()
+
+        ##########################################################################################
+        # Set up
+        ##########################################################################################
+
+        ignore_args_for_hparams = [
+            "model", "uncompressor", "esmfold", "sequence_constructor", "structure_constructor"
+        ]
         self.model = model
         self.beta_scheduler = make_beta_scheduler(
             beta_scheduler_name, beta_scheduler_start, beta_scheduler_end, beta_scheduler_tau
@@ -149,7 +157,9 @@ class GaussianDiffusion(L.LightningModule):
         self.objective = objective
         self.shorten_factor = shorten_factor
         self.hourglass_model = uncompressor
-        self.sequence_to_latent_fn = sequence_to_latent_fn
+        self.esmfold = esmfold
+        self.x_clip_val = x_clip_val
+
         if pfam_to_clan_fpath is not None:
             self.pfam_to_clan = pd.read_csv(pfam_to_clan_fpath, sep=",")
         assert objective in {
@@ -158,14 +168,39 @@ class GaussianDiffusion(L.LightningModule):
             "pred_v",
         }, "objective must be either pred_noise (predict noise) or pred_x0 (predict image start) or pred_v (predict v [v-parameterization as defined in appendix D of progressive distillation paper, used in imagen-video successfully])"
 
+        # learning rates and optimization
+        self.lr = lr
+        self.adam_betas = adam_betas
+        self.lr_sched_type = lr_sched_type
+        self.lr_num_warmup_steps = lr_num_warmup_steps
+        self.lr_num_training_steps = lr_num_training_steps
+        self.lr_num_cycles = lr_num_cycles
 
+
+        ##########################################################################################
+        # Auxiliary modules set up
+        ##########################################################################################
         """
         If latent scaler is using minmaxnorm method, it uses precomputed stats to clamp the latent space to
         roughly between (-1, 1). If self.x_clip_val is not None, at each p_sample loop, the value will
         be clipped so that we can get a cleaner range when doing the final calculation.
         """
         self.unscaler = LatentScaler()
-        self.x_clip_val = x_clip_val
+
+        # auxiliary losses
+        self.need_to_setup_sequence_decoder = sequence_decoder_weight > 0.0
+        self.need_to_setup_structure_decoder = structure_decoder_weight > 0.0
+
+        self.sequence_constructor = sequence_constructor
+        self.structure_constructor = structure_constructor
+        self.sequence_decoder_weight = sequence_decoder_weight
+        self.structure_decoder_weight = structure_decoder_weight
+        self.sequence_loss_fn = None
+        self.structure_loss_fn = None
+
+        ##########################################################################################
+        # Diffusion set up  
+        ##########################################################################################
 
         # Use float64 for accuracy.
         betas = self.beta_scheduler(timesteps)
@@ -228,28 +263,9 @@ class GaussianDiffusion(L.LightningModule):
         elif objective == "pred_v":
             self.loss_weight = maybe_clipped_snr / (self.snr + 1)
 
-        # auxiliary losses
-        self.need_to_setup_sequence_decoder = sequence_decoder_weight > 0.0
-        self.need_to_setup_structure_decoder = structure_decoder_weight > 0.0
-
-        self.sequence_constructor = sequence_constructor
-        self.structure_constructor = structure_constructor
-        self.sequence_decoder_weight = sequence_decoder_weight
-        self.structure_decoder_weight = structure_decoder_weight
-        self.sequence_loss_fn = None
-        self.structure_loss_fn = None
-
-        # learning rates and optimization
-        self.lr = lr
-        self.adam_betas = adam_betas
-        self.lr_sched_type = lr_sched_type
-        self.lr_num_warmup_steps = lr_num_warmup_steps
-        self.lr_num_training_steps = lr_num_training_steps
-        self.lr_num_cycles = lr_num_cycles
-
         # other hyperparameters
         self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
-        self.save_hyperparameters(ignore=["model"])
+        self.save_hyperparameters(ignore=ignore_args_for_hparams)
     
     """
     Converting between model output, x_start, and eps
@@ -842,12 +858,17 @@ class GaussianDiffusion(L.LightningModule):
         header parsed to map to the clan. If these models aren't already created,
         the method will trigger its creation.
         """
+        assert not self.esmfold is None
         headers, sequences = batch
-        embedding, mask = self.sequence_to_latent_fn(sequences)  # possibly already scaled and compressed
+        res = self.esmfold.infer_embedding(sequences)['s']
+        latent, mask = res['s'], res['mask']
+        scaled_latent = self.unscaler.scale(latent)
+        x_start = self.uncompressor.compress(scaled_latent)
+        
         clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(
-            x_start=embedding,
+            x_start=x_start,
             mask=mask,
             clan_idx=clan_idxs,
             sequences=sequences,

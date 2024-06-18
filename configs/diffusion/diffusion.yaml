@@ -1,5 +1,10 @@
 _target_: plaid.diffusion.GaussianDiffusion
 
+beta_scheduler_name: "adm_cosine"
+beta_scheduler_start: null
+beta_scheduler_end: null
+beta_scheduler_tau: null
+
 x_downscale_factor: 1.0
 timesteps: 1000
 objective: "pred_v"

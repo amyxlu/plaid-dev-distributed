@@ -128,23 +128,10 @@ def train(cfg: DictConfig):
             else:
                 return None
 
-    def to_load_esmfold_embed_fn(cfg, esmfold=None, hourglass_model=None, unscale_and_compress=True):
-        if isinstance(datamodule, FastaDataModule):
-            seq_emb_fn = ESMFoldEmbed(
-                esmfold=esmfold,
-                shorten_len_to=cfg.datamodule.seq_len,
-                hourglass_model=hourglass_model,
-                latent_scaler=latent_scaler,
-                unscale_and_compress=unscale_and_compress,
-            )
-        else:
-            seq_emb_fn = None
-        return seq_emb_fn
-    
     # maybe make sequence/structure constructors
     sequence_constructor = to_load_sequence_constructor(cfg)
     structure_constructor = to_load_structure_constructor(cfg)
-    latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
+    hourglass_model = to_load_uncompressor(cfg)
 
     # is esmfold already loaded?
     if structure_constructor is not None:
@@ -152,14 +139,6 @@ def train(cfg: DictConfig):
     else:
         esmfold = None
 
-    hourglass_model = to_load_uncompressor(cfg)
-    unscale_and_compress = isinstance(cfg.compression_model_id, str)
-    esmfold_emb_fn = to_load_esmfold_embed_fn(
-        cfg=cfg,
-        esmfold=esmfold,
-        hourglass_model=hourglass_model,
-        unscale_and_compress=unscale_and_compress
-    )
 
     ####################################################################################################
     # Diffusion module 
@@ -169,10 +148,10 @@ def train(cfg: DictConfig):
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
         model=denoiser,
+        uncompressor = hourglass_model,
+        esmfold = esmfold,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
-        sequence_to_latent_fn=esmfold_emb_fn,
-        unscaler=latent_scaler,
         uncompressor=hourglass_model,
         shorten_factor=shorten_factor,
     )
