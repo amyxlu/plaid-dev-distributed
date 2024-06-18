@@ -18,23 +18,15 @@ class Decoder(nn.Module):
 
     """
 
-    def __init__(
-        self, e_dim, h_dim, out_dim, n_res_layers, res_h_dim, kernel=4, stride=2
-    ):
+    def __init__(self, e_dim, h_dim, out_dim, n_res_layers, res_h_dim, kernel=4, stride=2):
         super(Decoder, self).__init__()
 
         self.inverse_conv_stack = nn.Sequential(
-            nn.ConvTranspose1d(
-                e_dim, h_dim, kernel_size=kernel - 1, stride=stride - 1, padding=1
-            ),
+            nn.ConvTranspose1d(e_dim, h_dim, kernel_size=kernel - 1, stride=stride - 1, padding=1),
             ResidualStack(h_dim, h_dim, res_h_dim, n_res_layers),
-            nn.ConvTranspose1d(
-                h_dim, h_dim // 2, kernel_size=kernel, stride=stride, padding=1
-            ),
+            nn.ConvTranspose1d(h_dim, h_dim // 2, kernel_size=kernel, stride=stride, padding=1),
             nn.SiLU(),
-            nn.ConvTranspose1d(
-                h_dim // 2, out_dim, kernel_size=kernel, stride=stride, padding=1
-            ),
+            nn.ConvTranspose1d(h_dim // 2, out_dim, kernel_size=kernel, stride=stride, padding=1),
         )
 
     def forward(self, x):

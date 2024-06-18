@@ -48,7 +48,7 @@ def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
 # def trim_or_pad(tensor: torch.Tensor, pad_to: int, length_dim=0, pad_idx=0):
 #     """Trim or pad a tensor with shape (..., L, ...) to a given length."""
 #     > might have a bug in it
-# 
+#
 #     L = tensor.shape[length_dim]
 #     if L >= pad_to:
 #         tensor = tensor.index_select(length_dim, torch.arange(length_dim))
@@ -62,6 +62,7 @@ def get_random_sequence_crop_batch(sequence_batch, max_len, min_len=None):
 #         )
 #         tensor = torch.concat((tensor, padding), dim=length_dim)
 #     return tensor
+
 
 def trim_or_pad_length_first(tensor: torch.Tensor, pad_to: int, pad_idx: int = 0):
     """Trim or pad a tensor with shape (L, ...) to a given length."""
@@ -103,7 +104,7 @@ class ESMFoldEmbed:
         shorten_len_to=None,
         hourglass_model=None,
         latent_scaler=None,
-        unscale_and_compress=False
+        unscale_and_compress=False,
     ):
         if esmfold is None:
             esmfold = esmfold_v1()
@@ -113,7 +114,7 @@ class ESMFoldEmbed:
             self.transform = lambda x: x
         else:
             self.transform = lambda batch: get_random_sequence_crop_batch(batch, max_len=shorten_len_to)
-        
+
         # maybe also scale and compress
         self.hourglass_model = hourglass_model
         self.scaler = latent_scaler
@@ -130,7 +131,7 @@ class ESMFoldEmbed:
             assert not self.scaler is None
             embedding = self.scaler.scale(embedding)
             embedding = self.hourglass_model.compress(embedding)
-        
+
         return embedding, mask
 
     def __call__(self, sequence, device=None):
@@ -138,7 +139,7 @@ class ESMFoldEmbed:
         if not device is None:
             self.esmfold = self.esmfold.to(device)
         return self.embed_fn(sequence)
-    
+
 
 class ESMEmbed:
     def __init__(self, lm_embedder_type, device=None):
@@ -148,14 +149,14 @@ class ESMEmbed:
         if not device is None:
             self.embedder = self.embedder.to(device)
             self.device = device
-        
+
     def to(self, device):
         self.embedder = self.embedder.to(device)
         return self
-    
+
     def make_embedder(lm_embedder_type):
         start = time.time()
-        print('loading LM from torch hub')
+        print("loading LM from torch hub")
         embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
         embedder = embedder.eval().to("cuda")
         for param in embedder.parameters():
@@ -164,11 +165,9 @@ class ESMEmbed:
         end = time.time()
         print(f"done loading model in {end - start:.2f} seconds.")
         return embedder, alphabet
-    
+
     def embed_batch_esm(self, sequences, max_len=512):
-        sequences = get_random_sequence_crop_batch(
-            sequences, max_len=max_len, min_len=0
-        )
+        sequences = get_random_sequence_crop_batch(sequences, max_len=max_len, min_len=0)
         batch = [("", seq) for seq in sequences]
         _, _, tokens = self.batch_converter(batch)
         tokens = tokens.to(self.device)
@@ -176,8 +175,7 @@ class ESMEmbed:
         with torch.no_grad():
             results = self.embedder(tokens, repr_layers=[self.repr_layer], return_contacts=False)
             feats = results["representations"][self.repr_layer]
-        
+
         seq_lens = [len(seq) for seq in sequences]
         seq_lens = torch.tensor(seq_lens, device=self.device, dtype=torch.int16)
         return feats, tokens, seq_lens, sequences
-        

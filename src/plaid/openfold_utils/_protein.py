@@ -66,9 +66,7 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
     structure = parser.get_structure("none", pdb_fh)
     models = list(structure.get_models())
     if len(models) != 1:
-        raise ValueError(
-            f"Only single model PDBs are supported. Found {len(models)} models."
-        )
+        raise ValueError(f"Only single model PDBs are supported. Found {len(models)} models.")
     model = models[0]
 
     atom_positions = []
@@ -83,18 +81,16 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
             continue
         for res in chain:
             # if res.id[2] != " ":
-                # warnings.warn(
-                #     f"PDB contains an insertion code at chain {chain.id} and residue "
-                #     f"index {res.id[1]}."
-                # )
-                # raise ValueError(
-                #     f"PDB contains an insertion code at chain {chain.id} and residue "
-                #     f"index {res.id[1]}. These are not supported."
-                # )
+            # warnings.warn(
+            #     f"PDB contains an insertion code at chain {chain.id} and residue "
+            #     f"index {res.id[1]}."
+            # )
+            # raise ValueError(
+            #     f"PDB contains an insertion code at chain {chain.id} and residue "
+            #     f"index {res.id[1]}. These are not supported."
+            # )
             res_shortname = residue_constants.restype_3to1.get(res.resname, "X")
-            restype_idx = residue_constants.restype_order.get(
-                res_shortname, residue_constants.restype_num
-            )
+            restype_idx = residue_constants.restype_order.get(res_shortname, residue_constants.restype_num)
             pos = np.zeros((residue_constants.atom_type_num, 3))
             mask = np.zeros((residue_constants.atom_type_num,))
             res_b_factors = np.zeros((residue_constants.atom_type_num,))
@@ -128,9 +124,12 @@ def from_pdb_string(pdb_str: str, chain_id: Optional[str] = None) -> Protein:
                     parents_chain_index.extend([chain_id for _ in parent_names])
                 chain_id += 1
 
-    chain_id_mapping = {cid: n for n, cid in enumerate(
-        string.ascii_uppercase + string.ascii_lowercase + string.digits + string.whitespace
-    )}
+    chain_id_mapping = {
+        cid: n
+        for n, cid in enumerate(
+            string.ascii_uppercase + string.ascii_lowercase + string.digits + string.whitespace
+        )
+    }
     chain_index = np.array([chain_id_mapping[cid] for cid in chain_ids])
 
     return Protein(

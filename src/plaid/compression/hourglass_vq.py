@@ -10,7 +10,12 @@ import torch
 import numpy as np
 import pandas as pd
 
-from plaid.compression.modules import HourglassDecoder, HourglassEncoder, VectorQuantizer, FiniteScalarQuantizer
+from plaid.compression.modules import (
+    HourglassDecoder,
+    HourglassEncoder,
+    VectorQuantizer,
+    FiniteScalarQuantizer,
+)
 from plaid.utils import LatentScaler, get_lr_scheduler
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
@@ -52,10 +57,10 @@ class HourglassVQLightningModule(L.LightningModule):
         log_sequence_loss=False,
         log_structure_loss=False,
         # in case we need to embed on the fly
-        esmfold=None
+        esmfold=None,
     ):
         super().__init__()
-        
+
         """Make quantizer. Can be either the traditional VQ-VAE, the FSQ, or
         none (i.e. output of encoder goes directly back into the decoder).
         """
@@ -66,7 +71,7 @@ class HourglassVQLightningModule(L.LightningModule):
             self.esmfold = esmfold
             ignored_hparams += ["esmfold"]
 
-        if isinstance(use_quantizer,  bool):
+        if isinstance(use_quantizer, bool):
             if use_quantizer:
                 print("using quantization: vq")
                 self.quantize_scheme = "vq"
@@ -74,14 +79,14 @@ class HourglassVQLightningModule(L.LightningModule):
                 print("using non-quantization mode")
                 self.quantize_scheme = None  # no quantization
         else:
-            assert use_quantizer in ['vq', 'fsq', 'tanh']
+            assert use_quantizer in ["vq", "fsq", "tanh"]
             self.quantize_scheme = use_quantizer
             print(f"using quantizer {use_quantizer}")
 
         assert self.check_valid_compression_method(self.quantize_scheme)
 
         # Set up quantizer modules
-        self.pre_quant_proj = None 
+        self.pre_quant_proj = None
         self.post_quant_proj = None
 
         if self.quantize_scheme == "vq":
@@ -106,7 +111,7 @@ class HourglassVQLightningModule(L.LightningModule):
                 # the resulting codebook size is comparable for both.
                 # we'll by default add another projection layer of the downprojection factor from the
                 # encoder doesn't automatically match the quantizer dimension.
-                self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, len(fsq_levels)) 
+                self.pre_quant_proj = torch.nn.Linear(dim // downproj_factor, len(fsq_levels))
                 self.post_quant_proj = torch.nn.Linear(len(fsq_levels), dim // downproj_factor)
             self.fsq_levels = fsq_levels
             self.quantizer = FiniteScalarQuantizer(fsq_levels)
@@ -126,7 +131,7 @@ class HourglassVQLightningModule(L.LightningModule):
             heads=heads,
             dim_head=dim_head,
             causal=causal,
-            norm_out=norm_out
+            norm_out=norm_out,
         )
         self.dec = HourglassDecoder(
             dim=dim // downproj_factor,
@@ -134,11 +139,11 @@ class HourglassVQLightningModule(L.LightningModule):
             elongate_factor=shorten_factor,
             upproj_factor=downproj_factor,
             attn_resampling=True,
-            updown_sample_type="linear"
+            updown_sample_type="linear",
         )
 
         # other misc settings
-        self.z_q_dim = dim // np.prod(dim) 
+        self.z_q_dim = dim // np.prod(dim)
         self.n_e = n_e
 
         self.lr = lr
@@ -148,8 +153,8 @@ class HourglassVQLightningModule(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        self.log_sequence_loss = log_sequence_loss or (seq_loss_weight > 0.)
-        self.log_structure_loss = log_structure_loss or (struct_loss_weight > 0.)
+        self.log_sequence_loss = log_sequence_loss or (seq_loss_weight > 0.0)
+        self.log_structure_loss = log_structure_loss or (struct_loss_weight > 0.0)
         self.seq_loss_weight = seq_loss_weight
         self.struct_loss_weight = struct_loss_weight
 
@@ -166,8 +171,8 @@ class HourglassVQLightningModule(L.LightningModule):
         self.save_hyperparameters(ignore=["esmfold"])
 
     def check_valid_compression_method(self, method):
-        return method in ['fsq', 'vq', 'tanh', None]
-    
+        return method in ["fsq", "vq", "tanh", None]
+
     def forward_no_quantize(self, x, mask, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
         z_e, downsampled_mask = self.enc(x, mask, verbose)
         if infer_only:
@@ -176,17 +181,14 @@ class HourglassVQLightningModule(L.LightningModule):
         x_recons = self.dec(z_e, downsampled_mask, verbose)
         recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = recons_loss
-        log_dict = {
-            "loss": loss.item(),
-            "recons_loss": recons_loss.item()
-        }
+        log_dict = {"loss": loss.item(), "recons_loss": recons_loss.item()}
         return x_recons, loss, log_dict, z_e_out
 
     def forward(self, x, mask=None, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
         if mask is None:
             mask = torch.ones((x.shape[0], x.shape[1])).bool().to(x.device)
-        
-        s = self.enc.shorten_factor 
+
+        s = self.enc.shorten_factor
         extra = x.shape[1] % s
         if extra != 0:
             needed = s - extra
@@ -208,14 +210,14 @@ class HourglassVQLightningModule(L.LightningModule):
             z_e = self.pre_quant_proj(z_e)
 
         # quantize and get z_q
-        if self.quantize_scheme == "vq": 
+        if self.quantize_scheme == "vq":
             quant_out = self.quantizer(z_e, verbose)
             if not infer_only:
-                z_q = quant_out['z_q']
-                vq_loss = quant_out['loss']
-                log_dict["vq_loss"] = quant_out['loss']
-                log_dict["vq_perplexity"] = quant_out['perplexity']
-                compressed_representation = quant_out['min_encoding_indices'].detach().cpu().numpy()
+                z_q = quant_out["z_q"]
+                vq_loss = quant_out["loss"]
+                log_dict["vq_loss"] = quant_out["loss"]
+                log_dict["vq_perplexity"] = quant_out["perplexity"]
+                compressed_representation = quant_out["min_encoding_indices"].detach().cpu().numpy()
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
@@ -225,17 +227,17 @@ class HourglassVQLightningModule(L.LightningModule):
         elif self.quantize_scheme == "tanh":
             z_e = z_e.to(torch.promote_types(z_e.dtype, torch.float32))
             z_q = torch.tanh(z_e)
-            compressed_representation = z_q.detach().cpu().numpy() 
+            compressed_representation = z_q.detach().cpu().numpy()
             vq_loss = 0
         else:
             raise NotImplementedError
-        
+
         if infer_only:
             return compressed_representation
 
         if self.post_quant_proj is not None:
             z_q = self.post_quant_proj(z_q)
-            
+
         x_recons = self.dec(z_q, downsampled_mask, verbose)
 
         # Computationally prohibitive for very very large codebook sizes
@@ -246,8 +248,8 @@ class HourglassVQLightningModule(L.LightningModule):
 
         recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = vq_loss + recons_loss
-        log_dict['recons_loss'] = recons_loss.item()
-        log_dict['loss'] = loss.item()
+        log_dict["recons_loss"] = recons_loss.item()
+        log_dict["loss"] = loss.item()
         return x_recons, loss, log_dict, compressed_representation
 
     def configure_optimizers(self):
@@ -255,11 +257,7 @@ class HourglassVQLightningModule(L.LightningModule):
         if not self.quantizer is None:
             parameters += list(self.quantizer.parameters())
 
-        optimizer = torch.optim.AdamW(
-            parameters,
-            lr=self.lr,
-            betas=self.lr_adam_betas
-        )
+        optimizer = torch.optim.AdamW(parameters, lr=self.lr, betas=self.lr_adam_betas)
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
             sched_type=self.lr_sched_type,
@@ -277,7 +275,7 @@ class HourglassVQLightningModule(L.LightningModule):
         (2) precomputed embeddings with a placeholder for the structure dictionary (CATHStructureDataModule)
         (3) raw headers and sequences tuples (FastaDataset)
 
-        to trigger the raw sequence mode, the `seq_emb_fn` should be passed, which should be defined outside 
+        to trigger the raw sequence mode, the `seq_emb_fn` should be passed, which should be defined outside
         the train loop, and should of the desired embedding function from ESMFold/etc., already moved to device.
         """
         if len(batch) == 3:
@@ -288,15 +286,15 @@ class HourglassVQLightningModule(L.LightningModule):
             # using a FastaLoader, sequence only
             assert not self.esmfold is None
             headers, sequences = batch
-            x = self.esmfold.infer_embedding(sequences)['s']
+            x = self.esmfold.infer_embedding(sequences)["s"]
         else:
             raise
 
         # get masks and ground truth tokens and move to device
         tokens, mask, _, _, _ = batch_encode_sequences(sequences)
 
-        # if shortened and using a Fasta loader, the latent might not be a multiple of shorten factor 
-        s = self.enc.shorten_factor 
+        # if shortened and using a Fasta loader, the latent might not be a multiple of shorten factor
+        s = self.enc.shorten_factor
         extra = x.shape[1] % s
         if extra != 0:
             needed = s - extra
@@ -309,7 +307,7 @@ class HourglassVQLightningModule(L.LightningModule):
             tokens = trim_or_pad_batch_first(tokens, x.shape[1], pad_idx=0)
 
         x = x.to(self.device)
-        mask = mask.to(self.device) 
+        mask = mask.to(self.device)
         tokens = tokens.to(self.device)
 
         # scale (maybe) latent to be more organized before VQ-Hourglass
@@ -320,14 +318,16 @@ class HourglassVQLightningModule(L.LightningModule):
             x_recons, loss, log_dict, _ = self(x, mask.bool())
         else:
             x_recons, loss, log_dict, _ = self.forward_no_quantize(x, mask.bool())
-        self.log_dict({f"{prefix}/{k}": v for k,v in log_dict.items()}, batch_size=x.shape[0])
+        self.log_dict({f"{prefix}/{k}": v for k, v in log_dict.items()}, batch_size=x.shape[0])
 
         # unscale to decode into sequence and/or structure
         x_recons_unscaled = self.latent_scaler.unscale(x_recons)
         batch_size = x_recons_unscaled.shape[0]
         # sequence loss
         if self.log_sequence_loss:
-            seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True)
+            seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(
+                x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True
+            )
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
             self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             # if self.global_step % 500 == 0:
@@ -337,7 +337,9 @@ class HourglassVQLightningModule(L.LightningModule):
 
         # structure loss
         if self.log_structure_loss:
-            struct_loss, struct_loss_dict = self.structure_loss_fn(x_recons_unscaled, gt_structures, sequences)
+            struct_loss, struct_loss_dict = self.structure_loss_fn(
+                x_recons_unscaled, gt_structures, sequences
+            )
             struct_loss_dict = {f"{prefix}/{k}": v.mean() for k, v in struct_loss_dict.items()}
             self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             loss += struct_loss * self.struct_loss_weight

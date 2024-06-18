@@ -28,18 +28,18 @@ class CausalLightningModule(L.LightningModule):
 
         self.vocab_size = vocab_size
         hg_config = LlamaConfig(
-            bos_token_id=vocab_size+1,
-            eos_token_id=vocab_size+2,
+            bos_token_id=vocab_size + 1,
+            eos_token_id=vocab_size + 2,
             vocab_size=vocab_size,
             hidden_size=hidden_size,
             intermediate_size=intermediate_size,
             num_hidden_layers=num_hidden_layers,
             num_attention_heads=num_attention_heads,
-            max_position_embeddings=max_position_embeddings
+            max_position_embeddings=max_position_embeddings,
         )
 
         self.model = LlamaForCausalLM(hg_config)
-        
+
         self.lr = lr
         self.lr_adam_betas = lr_adam_betas
         self.lr_sched_type = lr_sched_type
@@ -50,11 +50,7 @@ class CausalLightningModule(L.LightningModule):
         # TODO: maybe also add post-decoding sequence / structure losses?
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=self.lr,
-            betas=self.lr_adam_betas
-        )
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, betas=self.lr_adam_betas)
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
             sched_type=self.lr_sched_type,
@@ -64,19 +60,19 @@ class CausalLightningModule(L.LightningModule):
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
-    
+
     def forward(self, x, mask=None):
         # TODO: mask
         return self.model(input_ids=x, labels=x)
-    
+
     def training_step(self, batch, batch_idx):
         # TODO: mask
         x = batch
         output = self(x)
-        return output['loss']
-    
+        return output["loss"]
+
     def validation_step(self, batch, batch_idx):
         # TODO: mask
         x = batch
         output = self(x)
-        return output['loss']
+        return output["loss"]

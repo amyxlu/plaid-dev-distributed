@@ -34,7 +34,7 @@ srun python train_diffusion.py {flags}
 """
 
 hashid = uuid.uuid4().hex[:7]
-slrm_spec_fname = f"tmp-{hashid}.slrm" 
+slrm_spec_fname = f"tmp-{hashid}.slrm"
 
 with open(slrm_spec_fname, "w") as f:
     f.write(defaults)

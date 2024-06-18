@@ -22,6 +22,7 @@ import h5py
 from evo.dataset import FastaDataset
 import torch
 from pathlib import Path
+
 # import h5py
 
 import dataclasses
@@ -41,17 +42,41 @@ def check_model_type(lm_embedder_type):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Precompute embeddings")
-    parser.add_argument('--fasta_file', type=str, default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa", help='Path to the fasta file')
-    parser.add_argument('--train_output_dir', type=str, default="/homefs/home/lux70/storage/data/cath/shards/train", help='Directory for training output shards')
-    parser.add_argument('--val_output_dir', type=str, default="/homefs/home/lux70/storage/data/cath/shards/val", help='Directory for validation output shards')
-    parser.add_argument('--batch_size', type=int, default=256, help='Batch size')
-    parser.add_argument('--max_seq_len', type=int, default=256, help='Maximum sequence length')
-    parser.add_argument('--num_workers', type=int, default=1, help='Number of workers')
-    parser.add_argument('--compression', type=str, default="hdf5", choices=["safetensors", "hdf5"], help='Compression type')
-    parser.add_argument('--train_frac', type=float, default=0.8, help='Training fraction')
-    parser.add_argument('--dtype', type=str, default="fp32", choices=["bf16", "fp32", "fp64"], help='Data type')
+    parser.add_argument(
+        "--fasta_file",
+        type=str,
+        default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+        help="Path to the fasta file",
+    )
+    parser.add_argument(
+        "--train_output_dir",
+        type=str,
+        default="/homefs/home/lux70/storage/data/cath/shards/train",
+        help="Directory for training output shards",
+    )
+    parser.add_argument(
+        "--val_output_dir",
+        type=str,
+        default="/homefs/home/lux70/storage/data/cath/shards/val",
+        help="Directory for validation output shards",
+    )
+    parser.add_argument("--batch_size", type=int, default=256, help="Batch size")
+    parser.add_argument("--max_seq_len", type=int, default=256, help="Maximum sequence length")
+    parser.add_argument("--num_workers", type=int, default=1, help="Number of workers")
+    parser.add_argument(
+        "--compression", type=str, default="hdf5", choices=["safetensors", "hdf5"], help="Compression type"
+    )
+    parser.add_argument("--train_frac", type=float, default=0.8, help="Training fraction")
+    parser.add_argument(
+        "--dtype", type=str, default="fp32", choices=["bf16", "fp32", "fp64"], help="Data type"
+    )
     parser.add_argument("--lm_embedder_type", type=str, default="esmfold", choices=ACCEPTED_LM_EMBEDDER_TYPES)
-    parser.add_argument("--max_num_samples", type=int, default=-1, help="If specified, uses up to this many samples before splitting into train/val")
+    parser.add_argument(
+        "--max_num_samples",
+        type=int,
+        default=-1,
+        help="If specified, uses up to this many samples before splitting into train/val",
+    )
     return parser.parse_args()
 
 
@@ -78,7 +103,7 @@ def _get_dtype(dtype):
 #     else:
 #         print('loading LM from torch hub')
 #         embedder, alphabet = torch.hub.load("facebookresearch/esm:main", lm_embedder_type)
-    
+
 #     embedder = embedder.eval().to("cuda")
 
 #     for param in embedder.parameters():
@@ -88,8 +113,6 @@ def _get_dtype(dtype):
 #     print(f"done loading model in {end - start:.2f} seconds.")
 
 #     return embedder, alphabet
-
-
 
 
 # def embed_batch_esmfold(esmfold, sequences, max_len=512, embed_result_key="s"):
@@ -120,7 +143,7 @@ def _get_dtype(dtype):
 #     with torch.no_grad():
 #         results = embedder(tokens, repr_layers=[repr_layer], return_contacts=False)
 #         feats = results["representations"][repr_layer]
-    
+
 #     return feats, seq_lens, sequences
 
 
@@ -141,9 +164,17 @@ def make_fasta_dataloaders(fasta_file, batch_size, num_workers=4, max_num_sample
         val_ds, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=False
     )
     return train_dataloader, val_dataloader
- 
 
-def make_shard(embedder, dataloader, max_seq_len, batch_converter=None, repr_layer=None, lm_embedder_type="esmfold", split_header=True):
+
+def make_shard(
+    embedder,
+    dataloader,
+    max_seq_len,
+    batch_converter=None,
+    repr_layer=None,
+    lm_embedder_type="esmfold",
+    split_header=True,
+):
     if "esmfold" in lm_embedder_type:
         if lm_embedder_type == "esmfold":
             embed_result_key = "s"
@@ -155,7 +186,7 @@ def make_shard(embedder, dataloader, max_seq_len, batch_converter=None, repr_lay
         embed_result_key = None
         assert not batch_converter is None
         assert not repr_layer is None
-    
+
     cur_shard_tensors = []
     cur_shard_lens = []
     cur_headers = []
@@ -167,19 +198,26 @@ def make_shard(embedder, dataloader, max_seq_len, batch_converter=None, repr_lay
         if split_header:
             # for CATH:
             headers = [s.split("|")[2].split("/")[0] for s in headers]
-        
+
         if "esmfold" in lm_embedder_type:
-            feats, seq_lens, sequences = embed_batch_esmfold(embedder, sequences, max_seq_len, embed_result_key)
+            feats, seq_lens, sequences = embed_batch_esmfold(
+                embedder, sequences, max_seq_len, embed_result_key
+            )
         else:
-            feats, seq_lens, sequences = embed_batch_esm(embedder, sequences, batch_converter, repr_layer, max_seq_len)
+            feats, seq_lens, sequences = embed_batch_esm(
+                embedder, sequences, batch_converter, repr_layer, max_seq_len
+            )
 
         feats, seq_lens = feats.cpu(), seq_lens.cpu()
         from plaid.transforms import trim_or_pad_batch_first
+
         # to avoid errors in cases where whole batch is less than the target
         feats = trim_or_pad_batch_first(feats, max_seq_len)
 
         if not len(headers) == len(sequences) == len(feats) == len(seq_lens):
-            import pdb;pdb.set_trace()
+            import pdb
+
+            pdb.set_trace()
 
         cur_headers.extend(headers)
         cur_sequences.extend(sequences)
@@ -197,7 +235,7 @@ def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
     outdir = Path(outdir) / dtype
     if not outdir.exists():
         outdir.mkdir(parents=True)
-    
+
     dtype = _get_dtype(dtype)
     embs = embs.to(dtype=dtype)
     seq_lens = seq_lens.to(dtype=torch.int16)
@@ -205,7 +243,8 @@ def save_safetensor_embeddings(embs, seq_lens, shard_number, outdir, dtype):
         {
             "embeddings": embs,
             "seq_len": seq_lens,
-        }, outdir / f"shard{shard_number:04}.pt"
+        },
+        outdir / f"shard{shard_number:04}.pt",
     )
     print(f"saved {embs.shape[0]} sequences to shard {shard_number} as safetensor file")
 
@@ -242,14 +281,14 @@ def run(dataloader, output_dir, cfg):
     else:
         batch_converter = alphabet.get_batch_converter()
         repr_layer = int(lm_embedder_type.split("_")[1][1:])
-    
+
     outdir = Path(output_dir) / lm_embedder_type / f"seqlen_{cfg.max_seq_len}"
     if not outdir.exists():
         outdir.mkdir(parents=True)
-    
+
     """
     Make shards: wrapper fn
-    """ 
+    """
     emb_shard, seq_lens, headers, sequences = make_shard(
         embedder,
         dataloader,
@@ -257,9 +296,9 @@ def run(dataloader, output_dir, cfg):
         batch_converter,
         repr_layer,
         lm_embedder_type,
-        split_header="cath-dataset" in cfg.fasta_file
+        split_header="cath-dataset" in cfg.fasta_file,
     )
-    
+
     if cfg.compression == "safetensors":
         save_safetensor_embeddings(emb_shard, seq_lens, 0, outdir, cfg.dtype)
     elif cfg.compression == "hdf5":
@@ -270,7 +309,9 @@ def run(dataloader, output_dir, cfg):
 
 def main(cfg):
     print(f"making dataloader from {cfg.fasta_file}")
-    train_dataloader, val_dataloader = make_fasta_dataloaders(cfg.fasta_file, cfg.batch_size, cfg.num_workers, cfg.max_num_samples)
+    train_dataloader, val_dataloader = make_fasta_dataloaders(
+        cfg.fasta_file, cfg.batch_size, cfg.num_workers, cfg.max_num_samples
+    )
 
     print("creating val dataset")
     run(val_dataloader, cfg.val_output_dir, cfg)

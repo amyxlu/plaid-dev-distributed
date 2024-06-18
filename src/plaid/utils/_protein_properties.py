@@ -31,7 +31,14 @@ SS_BOUNDARIES = {
 }
 
 
-DEFAULT_PROPERTIES = ['molecular_weight', 'aromaticity', 'instability_index', 'isoelectric_point', 'gravy', 'charge_at_pH']
+DEFAULT_PROPERTIES = [
+    "molecular_weight",
+    "aromaticity",
+    "instability_index",
+    "isoelectric_point",
+    "gravy",
+    "charge_at_pH",
+]
 
 
 def _quantize_frac(arr: np.ndarray, boundaries: np.ndarray):
@@ -48,13 +55,9 @@ def _quantize_frac(arr: np.ndarray, boundaries: np.ndarray):
 
 def _quantize_secondary_structure_fractions(fracs, origin_dataset: str = "uniref"):
     helix_fracs, turn_fracs, sheet_fracs = fracs[:, 0], fracs[:, 1], fracs[:, 2]
-    helix_quantized = _quantize_frac(
-        helix_fracs, SS_BOUNDARIES[origin_dataset]["helix"]
-    )
+    helix_quantized = _quantize_frac(helix_fracs, SS_BOUNDARIES[origin_dataset]["helix"])
     turn_quantized = _quantize_frac(turn_fracs, SS_BOUNDARIES[origin_dataset]["turn"])
-    sheet_quantized = _quantize_frac(
-        sheet_fracs, SS_BOUNDARIES[origin_dataset]["sheet"]
-    )
+    sheet_quantized = _quantize_frac(sheet_fracs, SS_BOUNDARIES[origin_dataset]["sheet"])
     return np.stack([helix_quantized, turn_quantized, sheet_quantized], axis=1)
 
 
@@ -82,6 +85,7 @@ def sequences_to_secondary_structure_fracs(
 Per-sequence protein properties
 """
 
+
 def _protein_property(protein_sequence, prop):
     protein_sequence = "".join(list(filter(lambda char: char in RESTYPES, protein_sequence)))
     analyzer = ProteinAnalysis(protein_sequence)
@@ -102,18 +106,17 @@ def process_chunk(chunk, prop, sequence_col):
 
 
 def calculate_df_protein_property_mp(df, sequence_col="sequences", properties=DEFAULT_PROPERTIES):
-    num_processes = min(mp.cpu_count(), df.shape[0]) 
+    num_processes = min(mp.cpu_count(), df.shape[0])
 
-
-    for prop in properties:  
+    for prop in properties:
         chunk_size = len(df) // num_processes  # Size of each chunk
-        chunks = [df[i:i+chunk_size] for i in range(0, len(df), chunk_size)]
-        
+        chunks = [df[i : i + chunk_size] for i in range(0, len(df), chunk_size)]
+
         pool = mp.Pool(processes=num_processes)
         fn = partial(process_chunk, prop=prop, sequence_col=sequence_col)
         results = pool.map(fn, chunks)
         pool.close()
         pool.join()
         df[prop] = pd.concat(results)
-        
+
     return df

@@ -38,19 +38,20 @@ class UncompressionLatent:
         self.device = device
         self.decoder.to(device)
         return self
-    
+
     def uncompress(self, *args, **kwargs):
         raise NotImplementedError
-    
+
 
 class UncompressContinuousLatent(UncompressionLatent):
-    """ For models without any quantization."""
+    """For models without any quantization."""
+
     def __init__(
-            self,
-            compression_model_id,
-            compression_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
-            init_compress_mode=False,
-        ):
+        self,
+        compression_model_id,
+        compression_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
+        init_compress_mode=False,
+    ):
         super().__init__(compression_model_id, compression_ckpt_dir, init_compress_mode)
 
     def uncompress(self, z_q, mask=None, verbose=False):
@@ -60,12 +61,12 @@ class UncompressContinuousLatent(UncompressionLatent):
 
         if mask is not None:
             mask = mask.to(self.device)
- 
+
         if self.post_quant_proj is not None:
             z_q = self.post_quant_proj(z_q)
 
         return self.decoder(z_q, mask, verbose)
-    
+
     def compress(self, feats, mask=None):
         """
         scale latent and compress with hourglass transformer
@@ -80,28 +81,24 @@ class UncompressContinuousLatent(UncompressionLatent):
         # to return the detached and numpy-ified representation based on the quantization mode.
         _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
-        
+
 
 class UncompressDiscreteLatent:
-    def __init__(
-        self,
-        compression_model_id,
-        compression_ckpt_dir):
+    def __init__(self, compression_model_id, compression_ckpt_dir):
         super().__init__(compression_model_id, compression_ckpt_dir)
 
         assert self.quantize_scheme == "fsq", f"Only supports fsq but got {self.quantize_scheme}."
-    
+
     def uncompress(self, indices, mask=None, verbose=False):
         codes = self.quantizer.indexes_to_codes(indices)
 
         if mask is not None:
             mask = mask.to(self.device)
- 
+
         if self.post_quant_proj is not None:
             z_q = self.post_quant_proj(codes)
-        
-        return self.decoder(z_q, mask, verbose)
 
+        return self.decoder(z_q, mask, verbose)
 
 
 if __name__ == "__main__":
@@ -113,6 +110,7 @@ if __name__ == "__main__":
     model = uncompressor.model
 
     from plaid.datasets import CATHShardedDataModule
+
     dm = CATHShardedDataModule(
         shard_dir="/homefs/home/lux70/storage/data/cath/shards",
         seq_len=256,

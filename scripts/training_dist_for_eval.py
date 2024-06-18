@@ -9,6 +9,7 @@ import argparse
 from plaid.esmfold import esmfold_v1
 from plaid.transformers import get_random_sequence_crop_batch
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fasta_file", type=str, default="/shared/amyxlu/data/rocklin/rocklin_stable.fasta")
@@ -18,6 +19,7 @@ def parse_args():
     parser.add_argument("--outdir", type=int, default=64)
     return parser.parse_args()
 
+
 args = parse_args()
 
 """
@@ -25,15 +27,13 @@ Dataset
 """
 ds = FastaDataset(args.fasta_file, cache_indices=True)
 n_train = len(ds) - args.n_val  # 153,726,820
-train_set, val_set = random_split(
-    ds, [n_train, args.n_val], generator=torch.Generator().manual_seed(42)
-)
+train_set, val_set = random_split(ds, [n_train, args.n_val], generator=torch.Generator().manual_seed(42))
 dataloader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size)
 
 """
 ESMFold latent maker
 """
-esmfold = esmfold_v1 
+esmfold = esmfold_v1
 device = torch.device("cuda")
 esmfold.to(device)
 esmfold.eval()
@@ -44,11 +44,11 @@ Make features and save
 """
 feats_all = []
 
-for batch in tqdm(dataloader): 
+for batch in tqdm(dataloader):
     sequences = batch[1]
     print(max([len(seq) for seq in sequences]))
     with torch.no_grad():
-        sequences = get_random_sequence_crop_batch(sequences, 512, min_len=30) 
+        sequences = get_random_sequence_crop_batch(sequences, 512, min_len=30)
         embed_results = esmfold.infer_embedding(sequences)
         feats = embed_results["s"].detach().cpu()  # (N, L, 1024)
         masks = embed_results["mask"].detach().cpu()  # (N, L)

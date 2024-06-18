@@ -6,6 +6,7 @@ Handles different:
 * header parsing schemes (For CATH, will parse according to the pattern, otherwise saves the header as is)
 * sequence lengths
 """
+
 import time
 import typing as T
 from pathlib import Path
@@ -31,17 +32,31 @@ PathLike = T.Union[Path, str]
 def parse_args():
     parser = argparse.ArgumentParser(description="Precompute embeddings")
     parser.add_argument("--compressor_model_id", type=str)
-    parser.add_argument("--compressor_ckpt_dir", type=str, default="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/")
-    parser.add_argument('--fasta_file', type=str, default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa", help='Path to the fasta file')
-    parser.add_argument('--base_output_dir', type=str, default="/homefs/home/lux70/storage/data/cath/compressed/", help='Directory for training output shards')
-    parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
-    parser.add_argument('--max_seq_len', type=int, default=512, help='Maximum sequence length')
-    parser.add_argument('--num_workers', type=int, default=16, help='Number of workers')
-    parser.add_argument('--train_frac', type=float, default=0.8, help='Training fraction')
+    parser.add_argument(
+        "--compressor_ckpt_dir",
+        type=str,
+        default="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
+    )
+    parser.add_argument(
+        "--fasta_file",
+        type=str,
+        default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+        help="Path to the fasta file",
+    )
+    parser.add_argument(
+        "--base_output_dir",
+        type=str,
+        default="/homefs/home/lux70/storage/data/cath/compressed/",
+        help="Directory for training output shards",
+    )
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size")
+    parser.add_argument("--max_seq_len", type=int, default=512, help="Maximum sequence length")
+    parser.add_argument("--num_workers", type=int, default=16, help="Number of workers")
+    parser.add_argument("--train_frac", type=float, default=0.8, help="Training fraction")
     return parser.parse_args()
 
 
-def make_hourglass(ckpt_dir: PathLike, ckpt_name: str) -> HourglassVQLightningModule: 
+def make_hourglass(ckpt_dir: PathLike, ckpt_name: str) -> HourglassVQLightningModule:
     ckpt_path = Path(ckpt_dir) / str(ckpt_name) / "last.ckpt"
     print("Loading hourglass from", str(ckpt_path))
     model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
@@ -49,10 +64,14 @@ def make_hourglass(ckpt_dir: PathLike, ckpt_name: str) -> HourglassVQLightningMo
     return model
 
 
-def make_fasta_dataloaders(fasta_file: PathLike, batch_size: int, num_workers: int = 8) -> T.Tuple[DataLoader, DataLoader]:
+def make_fasta_dataloaders(
+    fasta_file: PathLike, batch_size: int, num_workers: int = 8
+) -> T.Tuple[DataLoader, DataLoader]:
     # for loading batches into ESMFold and embedding
     ds = FastaDataset(fasta_file, cache_indices=True)
-    train_ds, val_ds = torch.utils.data.random_split(ds, [0.8, 0.2], generator=torch.Generator().manual_seed(42))
+    train_ds, val_ds = torch.utils.data.random_split(
+        ds, [0.8, 0.2], generator=torch.Generator().manual_seed(42)
+    )
     train_dataloader = torch.utils.data.DataLoader(
         train_ds, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=False
     )
@@ -60,7 +79,7 @@ def make_fasta_dataloaders(fasta_file: PathLike, batch_size: int, num_workers: i
         val_ds, batch_size=batch_size, num_workers=num_workers, shuffle=False, drop_last=False
     )
     return train_dataloader, val_dataloader
- 
+
 
 def make_shard(
     esmfold: ESMFold,
@@ -68,10 +87,10 @@ def make_shard(
     dataloader: torch.utils.data.DataLoader,
     max_seq_len: int,
     split_header: bool = True,
-    pad_to_even_number: bool = False
-    ) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
+    pad_to_even_number: bool = False,
+) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
     """Set up variables depending on base LM embedder type
-    TODO: this will be a sharding function in the future for large, large datasets 
+    TODO: this will be a sharding function in the future for large, large datasets
     """
     """base loop"""
     cur_compressed = []
@@ -87,14 +106,16 @@ def make_shard(
 
         """
         1. make LM embeddings
-        """    
-        feats, mask, sequences = embed_batch_esmfold(esmfold, sequences, max_seq_len, embed_result_key="s", return_seq_lens=False)
-        
+        """
+        feats, mask, sequences = embed_batch_esmfold(
+            esmfold, sequences, max_seq_len, embed_result_key="s", return_seq_lens=False
+        )
+
         """
         2. make hourglass compression
         """
         latent_scaler = LatentScaler()
-        x_norm = latent_scaler.scale(feats) 
+        x_norm = latent_scaler.scale(feats)
         del feats
 
         device = get_model_device(hourglass_model)
@@ -107,7 +128,9 @@ def make_shard(
 
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
-        recons_norm, loss, log_dict, compressed_representation = hourglass_model(x_norm, mask.bool(), log_wandb=False)
+        recons_norm, loss, log_dict, compressed_representation = hourglass_model(
+            x_norm, mask.bool(), log_wandb=False
+        )
 
         """
         3. Ensure correct dtype and append to output list
@@ -128,12 +151,12 @@ def make_shard(
 
 
 def save_h5_embeddings(
-        embs: np.ndarray,
-        sequences: T.List[str],
-        pdb_id: str,
-        shard_number: int,
-        outdir: PathLike,
-    ):
+    embs: np.ndarray,
+    sequences: T.List[str],
+    pdb_id: str,
+    shard_number: int,
+    outdir: PathLike,
+):
     """
     2024/02/27: This function is exactly the same as the older script to ensure that
     the hourglass & non-hourglass compressed datasets look the same, but still setting up
@@ -161,8 +184,8 @@ def run(
     compression_model: HourglassVQLightningModule,
     dataloader: DataLoader,
     output_dir: Path,
-    cfg: argparse.Namespace
-    ):
+    cfg: argparse.Namespace,
+):
     print(cfg)
     """
     Set up: ESMFold vs. other embedder
@@ -176,7 +199,7 @@ def run(
     """
     Make shards: wrapper fn
     TODO: for larger datasets, actually shard; here it's just all saved in one file
-    """ 
+    """
 
     compressed, sequences, headers = make_shard(
         esmfold,
@@ -184,15 +207,15 @@ def run(
         dataloader,
         cfg.max_seq_len,
         split_header="cath-dataset" in cfg.fasta_file,
-        pad_to_even_number="rocklin" in str(output_dir)
+        pad_to_even_number="rocklin" in str(output_dir),
     )
-    
+
     save_h5_embeddings(compressed, sequences, headers, 0, outdir)
 
 
 def main(cfg):
     """
-    Setup: models 
+    Setup: models
     """
     print("loading ESMFold and compression models...")
     start = time.time()
@@ -214,7 +237,9 @@ def main(cfg):
     train_output_dir = Path(cfg.base_output_dir) / "train"
     val_output_dir = Path(cfg.base_output_dir) / "val"
 
-    import IPython;IPython.embed()
+    import IPython
+
+    IPython.embed()
     print("compressing val dataset")
     run(esmfold, compression_model, val_dataloader, val_output_dir, cfg)
 

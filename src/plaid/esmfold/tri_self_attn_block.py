@@ -69,12 +69,8 @@ class TriangularSelfAttentionBlock(nn.Module):
             inf=1e9,
         )  # type: ignore
 
-        self.mlp_seq = ResidueMLP(
-            sequence_state_dim, 4 * sequence_state_dim, dropout=dropout
-        )
-        self.mlp_pair = ResidueMLP(
-            pairwise_state_dim, 4 * pairwise_state_dim, dropout=dropout
-        )
+        self.mlp_seq = ResidueMLP(sequence_state_dim, 4 * sequence_state_dim, dropout=dropout)
+        self.mlp_pair = ResidueMLP(pairwise_state_dim, 4 * pairwise_state_dim, dropout=dropout)
 
         assert dropout < 0.4
         self.drop = nn.Dropout(dropout)
@@ -100,9 +96,7 @@ class TriangularSelfAttentionBlock(nn.Module):
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].weight)
         torch.nn.init.zeros_(self.mlp_pair.mlp[-2].bias)
 
-    def forward(
-        self, sequence_state, pairwise_state, mask=None, chunk_size=None, **__kwargs
-    ):
+    def forward(self, sequence_state, pairwise_state, mask=None, chunk_size=None, **__kwargs):
         """
         Inputs:
           sequence_state: B x L x sequence_state_dim
@@ -140,12 +134,8 @@ class TriangularSelfAttentionBlock(nn.Module):
 
         # Axial attention with triangular bias.
         tri_mask = mask.unsqueeze(2) * mask.unsqueeze(1) if mask is not None else None
-        pairwise_state = pairwise_state + self.row_drop(
-            self.tri_mul_out(pairwise_state, mask=tri_mask)
-        )
-        pairwise_state = pairwise_state + self.col_drop(
-            self.tri_mul_in(pairwise_state, mask=tri_mask)
-        )
+        pairwise_state = pairwise_state + self.row_drop(self.tri_mul_out(pairwise_state, mask=tri_mask))
+        pairwise_state = pairwise_state + self.col_drop(self.tri_mul_in(pairwise_state, mask=tri_mask))
         pairwise_state = pairwise_state + self.row_drop(
             self.tri_att_start(pairwise_state, mask=tri_mask, chunk_size=chunk_size)
         )

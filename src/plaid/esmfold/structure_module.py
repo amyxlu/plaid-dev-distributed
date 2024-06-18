@@ -111,9 +111,7 @@ class AngleResnet(nn.Module):
 
         self.relu = nn.ReLU()
 
-    def forward(
-        self, s: torch.Tensor, s_initial: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, s: torch.Tensor, s_initial: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Args:
             s:
@@ -221,9 +219,7 @@ class InvariantPointAttention(nn.Module):
         self.head_weights = nn.Parameter(torch.zeros((no_heads)))
         ipa_point_weights_init_(self.head_weights)
 
-        concat_out_dim = self.no_heads * (
-            self.c_z + self.c_hidden + self.no_v_points * 4
-        )
+        concat_out_dim = self.no_heads * (self.c_z + self.c_hidden + self.no_v_points * 4)
         self.linear_out = Linear(concat_out_dim, self.c_s, init="final")
 
         self.softmax = nn.Softmax(dim=-1)
@@ -297,9 +293,7 @@ class InvariantPointAttention(nn.Module):
         kv_pts = kv_pts.view(kv_pts.shape[:-2] + (self.no_heads, -1, 3))
 
         # [*, N_res, H, P_q/P_v, 3]
-        k_pts, v_pts = torch.split(
-            kv_pts, [self.no_qk_points, self.no_v_points], dim=-2
-        )
+        k_pts, v_pts = torch.split(kv_pts, [self.no_qk_points, self.no_v_points], dim=-2)
 
         ##########################
         # Compute attention scores
@@ -336,12 +330,8 @@ class InvariantPointAttention(nn.Module):
 
         # [*, N_res, N_res, H, P_q]
         pt_att = sum(torch.unbind(pt_att, dim=-1))
-        head_weights = self.softplus(self.head_weights).view(
-            *((1,) * len(pt_att.shape[:-2]) + (-1, 1))
-        )
-        head_weights = head_weights * math.sqrt(
-            1.0 / (3 * (self.no_qk_points * 9.0 / 2))
-        )
+        head_weights = self.softplus(self.head_weights).view(*((1,) * len(pt_att.shape[:-2]) + (-1, 1)))
+        head_weights = head_weights * math.sqrt(1.0 / (3 * (self.no_qk_points * 9.0 / 2)))
         if inplace_safe:
             pt_att *= head_weights
         else:
@@ -387,10 +377,7 @@ class InvariantPointAttention(nn.Module):
             o_pt = torch.stack(o_pt, dim=-3)
         else:
             o_pt = torch.sum(
-                (
-                    a[..., None, :, :, None]
-                    * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :]
-                ),
+                (a[..., None, :, :, None] * permute_final_dims(v_pts, (1, 3, 0, 2))[..., None, :, :]),
                 dim=-2,
             )
 
@@ -399,9 +386,7 @@ class InvariantPointAttention(nn.Module):
         o_pt = r[..., None, None].invert_apply(o_pt)
 
         # [*, N_res, H * P_v]
-        o_pt_norm = flatten_final_dims(
-            torch.sqrt(torch.sum(o_pt**2, dim=-1) + self.eps), 2
-        )
+        o_pt_norm = flatten_final_dims(torch.sqrt(torch.sum(o_pt**2, dim=-1) + self.eps), 2)
 
         # [*, N_res, H * P_v, 3]
         o_pt = o_pt.reshape(*o_pt.shape[:-3], -1, 3)
@@ -417,9 +402,7 @@ class InvariantPointAttention(nn.Module):
 
         # [*, N_res, C_s]
         s = self.linear_out(
-            torch.cat((o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1).to(
-                dtype=z[0].dtype
-            )
+            torch.cat((o, *torch.unbind(o_pt, dim=-1), o_pt_norm, o_pair), dim=-1).to(dtype=z[0].dtype)
         )
 
         return s
@@ -798,9 +781,7 @@ class StructureModule(nn.Module):
         # Separated purely to make testing less annoying
         return torsion_angles_to_frames(r, alpha, f, self.default_frames)
 
-    def frames_and_literature_positions_to_atom14_pos(
-        self, r, f  # [*, N, 8]  # [*, N]
-    ):
+    def frames_and_literature_positions_to_atom14_pos(self, r, f):  # [*, N, 8]  # [*, N]
         # Lazily initialize the residue constants on the correct device
         self._init_residue_constants(r.get_rots().dtype, r.get_rots().device)
         return frames_and_literature_positions_to_atom14_pos(

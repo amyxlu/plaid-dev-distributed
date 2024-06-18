@@ -69,9 +69,7 @@ class TransformerPositionalEncoding(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
         position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(
-            torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model)
-        )
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
         pe = torch.zeros(max_len, 1, d_model)
         pe[:, 0, 0::2] = torch.sin(position * div_term)
         pe[:, 0, 1::2] = torch.cos(position * div_term)
@@ -130,9 +128,7 @@ class UIPAExperimentConfig:
     loss_weight_reconstruction: float = 1.0
     loss_weight_sequence: float = 0.0
     loss_weight_structure: float = 0.0
-    assert (
-        loss_weight_sequence + loss_weight_structure + loss_weight_reconstruction == 1.0
-    )
+    assert loss_weight_sequence + loss_weight_structure + loss_weight_reconstruction == 1.0
 
     # Diffusion
     T: int = 2000  # Total number of diffusion timesteps
@@ -163,9 +159,7 @@ class UIPAExperimentConfig:
     norm_model_output: bool = (
         False  # If true, applies layer norm to model output (should mirror the latent scaling mode)
     )
-    mlp_proj_model_output: bool = (
-        False  # If true, applies a trainable MLP projection to the model output.
-    )
+    mlp_proj_model_output: bool = False  # If true, applies a trainable MLP projection to the model output.
 
     # ==== Training specifications ===
     device_id: int = 0
@@ -177,15 +171,11 @@ class UIPAExperimentConfig:
     overfit: bool = False
     seed: int = 0
     apply_weight_norm: bool = False
-    resume_training_from: str = (
-        None  # String in the format of "{run_id}:{itr}" (e.g. "5jrpyn25:2000")
-    )
+    resume_training_from: str = None  # String in the format of "{run_id}:{itr}" (e.g. "5jrpyn25:2000")
     num_workers: int = 4
 
     # Conditioning
-    cond_key: str = (
-        "secondary_structure"  # "none" for unconditional , otherwise "secondary_structure"
-    )
+    cond_key: str = "secondary_structure"  # "none" for unconditional , otherwise "secondary_structure"
     cond_key_dropout_prob: float = 0.2
 
     # LR
@@ -238,9 +228,7 @@ def _modify_cond_dict_maybe_dropout(cond_dict: T.Dict[str, T.Any], p_dropout=0.2
         # only handles secondary structure bins for now
         # use the last index, aka number of bins - 1, as the dummy token
         replace_with_value = NUM_SECONDARY_STRUCTURE_BINS_WITH_DUMMY - 1
-        cond_dict[key] = _maybe_dropout(
-            orig_arr, replace_with_value, p_dropout=p_dropout
-        )
+        cond_dict[key] = _maybe_dropout(orig_arr, replace_with_value, p_dropout=p_dropout)
     return cond_dict
 
 
@@ -288,9 +276,7 @@ class UIPA(nn.Module):
         structure_module_c_z = 128
 
         ####### Flexibly create additional embeddings ########
-        self.pairwise_positional_embedding = RelativePosition(
-            trunk_cfg.position_bins, c_z
-        )
+        self.pairwise_positional_embedding = RelativePosition(trunk_cfg.position_bins, c_z)
 
         # Create timestep embedding
         if cfg.timestep_proj == "gaussian_fourier":
@@ -305,9 +291,7 @@ class UIPA(nn.Module):
             self.use_classifier_free_guidance = not (cfg.cond_key_dropout_prob == 0.0)
             assert 0.0 <= cfg.cond_key_dropout_prob <= 1.0
 
-        self.cond_embed = SecondaryStructureEmbedding(
-            ESMFOLD_C_S, self.use_classifier_free_guidance
-        )
+        self.cond_embed = SecondaryStructureEmbedding(ESMFOLD_C_S, self.use_classifier_free_guidance)
 
         # Note down how much we're extending the L dimension by
         self.extras = 0
@@ -397,9 +381,7 @@ class UIPA(nn.Module):
             assert self.cond_embed.nbins == NUM_SECONDARY_STRUCTURE_BINS
 
         # Add conditional embedding info
-        helix_emb, sheet_emb, turns_emb = self.cond_embed(
-            cond_dict["secondary_structure"]
-        )
+        helix_emb, sheet_emb, turns_emb = self.cond_embed(cond_dict["secondary_structure"])
         if self.cfg.cemb_cat_strategy == "add":
             s = _pointwise_add_emb(s, helix_emb)
             s = _pointwise_add_emb(s, sheet_emb)
@@ -455,15 +437,11 @@ class UIPA(nn.Module):
     ):
         B, orig_L, _ = s_s_t.shape
         if residx is None:
-            residx = einops.repeat(
-                torch.arange(orig_L, device=s_s_t.device, dtype=int), "L -> B L", B=B
-            )
+            residx = einops.repeat(torch.arange(orig_L, device=s_s_t.device, dtype=int), "L -> B L", B=B)
         if mask is None:
             mask = torch.ones_like(residx)
         ####### Add time and conditional embeddings #######
-        s_s_t = self.add_time_embedding(
-            s_s_t, t_s
-        )  # (B, L, C) -> (B, L + n_added_emb, C)
+        s_s_t = self.add_time_embedding(s_s_t, t_s)  # (B, L, C) -> (B, L + n_added_emb, C)
         if self.is_cond:
             assert not cond_dict is None
             s_s_t = self.conditioning(s_s_t, cond_dict)

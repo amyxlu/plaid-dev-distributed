@@ -20,7 +20,7 @@ from plaid.utils import (
     get_model_device,
     write_pdb_to_disk,
     npy,
-    to_tensor
+    to_tensor,
 )
 from plaid.proteins import LatentToStructure
 from plaid.evaluation import run_tmalign
@@ -28,9 +28,7 @@ from plaid.evaluation import lDDT
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 
-def load_compression_model(
-    model_id, ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq"
-):
+def load_compression_model(model_id, ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq"):
     dirpath = Path(ckpt_dir) / model_id
     return HourglassVQLightningModule.load_from_checkpoint(dirpath / "last.ckpt")
 
@@ -69,7 +67,7 @@ class CompressionReconstructionCallback(Callback):
         self.base_pdb_dir = Path(out_dir)
         self.run_every_n_steps = run_every_n_steps
 
-        self.x, self.mask, self.sequences, self.gt_structures = self._get_validation_data() 
+        self.x, self.mask, self.sequences, self.gt_structures = self._get_validation_data()
 
     def _get_validation_data(self):
         start = time.time()
@@ -97,9 +95,7 @@ class CompressionReconstructionCallback(Callback):
         mask = trim_or_pad_batch_first(mask, pad_to=self.max_seq_len, pad_idx=0)
 
         end = time.time()
-        print(
-            f"Created reference structure validation dataset in {end - start:.2f} seconds."
-        )
+        print(f"Created reference structure validation dataset in {end - start:.2f} seconds.")
         return x, mask, sequences, gt_structures
 
     def _compress_and_reconstruct(self, compression_model, max_samples=None):
@@ -122,10 +118,7 @@ class CompressionReconstructionCallback(Callback):
 
     def _save_pdbs(self, struct_features, prefix=""):
         assert prefix in ["", "recons", "orig"]
-        filenames = [
-            str(self.base_pdb_dir / f"{prefix}_{i}.pdb")
-            for i in range(len(struct_features))
-        ]
+        filenames = [str(self.base_pdb_dir / f"{prefix}_{i}.pdb") for i in range(len(struct_features))]
         for i in trange(
             len(struct_features),
             desc=f"Writing PDBs for {prefix} at {str(self.base_pdb_dir)}...",
@@ -170,13 +163,17 @@ class CompressionReconstructionCallback(Callback):
         device = model.device
         self.structure_constructor.to(device)
 
-        recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct(model, max_samples=max_samples)
+        recons, loss, log_dict, compressed_representation = self._compress_and_reconstruct(
+            model, max_samples=max_samples
+        )
         compressed_representation = npy(compressed_representation)
-        log_dict['compressed_rep_hist'] = wandb.Histogram(compressed_representation.flatten(), num_bins=50)
+        log_dict["compressed_rep_hist"] = wandb.Histogram(compressed_representation.flatten(), num_bins=50)
 
         # coerce latent back into structure features for both reconstruction and the original prediction
         # TODO: also compare to the ground truth structure?
-        recons_struct, orig_pred_struct = self._structure_features_from_latent(recons, max_samples=max_samples)
+        recons_struct, orig_pred_struct = self._structure_features_from_latent(
+            recons, max_samples=max_samples
+        )
         recons_pdb_paths = self._save_pdbs(recons_struct, "recons")
         orig_pdb_paths = self._save_pdbs(orig_pred_struct, "orig")
 
@@ -188,15 +185,11 @@ class CompressionReconstructionCallback(Callback):
         n = len(tm_scores_list)
         log_dict["tmscore_mean"] = np.mean(tm_scores_list)
         log_dict["tmscore_median"] = np.median(tm_scores_list)
-        log_dict['tmscore_hist'] = wandb.Histogram(tm_scores_list, num_bins=n)
+        log_dict["tmscore_hist"] = wandb.Histogram(tm_scores_list, num_bins=n)
 
         # pdb parse returns an atom stack; take only the first atom array
-        orig_atom_arrays = [
-            pdb_path_to_biotite_atom_array(fpath)[0] for fpath in orig_pdb_paths
-        ]
-        recons_atom_arrays = [
-            pdb_path_to_biotite_atom_array(fpath)[0] for fpath in recons_pdb_paths
-        ]
+        orig_atom_arrays = [pdb_path_to_biotite_atom_array(fpath)[0] for fpath in orig_pdb_paths]
+        recons_atom_arrays = [pdb_path_to_biotite_atom_array(fpath)[0] for fpath in recons_pdb_paths]
         recons_superimposed = [
             structure.superimpose(orig, recons)[0]
             for (orig, recons) in zip(orig_atom_arrays, recons_atom_arrays)
@@ -204,18 +197,15 @@ class CompressionReconstructionCallback(Callback):
 
         # calculate superimposed RMSD
         superimposed_rmsd_scores = [
-            structure.rmsd(orig, recons)
-            for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)
+            structure.rmsd(orig, recons) for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)
         ]
         log_dict["rmsd_mean"] = np.mean(superimposed_rmsd_scores)
         log_dict["rmsd_median"] = np.median(superimposed_rmsd_scores)
-        log_dict['rmsd_hist'] = wandb.Histogram(superimposed_rmsd_scores, num_bins=n)
+        log_dict["rmsd_hist"] = wandb.Histogram(superimposed_rmsd_scores, num_bins=n)
 
         # calculate lDDT from alpha carbons
         orig_ca_pos = [alpha_carbons_from_atom_array(aarr) for aarr in orig_atom_arrays]
-        recons_ca_pos = [
-            alpha_carbons_from_atom_array(aarr) for aarr in recons_superimposed
-        ]
+        recons_ca_pos = [alpha_carbons_from_atom_array(aarr) for aarr in recons_superimposed]
         lddts = [
             lDDT(
                 to_tensor(orig_ca_pos[i].coord),
@@ -225,16 +215,15 @@ class CompressionReconstructionCallback(Callback):
         ]
         log_dict["lddt_mean"] = np.mean(lddts)
         log_dict["lddt_median"] = np.median(lddts)
-        log_dict['lddt_hist'] = wandb.Histogram(lddts, num_bins=n)
+        log_dict["lddt_hist"] = wandb.Histogram(lddts, num_bins=n)
 
         # calculate RMSD between pairwise distances (superimposition independent)
         rmspd_scores = [
-            structure.rmspd(orig, recons)
-            for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)
+            structure.rmspd(orig, recons) for (orig, recons) in zip(orig_atom_arrays, recons_superimposed)
         ]
         log_dict["rmspd_mean"] = np.mean(rmspd_scores)
         log_dict["rmspd_median"] = np.median(rmspd_scores)
-        log_dict['rmspd_hist'] = wandb.Histogram(rmspd_scores, num_bins=n)
+        log_dict["rmspd_hist"] = wandb.Histogram(rmspd_scores, num_bins=n)
 
         end = time.time()
         print(f"Structure reconstruction validation completed in {end - start:.2f} seconds.")
@@ -255,7 +244,7 @@ class CompressionReconstructionCallback(Callback):
                     pl_module.logger.experiment.log({k: v})  # cannot log histograms with pl_module.log
                 else:
                     pl_module.log(k, v)
-            
+
             # clear up GPU
             self.structure_constructor.to(torch.device("cpu"))
             torch.cuda.empty_cache()

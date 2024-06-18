@@ -37,10 +37,7 @@ def load_cifar():
 
 def load_block():
     data_folder_path = os.getcwd()
-    data_file_path = (
-        data_folder_path
-        + "/data/randact_traj_length_100_n_trials_1000_n_contexts_1.npy"
-    )
+    data_file_path = data_folder_path + "/data/randact_traj_length_100_n_trials_1000_n_contexts_1.npy"
 
     train = BlockDataset(
         data_file_path,
@@ -78,42 +75,30 @@ def load_latent_block():
 
 def data_loaders(train_data, val_data, batch_size):
 
-    train_loader = DataLoader(
-        train_data, batch_size=batch_size, shuffle=True, pin_memory=True
-    )
-    val_loader = DataLoader(
-        val_data, batch_size=batch_size, shuffle=True, pin_memory=True
-    )
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, pin_memory=True)
+    val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=True, pin_memory=True)
     return train_loader, val_loader
 
 
 def load_data_and_data_loaders(dataset, batch_size):
     if dataset == "CIFAR10":
         training_data, validation_data = load_cifar()
-        training_loader, validation_loader = data_loaders(
-            training_data, validation_data, batch_size
-        )
+        training_loader, validation_loader = data_loaders(training_data, validation_data, batch_size)
         x_train_var = np.var(training_data.train_data / 255.0)
 
     elif dataset == "BLOCK":
         training_data, validation_data = load_block()
-        training_loader, validation_loader = data_loaders(
-            training_data, validation_data, batch_size
-        )
+        training_loader, validation_loader = data_loaders(training_data, validation_data, batch_size)
 
         x_train_var = np.var(training_data.data / 255.0)
     elif dataset == "LATENT_BLOCK":
         training_data, validation_data = load_latent_block()
-        training_loader, validation_loader = data_loaders(
-            training_data, validation_data, batch_size
-        )
+        training_loader, validation_loader = data_loaders(training_data, validation_data, batch_size)
 
         x_train_var = np.var(training_data.data)
 
     else:
-        raise ValueError(
-            "Invalid dataset: only CIFAR10 and BLOCK datasets are supported."
-        )
+        raise ValueError("Invalid dataset: only CIFAR10 and BLOCK datasets are supported.")
 
     return (
         training_data,

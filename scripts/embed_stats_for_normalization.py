@@ -29,6 +29,7 @@ DATASET_TO_FASTA_FILE = {
 #     "pfam": "/shared/amyxlu/data/pfam/Pfam-A.fasta",
 # }
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--lm_embedder_type", type=str, default="esmfold")
@@ -51,9 +52,7 @@ def get_dataloader(dataset, batch_size=64, n_val=5000):
 
     ds = FastaDataset(fasta_file, cache_indices=True)
     n_train = len(ds) - n_val  # 153,726,820
-    train_set, val_set = random_split(
-        ds, [n_train, n_val], generator=torch.Generator().manual_seed(42)
-    )
+    train_set, val_set = random_split(ds, [n_train, n_val], generator=torch.Generator().manual_seed(42))
     dataloader = torch.utils.data.DataLoader(val_set, batch_size=batch_size)
     return dataloader
 
@@ -61,25 +60,31 @@ def get_dataloader(dataset, batch_size=64, n_val=5000):
 def calc_stats(x, mask):
     mask = einops.repeat(mask, "N L -> N L C", C=x.shape[-1]).long()
     x *= mask
-    print("calc max"); channel_max = x.cpu().numpy().max(axis=(0,1))
-    print("calc min"); channel_min = x.cpu().numpy().min(axis=(0,1))
+    print("calc max")
+    channel_max = x.cpu().numpy().max(axis=(0, 1))
+    print("calc min")
+    channel_min = x.cpu().numpy().min(axis=(0, 1))
 
     print("calc means")
-    channel_means = x.sum(dim=(0,1)) / mask.sum(dim=(0,1))
+    channel_means = x.sum(dim=(0, 1)) / mask.sum(dim=(0, 1))
 
-    print("calc stds") 
+    print("calc stds")
     _chan_means = einops.repeat(channel_means, "C -> N L C", N=x.shape[0], L=x.shape[1])
-    channel_stds = (x - _chan_means).pow(2).sum(dim=(0,1)) / mask.sum(dim=(0,1))
+    channel_stds = (x - _chan_means).pow(2).sum(dim=(0, 1)) / mask.sum(dim=(0, 1))
     channel_means, channel_stds = channel_means.cpu().numpy(), channel_stds.cpu().numpy()
     return channel_max, channel_min, channel_means, channel_stds
 
 
 def save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min):
     outdir = Path(outdir)
-    print("save means"); np.save(outdir / "channel_mean.pkl.npy", channel_means, allow_pickle=True)
-    print("save std"); np.save(outdir / "channel_std.pkl.npy", channel_stds, allow_pickle=True)
-    print("save max"); np.save(outdir / "channel_max.pkl.npy", channel_max, allow_pickle=True)
-    print("save min"); np.save(outdir / "channel_min.pkl.npy", channel_min, allow_pickle=True)
+    print("save means")
+    np.save(outdir / "channel_mean.pkl.npy", channel_means, allow_pickle=True)
+    print("save std")
+    np.save(outdir / "channel_std.pkl.npy", channel_stds, allow_pickle=True)
+    print("save max")
+    np.save(outdir / "channel_max.pkl.npy", channel_max, allow_pickle=True)
+    print("save min")
+    np.save(outdir / "channel_min.pkl.npy", channel_min, allow_pickle=True)
 
 
 def main():
@@ -92,7 +97,10 @@ def main():
     embedder, alphabet = make_embedder(args.lm_embedder_type)
 
     dataloader = get_dataloader(args.dataset, args.batch_size, args.n_val)
-    outdir = Path(os.environ['HOME']) / f"{CACHED_TENSORS_DIR}/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}" 
+    outdir = (
+        Path(os.environ["HOME"])
+        / f"{CACHED_TENSORS_DIR}/{args.dataset}/{args.lm_embedder_type}/subset_{args.n_val}_{args.suffix}"
+    )
     if not outdir.exists():
         outdir.mkdir(parents=True)
 
@@ -101,20 +109,20 @@ def main():
         _, _, tokens = batch_converter(batch)
         device = get_model_device(embedder)
         tokens = tokens.to(device)
-        mask = (tokens != alphabet.padding_idx)
+        mask = tokens != alphabet.padding_idx
         with torch.no_grad():
             results = embedder(tokens, repr_layers=[repr_layer], return_contacts=False)
         return results["representations"][repr_layer], mask
-    
+
     def embed_batch_esmfold(sequences, embed_key_result):
         with torch.no_grad():
             embed_results = embedder.infer_embedding(sequences, return_intermediates=True)
-            feats = embed_results[embed_key_result].detach().cpu()  
+            feats = embed_results[embed_key_result].detach().cpu()
             masks = embed_results["mask"].detach().cpu()  # (N, L)
         return feats, masks
-    
+
     #### loop through batches and begin collecting embeddings ####
-    xs, masks = [], [] 
+    xs, masks = [], []
 
     for batch in tqdm(dataloader):
         _, sequences = batch
@@ -139,7 +147,7 @@ def main():
     print("Saving stats to", outdir)
     channel_max, channel_min, channel_means, channel_stds = calc_stats(xs, masks)
     for arr in channel_max, channel_min, channel_means, channel_stds:
-        assert arr.shape == (xs.shape[-1],)  
+        assert arr.shape == (xs.shape[-1],)
 
     save_npy_pkl(outdir, channel_means, channel_stds, channel_max, channel_min)
 

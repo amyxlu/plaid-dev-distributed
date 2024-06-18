@@ -46,7 +46,6 @@ class TransformerVQVAE(L.LightningModule):
         self,
         in_dim=1024,
         latent_scaler=None,
-
         # vqvae specifications
         vqvae_h_dim=1024,
         vqvae_res_h_dim=1024,
@@ -56,7 +55,6 @@ class TransformerVQVAE(L.LightningModule):
         vqvae_stride=2,
         vqvae_embedding_dim=64,
         vqvae_beta=0.25,
-
         # autoregressive-over-patches specifications
         patch_len: int = 16,
         transformer_hidden_act="gelu",
@@ -64,7 +62,6 @@ class TransformerVQVAE(L.LightningModule):
         transformer_num_attention_heads=8,
         transformer_num_hidden_layers=6,
         transformer_position_embedding_type="absolute",
-
         # optimization
         lr=1e-4,
         lr_beta1=0.9,
@@ -73,23 +70,19 @@ class TransformerVQVAE(L.LightningModule):
         lr_num_warmup_steps=0,
         lr_num_training_steps=10_000_000,
         lr_num_cycles=1,
-
         # auxiliary losses
         sequence_constructor=None,
         structure_constructor=None,
-        sequence_decoder_weight=0.,
-        structure_decoder_weight=0.,
+        sequence_decoder_weight=0.0,
+        structure_decoder_weight=0.0,
         latent_reconstruction_method="unnormalized_x_recons",
-        log_reconstructed_sequences=False
+        log_reconstructed_sequences=False,
     ):
         super().__init__()
-        
+
         self.normalize_latent_input = latent_scaler is not None
         self.latent_scaler = latent_scaler
-        assert latent_reconstruction_method in {
-            "x_recons",
-            "unnormalized_x_recons"
-        }
+        assert latent_reconstruction_method in {"x_recons", "unnormalized_x_recons"}
         if latent_reconstruction_method == "unnormalized_x_recons":
             assert not latent_scaler is None
         self.latent_recons_method = latent_reconstruction_method
@@ -116,13 +109,9 @@ class TransformerVQVAE(L.LightningModule):
             kernel=vqvae_kernel,
             stride=vqvae_stride,
         )
-        self.pre_quantization_conv = nn.Conv1d(
-            vqvae_h_dim, vqvae_embedding_dim, kernel_size=1, stride=1
-        )
+        self.pre_quantization_conv = nn.Conv1d(vqvae_h_dim, vqvae_embedding_dim, kernel_size=1, stride=1)
         # pass continuous latent vector through discretization bottleneck
-        self.vector_quantization = VectorQuantizer(
-            vqvae_n_embeddings, vqvae_embedding_dim, vqvae_beta
-        )
+        self.vector_quantization = VectorQuantizer(vqvae_n_embeddings, vqvae_embedding_dim, vqvae_beta)
         # decode the discrete latent representation
         self.vqvae_decoder = Decoder(
             e_dim=vqvae_embedding_dim,
@@ -158,9 +147,9 @@ class TransformerVQVAE(L.LightningModule):
         self.structure_decoder_weight = structure_decoder_weight
         self.sequence_loss_fn = None
         self.structure_loss_fn = None
-        
+
         self.log_reconstructed_sequences = log_reconstructed_sequences
-        
+
         self.save_hyperparameters()
 
     def transformer_forward(self, z_q):
@@ -174,9 +163,9 @@ class TransformerVQVAE(L.LightningModule):
         x = x[:, : self.n_chunks * self.patch_len, :]
         x_chunks = einops.rearrange(x, "N (L l) C -> (N L) l C", l=self.patch_len)
         return x_chunks
-   
+
     def unpack_batch(self, batch):
-        # 2024/02/08: For CATHShardedDataModule HDF5 loaders 
+        # 2024/02/08: For CATHShardedDataModule HDF5 loaders
         if isinstance(batch[-1], dict):
             # dictionary of structure features
             embs, sequences, gt_structures = batch
@@ -205,9 +194,7 @@ class TransformerVQVAE(L.LightningModule):
         # C': vqvae_embedding_dim
         stacked_chunks = self.stack_patches(x)
         stacked_chunks = einops.rearrange(stacked_chunks, "N L C -> N C L")
-        stacked_z_e = self.vqvae_encoder(
-            stacked_chunks
-        )  # (N * n_chunks, vqvae_h_dim, conv_patch)
+        stacked_z_e = self.vqvae_encoder(stacked_chunks)  # (N * n_chunks, vqvae_h_dim, conv_patch)
         stacked_z_e = self.pre_quantization_conv(stacked_z_e)
         (
             embedding_loss,
@@ -217,7 +204,7 @@ class TransformerVQVAE(L.LightningModule):
             min_encoding_indices,
         ) = self.vector_quantization(stacked_z_e)
 
-        # unstack z_q 
+        # unstack z_q
         z_q = einops.rearrange(stacked_z_q, "(N n) c l -> N (n l) c", n=self.n_chunks)
         z_q = self.transformer_forward(z_q)
 
@@ -225,9 +212,7 @@ class TransformerVQVAE(L.LightningModule):
         z_q = einops.rearrange(z_q, "N n l c -> (N n) c l")
 
         chunked_x_hat = self.vqvae_decoder(z_q)
-        x_hat = einops.rearrange(
-            chunked_x_hat, "(N n) C L -> N (n L) C", n=self.n_chunks
-        )
+        x_hat = einops.rearrange(chunked_x_hat, "(N n) C L -> N (n L) C", n=self.n_chunks)
         recons_loss = torch.mean((x_hat - x) ** 2) / x.shape[1]
         vqvae_loss = recons_loss + embedding_loss
 
@@ -235,13 +220,11 @@ class TransformerVQVAE(L.LightningModule):
         Auxiliary losses: constrain sequence and structure
         """
         if self.latent_recons_method == "unnormalized_x_recons":
-            x_hat = self.latent_scaler.unscale(x_hat) 
+            x_hat = self.latent_scaler.unscale(x_hat)
 
         # TODO: anneal losses
         if self.sequence_decoder_weight > 0.0:
-            seq_loss, seq_loss_dict = self.sequence_loss(
-                x_hat, sequences, cur_weight=None
-            )
+            seq_loss, seq_loss_dict = self.sequence_loss(x_hat, sequences, cur_weight=None)
         else:
             seq_loss = 0.0
 
@@ -261,7 +244,7 @@ class TransformerVQVAE(L.LightningModule):
         log_dict = {}
         log_dict = seq_loss_dict | log_dict if not seq_loss_dict is None else log_dict
         log_dict = struct_loss_dict | log_dict if not struct_loss_dict is None else log_dict
-        
+
         log_dict["loss"] = loss.item()
         log_dict["vqvae_loss"] = vqvae_loss.item()
         log_dict["embedding_loss"] = embedding_loss.item()
@@ -287,7 +270,7 @@ class TransformerVQVAE(L.LightningModule):
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
-    
+
     def setup_sequence_decoder(self):
         """If a reference pointer to the auxiliary sequence decoder wasn't already passed in
         at the construction of the class, load the sequence decoder onto the GPU now.
@@ -311,7 +294,7 @@ class TransformerVQVAE(L.LightningModule):
             self.structure_constructor, weight=self.structure_decoder_weight
         )
         self.need_to_setup_structure_decoder = False
-    
+
     def sequence_loss(self, latent, sequence, cur_weight=None):
         if self.need_to_setup_sequence_decoder:
             self.setup_sequence_decoder()
@@ -319,8 +302,10 @@ class TransformerVQVAE(L.LightningModule):
         # i.e. lengths are already trimmed to self.max_seq_len
         # if cur_weight is None, no annealing is done except for the weighting
         # specified when specifying the class. The mask is implicit.
-        return self.sequence_loss_fn(latent, sequence, cur_weight, log_recons_strs=self.log_reconstructed_sequences)
-    
+        return self.sequence_loss_fn(
+            latent, sequence, cur_weight, log_recons_strs=self.log_reconstructed_sequences
+        )
+
     def structure_loss(self, latent, gt_structures, sequences, cur_weight=None):
         if self.need_to_setup_structure_decoder:
             self.setup_structure_decoder()
@@ -348,11 +333,7 @@ if __name__ == "__main__":
 
     datadir = "/homefs/home/lux70/storage/data/cath/shards"
     dm = CATHShardedDataModule(
-        storage_type="hdf5",
-        shard_dir=datadir,
-        batch_size=32,
-        seq_len=64,
-        dtype="fp32"
+        storage_type="hdf5", shard_dir=datadir, batch_size=32, seq_len=64, dtype="fp32"
     )
     dm.setup("fit")
     train_dataloader = dm.train_dataloader()

@@ -24,7 +24,7 @@ input_dtype = "fp32"
 batch_size = 256
 num_workers = 0
 lm_embedder_type = "esmfold"
-shard_dir = "/homefs/home/lux70/storage/data/cath/shards/" 
+shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
 
 device = torch.device("cuda")
 
@@ -57,24 +57,24 @@ model = HourglassVQLightningModule.load_from_checkpoint(compress_model_path)
 
 class TokenizeLatent:
     def __init__(
-            self,
-            model,
-            out_dtype="int8",
-        ):
+        self,
+        model,
+        out_dtype="int8",
+    ):
         self.latent_scaler = LatentScaler()
         self.out_dtype = out_dtype
         self.device = torch.device("cuda")
         self.model = model
         self.model.to(self.device)
-    
+
     def _to_int8(self, x):
         assert x.max() < 128
         return x.to(dtype=torch.int8)
-    
+
     def _to_int16(self, x):
         return x.to(dtype=torch.int16)
-    
-    def save_safetensors(eslf, tokens, outpath): 
+
+    def save_safetensors(eslf, tokens, outpath):
         outpath = Path(outpath)
         if not outpath.parent.exists():
             outpath.parent.mkdir(parents=True)
@@ -93,7 +93,9 @@ class TokenizeLatent:
         x_norm = self.latent_scaler.scale(x)
 
         # model forward pass!!
-        recons_norm, loss, log_dict, quant_out = self.model(x_norm, mask.bool(), log_wandb=False)# , return_vq_output=True)
+        recons_norm, loss, log_dict, quant_out = self.model(
+            x_norm, mask.bool(), log_wandb=False
+        )  # , return_vq_output=True)
         recons_loss = masked_mse_loss(recons_norm, x_norm, mask)
         # print(recons_loss)
 
@@ -105,7 +107,7 @@ class TokenizeLatent:
         B = x.shape[0]
         L = x.shape[1] // self.model.enc.shorten_factor
         # print(B, L)
-        codebook = quant_out['min_encoding_indices'].squeeze()
+        codebook = quant_out["min_encoding_indices"].squeeze()
         # print(codebook.shape)
         codebook = codebook.reshape(B, L, -1)
         # print(codebook.shape)
@@ -116,7 +118,7 @@ class TokenizeLatent:
             return self._to_int16(codebook)
         else:
             raise NotImplementedError
-    
+
     def dataloader_to_tokens(self, dataloader):
         all_tokens = []
         for i, batch in enumerate(tqdm(dataloader)):
@@ -131,18 +133,16 @@ class TokenizeLatent:
 """
 Save tokens
 """
-token_outdir_base = Path("/homefs/home/lux70/storage/data/cath/tokens") 
+token_outdir_base = Path("/homefs/home/lux70/storage/data/cath/tokens")
 latent_tokenizer = TokenizeLatent(model, "int8")
 
 print("save train tensors")
-outpath = token_outdir_base / compress_model_id / "train" / f"seqlen_{max_seq_len}" / "tokens.st" 
+outpath = token_outdir_base / compress_model_id / "train" / f"seqlen_{max_seq_len}" / "tokens.st"
 tokens = latent_tokenizer.dataloader_to_tokens(train_dataloader)
 latent_tokenizer.save_safetensors(tokens, outpath)
 
 print("save val tensors")
 split = "val"
-outpath = token_outdir_base / compress_model_id / "val" / f"seqlen_{max_seq_len}" / "tokens.st" 
+outpath = token_outdir_base / compress_model_id / "val" / f"seqlen_{max_seq_len}" / "tokens.st"
 tokens = latent_tokenizer.dataloader_to_tokens(val_dataloader)
 latent_tokenizer.save_safetensors(tokens, outpath)
-
-

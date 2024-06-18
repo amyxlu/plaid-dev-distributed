@@ -116,9 +116,7 @@ class CosineBetaScheduler(BetaScheduler):
     def __call__(self, timesteps):
         return betas_for_alpha_bar(
             timesteps,
-            lambda t: modified_cosine_schedule(
-                t, start=self.start, end=self.end, tau=self.tau
-            ),
+            lambda t: modified_cosine_schedule(t, start=self.start, end=self.end, tau=self.tau),
         )
 
 

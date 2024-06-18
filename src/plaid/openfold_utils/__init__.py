@@ -21,7 +21,7 @@ from ._data_transforms import (
     get_chi_atom_indices,
     atom37_to_torsion_angles,
     get_backbone_frames,
-    get_chi_angles
+    get_chi_angles,
 )
 from ._feats import atom14_to_atom37
 from ._fape import (

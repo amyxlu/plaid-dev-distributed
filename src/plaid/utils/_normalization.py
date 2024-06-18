@@ -31,26 +31,10 @@ def _get_npy_path(cache_dir, dataset="uniref", lm_embedder_type="esmfold"):
     cache_dir = Path(cache_dir)
     # TODO: have a separate one for CATH
     paths = {
-        "max": cache_dir
-        / dataset
-        / lm_embedder_type
-        / "subset_5000_nov28"
-        / "channel_max.pkl.npy",
-        "min": cache_dir
-        / dataset
-        / lm_embedder_type
-        / "subset_5000_nov28"
-        / "channel_min.pkl.npy",
-        "mean": cache_dir
-        / dataset
-        / lm_embedder_type
-        / "subset_5000_nov28"
-        / "channel_mean.pkl.npy",
-        "std": cache_dir
-        / dataset
-        / lm_embedder_type
-        / "subset_5000_nov28"
-        / "channel_std.pkl.npy",
+        "max": cache_dir / dataset / lm_embedder_type / "subset_5000_nov28" / "channel_max.pkl.npy",
+        "min": cache_dir / dataset / lm_embedder_type / "subset_5000_nov28" / "channel_min.pkl.npy",
+        "mean": cache_dir / dataset / lm_embedder_type / "subset_5000_nov28" / "channel_mean.pkl.npy",
+        "std": cache_dir / dataset / lm_embedder_type / "subset_5000_nov28" / "channel_std.pkl.npy",
     }
     return paths
 
@@ -160,7 +144,7 @@ def _check_valid_mode(mode: str):
         "global_standardize",
         "channel_minmaxnorm",
         "channel_standardize",
-        "identity"
+        "identity",
     ]
 
 

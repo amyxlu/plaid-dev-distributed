@@ -1,6 +1,7 @@
 """
 Save compression and reconstructions for a batch of models
 """
+
 import torch
 from pathlib import Path
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
@@ -17,7 +18,7 @@ device = torch.device("cuda")
 
 def load_batch():
     ########################################################################################################
-    # Load batch of latents 
+    # Load batch of latents
     ########################################################################################################
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
@@ -25,7 +26,7 @@ def load_batch():
     # shard_dir = "/homefs/home/lux70/storage/data/rocklin/shards/"
     # pdb_dir = "/data/bucket/lux70/data/rocklin/structures/"
 
-    max_seq_len=512
+    max_seq_len = 512
     dm = CATHStructureDataModule(
         shard_dir,
         pdb_dir,
@@ -33,21 +34,19 @@ def load_batch():
         batch_size=32,
         max_num_samples=32,
         shuffle_val_dataset=False,
-        num_workers=2
-    ) 
-        
+        num_workers=2,
+    )
+
     dm.setup()
     val_dataloader = dm.val_dataloader()
     batch = next(iter(val_dataloader))
     print(len(val_dataloader.dataset))
-
 
     # grab saved embedding
     import torch
     from plaid.esmfold.misc import batch_encode_sequences
     from plaid.transforms import trim_or_pad_batch_first
     from plaid.utils import LatentScaler
-
 
     x = batch[0].to(device)
     sequences = batch[1]
@@ -74,7 +73,7 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
     print("Now running:", model_id)
 
     ########################################################################################################
-    # Compression forward pass 
+    # Compression forward pass
     ########################################################################################################
 
     root_dir = Path("/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/")
@@ -86,7 +85,6 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
 
     print("Downprojection factor:", model.enc.downproj_factor)
     print("Shorten factor:", model.enc.shorten_factor)
-
 
     # model forward pass!!
     recons_norm, _, _, compressed = model(x_norm, mask.bool(), log_wandb=False)
@@ -100,12 +98,15 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
     structure_constructor.to(device)
 
     recons = latent_scaler.unscale(recons_norm)
-    recons_struct = structure_constructor.to_structure(recons, sequences, return_raw_features=True, batch_size=4, num_recycles=1)
-    orig_struct = structure_constructor.to_structure(x, sequences, return_raw_features=True, batch_size=4, num_recycles=1)
-
+    recons_struct = structure_constructor.to_structure(
+        recons, sequences, return_raw_features=True, batch_size=4, num_recycles=1
+    )
+    orig_struct = structure_constructor.to_structure(
+        x, sequences, return_raw_features=True, batch_size=4, num_recycles=1
+    )
 
     ########################################################################################################
-    # Write to disk 
+    # Write to disk
     ########################################################################################################
 
     from plaid.utils import write_pdb_to_disk

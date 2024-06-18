@@ -22,7 +22,7 @@
 # #     step: int = 3000
 # #     num_recycles = 4
 # #     calc_perplexity = True
-# #     batch_size = 16 
+# #     batch_size = 16
 # # args = Config()
 
 

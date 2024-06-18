@@ -25,7 +25,7 @@ def train(cfg: DictConfig):
     print(f"Datamodule set up in {end - start:.2f} seconds.")
 
     model = hydra.utils.instantiate(cfg.causal_model)
-    job_id = wandb.util.generate_id() 
+    job_id = wandb.util.generate_id()
     print("job id:", job_id)
 
     if not cfg.dryrun:
@@ -38,9 +38,7 @@ def train(cfg: DictConfig):
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
 
-    trainer = hydra.utils.instantiate(
-        cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor]
-    )
+    trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, callbacks=[checkpoint_callback, lr_monitor])
 
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)

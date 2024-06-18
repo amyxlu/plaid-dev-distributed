@@ -26,14 +26,10 @@ def masked_mse_loss(pred: torch.Tensor, target: torch.Tensor, mask=None, reduce=
             dims = tuple(range(1, len(pred.shape)))
             return ((((pred - target) ** 2) * mask).sum(dim=dims)) / mask.sum(dim=dims)
         else:
-            raise ValueError(
-                f"Unknown reduce type: {reduce}. Expected: 'mean' or 'batch'."
-            )
+            raise ValueError(f"Unknown reduce type: {reduce}. Expected: 'mean' or 'batch'.")
 
 
-def masked_huber_loss(
-    pred: torch.Tensor, target: torch.Tensor, mask=None, reduce="mean"
-):
+def masked_huber_loss(pred: torch.Tensor, target: torch.Tensor, mask=None, reduce="mean"):
     """Computes the huber loss; assumes that the axis order is (B, L, ...)"""
     if mask is None:
         return F.huber_loss(pred, target)

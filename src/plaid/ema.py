@@ -77,7 +77,12 @@ class EMA(Callback):
         return step != self._cur_step and step >= self.start_step and step % self.apply_ema_every_n_steps == 0
 
     def on_train_batch_end(
-        self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", outputs: STEP_OUTPUT, batch: Any, batch_idx: int
+        self,
+        trainer: "pl.Trainer",
+        pl_module: "pl.LightningModule",
+        outputs: STEP_OUTPUT,
+        batch: Any,
+        batch_idx: int,
     ) -> None:
         if self.should_apply_ema(trainer.global_step):
             self._cur_step = trainer.global_step
@@ -113,7 +118,9 @@ class EMA(Callback):
                 ema_state_dict = torch.load(ema_path, map_location=torch.device("cpu"))
                 self._ema_model_weights = ema_state_dict["state_dict"].values()
                 del ema_state_dict
-                rank_zero_info("EMA weights have been loaded successfully. Continuing training with saved EMA weights.")
+                rank_zero_info(
+                    "EMA weights have been loaded successfully. Continuing training with saved EMA weights."
+                )
             else:
                 warnings.warn(
                     "we were unable to find the associated EMA weights when re-loading, "
@@ -186,10 +193,10 @@ class EMAModelCheckpoint(ModelCheckpoint):
 
     def _ema_format_filepath(self, filepath: str) -> str:
         return filepath.replace(self.FILE_EXTENSION, f"-EMA{self.FILE_EXTENSION}")
-    
+
     def _delete_prev_emas(self, filepath) -> None:
         ckpt_dir = Path(filepath).parent
         ema_paths = glob.glob(str(ckpt_dir / f"*-EMA{self.FILE_EXTENSION}"))
         for path in ema_paths:
             if path != filepath:
-                os.remove(path) 
+                os.remove(path)

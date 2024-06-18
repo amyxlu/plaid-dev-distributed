@@ -14,12 +14,12 @@ CACHED_TENSORS_DIR = Path(os.environ["HOME"]) / "plaid_cached_tensors"
 ACCEPTED_LM_EMBEDDER_TYPES = [
     "esmfold",  # 1024 -- i.e. t36_3B with projection layers, used for final model
     "esmfold_pre_mlp",  # 2560
-    "esm2_t48_15B_UR50D",  # 5120 
+    "esm2_t48_15B_UR50D",  # 5120
     "esm2_t36_3B_UR50D",  # 2560
     "esm2_t33_650M_UR50D",  # 1280
     "esm2_t30_150M_UR50D",  # 64e $EMBED
     "esm2_t12_35M_UR50D",  # dim=480
-    "esm2_t6_8M_UR50D"  # dim=320
+    "esm2_t6_8M_UR50D",  # dim=320
 ]
 
 COMPRESSED_DATA_STDS = {
@@ -27,7 +27,7 @@ COMPRESSED_DATA_STDS = {
     "jzlv54wl": 0.5509415,
     "wiepwn5p": 0.5558105,
     "h9hzw1bp": 0.2876465,
-    "j1v1wv6w": 0.3381734
+    "j1v1wv6w": 0.3381734,
 }
 
 
@@ -66,14 +66,14 @@ COMPRESSION_SHORTEN_FACTORS = {
     "h9hzw1bp": 2,
     "j1v1wv6w": 2,
     ## CATH, len 256 ##
-    "8ebs7j9h": 2, 
-    "mm9fe6x9": 2, 
-    "kyytc8i9": 2, 
-    "fbbrfqzk": 2, 
-    "13lltqha": 2, 
-    "uhg29zk4": 2, 
-    "ich20c3q": 2, 
-    "7str7fhl": 2, 
+    "8ebs7j9h": 2,
+    "mm9fe6x9": 2,
+    "kyytc8i9": 2,
+    "fbbrfqzk": 2,
+    "13lltqha": 2,
+    "uhg29zk4": 2,
+    "ich20c3q": 2,
+    "7str7fhl": 2,
     "g8e83omk": 2,
     ## CATH, len 512 ##
     "q3m9fhii": 1,
@@ -83,7 +83,7 @@ COMPRESSION_SHORTEN_FACTORS = {
     "v2cer77t": 1,
     "yfel5fnl": 1,
     "1hr1x9r5": 1,
-    "1b64t79h": 1
+    "1b64t79h": 1,
 }
 
 RESTYPES = [

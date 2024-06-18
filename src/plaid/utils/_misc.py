@@ -51,9 +51,7 @@ def append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
     if dims_to_append < 0:
-        raise ValueError(
-            f"input has {x.ndim} dims but target_dims is {target_dims}, which is less"
-        )
+        raise ValueError(f"input has {x.ndim} dims but target_dims is {target_dims}, which is less")
     return x[(...,) + (None,) * dims_to_append]
 
 
@@ -175,11 +173,7 @@ def rand_log_logistic(
     max_value = torch.as_tensor(max_value, device=device, dtype=torch.float64)
     min_cdf = min_value.log().sub(loc).div(scale).sigmoid()
     max_cdf = max_value.log().sub(loc).div(scale).sigmoid()
-    u = (
-        stratified_with_settings(shape, device=device, dtype=torch.float64)
-        * (max_cdf - min_cdf)
-        + min_cdf
-    )
+    u = stratified_with_settings(shape, device=device, dtype=torch.float64) * (max_cdf - min_cdf) + min_cdf
     return u.logit().mul(scale).add(loc).exp().to(dtype)
 
 
@@ -188,9 +182,7 @@ def rand_log_uniform(shape, min_value, max_value, device="cpu", dtype=torch.floa
     min_value = math.log(min_value)
     max_value = math.log(max_value)
     return (
-        stratified_with_settings(shape, device=device, dtype=dtype)
-        * (max_value - min_value)
-        + min_value
+        stratified_with_settings(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value
     ).exp()
 
 
@@ -205,11 +197,7 @@ def rand_v_diffusion(
     """Draws samples from a truncated v-diffusion training timestep distribution."""
     min_cdf = math.atan(min_value / sigma_data) * 2 / math.pi
     max_cdf = math.atan(max_value / sigma_data) * 2 / math.pi
-    u = (
-        stratified_with_settings(shape, device=device, dtype=dtype)
-        * (max_cdf - min_cdf)
-        + min_cdf
-    )
+    u = stratified_with_settings(shape, device=device, dtype=dtype) * (max_cdf - min_cdf) + min_cdf
     return torch.tan(u * math.pi / 2) * sigma_data
 
 
@@ -235,15 +223,9 @@ def rand_cosine_interpolated(
         shift = 2 * math.log(noise_d / image_d)
         return logsnr_schedule_cosine(t, logsnr_min - shift, logsnr_max - shift) + shift
 
-    def logsnr_schedule_cosine_interpolated(
-        t, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max
-    ):
-        logsnr_low = logsnr_schedule_cosine_shifted(
-            t, image_d, noise_d_low, logsnr_min, logsnr_max
-        )
-        logsnr_high = logsnr_schedule_cosine_shifted(
-            t, image_d, noise_d_high, logsnr_min, logsnr_max
-        )
+    def logsnr_schedule_cosine_interpolated(t, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max):
+        logsnr_low = logsnr_schedule_cosine_shifted(t, image_d, noise_d_low, logsnr_min, logsnr_max)
+        logsnr_high = logsnr_schedule_cosine_shifted(t, image_d, noise_d_high, logsnr_min, logsnr_max)
         return torch.lerp(logsnr_low, logsnr_high, t)
 
     logsnr_min = -2 * math.log(min_value / sigma_data)
@@ -255,9 +237,7 @@ def rand_cosine_interpolated(
     return torch.exp(-logsnr / 2) * sigma_data
 
 
-def rand_split_log_normal(
-    shape, loc, scale_1, scale_2, device="cpu", dtype=torch.float32
-):
+def rand_split_log_normal(shape, loc, scale_1, scale_2, device="cpu", dtype=torch.float32):
     """Draws samples from a split lognormal distribution."""
     n = torch.randn(shape, device=device, dtype=dtype).abs()
     u = torch.rand(shape, device=device, dtype=dtype)
@@ -288,13 +268,8 @@ def freq_weight_1d(n, scales=0, dtype=None, device=None):
 
 @lru_cache
 def freq_weight_nd(shape, scales=0, dtype=None, device=None):
-    indexers = [
-        [slice(None) if i == j else None for j in range(len(shape))]
-        for i in range(len(shape))
-    ]
-    weights = [
-        freq_weight_1d(n, scales, dtype, device)[ix] for n, ix in zip(shape, indexers)
-    ]
+    indexers = [[slice(None) if i == j else None for j in range(len(shape))] for i in range(len(shape))]
+    weights = [freq_weight_1d(n, scales, dtype, device)[ix] for n, ix in zip(shape, indexers)]
     return reduce(torch.minimum, weights)
 
 
@@ -343,9 +318,7 @@ def to_tensor(x, device=None, dtype=None):
     return x
 
 
-def save_pdbstr_to_disk(
-    pdbstrs: T.List[str], outdir: PathLike, identifiers_list: T.List[str]
-):
+def save_pdbstr_to_disk(pdbstrs: T.List[str], outdir: PathLike, identifiers_list: T.List[str]):
     assert len(pdbstrs) == len(identifiers_list)
     for i in range(len(pdbstrs)):
         path = Path(outdir) / f"{identifiers_list[i]}.pdb"
@@ -363,9 +336,7 @@ def set_random_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def normalize(
-    x: ArrayLike, minv: T.Union[float, ArrayLike], maxv: T.Union[float, ArrayLike]
-) -> ArrayLike:
+def normalize(x: ArrayLike, minv: T.Union[float, ArrayLike], maxv: T.Union[float, ArrayLike]) -> ArrayLike:
     return (x - minv) / (maxv - minv)
 
 
@@ -456,32 +427,28 @@ def extract_avg_b_factor_per_residue(pdb_file: PathLike) -> T.List[float]:
 
 def print_cuda_memory_usage():
     if torch.cuda.is_available():
-        print(
-            f"Current CUDA memory allocated: {torch.cuda.memory_allocated() / 1024 ** 2} MB"
-        )
-        print(
-            f"Current CUDA memory reserved: {torch.cuda.memory_reserved() / 1024 ** 2} MB"
-        )
+        print(f"Current CUDA memory allocated: {torch.cuda.memory_allocated() / 1024 ** 2} MB")
+        print(f"Current CUDA memory reserved: {torch.cuda.memory_reserved() / 1024 ** 2} MB")
 
 
 def print_cuda_info():
     # Number of visible CUDA GPUs
     print("=" * 10, "\n")
     num_gpus = torch.cuda.device_count()
-    print(f'Number of visible CUDA GPUs: {num_gpus}')
+    print(f"Number of visible CUDA GPUs: {num_gpus}")
 
     # Current GPU ID device number
     if num_gpus > 0:
         current_gpu_id = torch.cuda.current_device()
-        print(f'Current GPU ID device number: {current_gpu_id}')
+        print(f"Current GPU ID device number: {current_gpu_id}")
     else:
-        print('No CUDA GPU available.')
+        print("No CUDA GPU available.")
 
     print_cuda_memory_usage()
 
     # Number of visible CPUs
     num_cpus = torch.get_num_threads()
-    print(f'Number of visible CPUs: {num_cpus}')
+    print(f"Number of visible CPUs: {num_cpus}")
     print("=" * 10, "\n")
 
 
@@ -565,9 +532,7 @@ def build_contact_map(pdb_file, threshold=5.0):
     structure = parser.get_structure("protein", pdb_file)
     model = structure[0]  # Assuming we are working with the first model
 
-    residues = [
-        residue for residue in model.get_residues() if residue.get_id()[0] == " "
-    ]
+    residues = [residue for residue in model.get_residues() if residue.get_id()[0] == " "]
     n = len(residues)
     contact_map = np.zeros((n, n), dtype=int)
 
@@ -581,6 +546,7 @@ def build_contact_map(pdb_file, threshold=5.0):
 
 def pdb_path_to_biotite_atom_array(file_path):
     from biotite.structure.io import pdb
+
     pdb_file = pdb.PDBFile.read(file_path)
     atom_array_stack = pdb.get_structure(pdb_file)
     return atom_array_stack

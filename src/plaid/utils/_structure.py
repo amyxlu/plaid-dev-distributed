@@ -21,39 +21,37 @@ PathLike = T.Union[Path, str]
 
 
 FEATURES_REQUIRING_PADDING = [
- 'aatype',
- 'between_segment_residues',
- 'residue_index',
- 'seq_length',
- 'all_atom_positions',
- 'all_atom_mask',
-#  'resolution',
-#  'is_distillation',
- 'all_atom_aatype',
- 'seq_mask',
- 'atom14_atom_exists',
- 'residx_atom14_to_atom37',
- 'residx_atom37_to_atom14',
- 'atom37_atom_exists',
- 'atom14_gt_exists',
- 'atom14_gt_positions',
- 'atom14_alt_gt_positions',
- 'atom14_alt_gt_exists',
- 'atom14_atom_is_ambiguous',
- 'rigidgroups_gt_frames',
- 'rigidgroups_gt_exists',
- 'rigidgroups_group_exists',
- 'rigidgroups_group_is_ambiguous',
- 'rigidgroups_alt_gt_frames',
- 'backbone_rigid_tensor',
- 'backbone_rigid_mask'
+    "aatype",
+    "between_segment_residues",
+    "residue_index",
+    "seq_length",
+    "all_atom_positions",
+    "all_atom_mask",
+    #  'resolution',
+    #  'is_distillation',
+    "all_atom_aatype",
+    "seq_mask",
+    "atom14_atom_exists",
+    "residx_atom14_to_atom37",
+    "residx_atom37_to_atom14",
+    "atom37_atom_exists",
+    "atom14_gt_exists",
+    "atom14_gt_positions",
+    "atom14_alt_gt_positions",
+    "atom14_alt_gt_exists",
+    "atom14_atom_is_ambiguous",
+    "rigidgroups_gt_frames",
+    "rigidgroups_gt_exists",
+    "rigidgroups_group_exists",
+    "rigidgroups_group_is_ambiguous",
+    "rigidgroups_alt_gt_frames",
+    "backbone_rigid_tensor",
+    "backbone_rigid_mask",
 ]
 
 
 class StructureFeaturizer:
-    def _openfold_features_from_pdb(
-        self, pdb_str: str, pdb_id: T.Optional[str] = None
-    ) -> OFProtein:
+    def _openfold_features_from_pdb(self, pdb_str: str, pdb_id: T.Optional[str] = None) -> OFProtein:
         """Create rigid groups from a PDB file on disk.
 
         The inputs to the Frame-Aligned Point Error (FAPE) loss used in AlphaFold2 are
@@ -72,15 +70,11 @@ class StructureFeaturizer:
         protein_object = protein_from_pdb_string(pdb_str)
 
         # TODO: what is the `is_distillation` argument?
-        protein_features = make_pdb_features(
-            protein_object, description=pdb_id, is_distillation=False
-        )
+        protein_features = make_pdb_features(protein_object, description=pdb_id, is_distillation=False)
 
         return protein_features
 
-    def _process_structure_features(
-        self, features: T.Dict[str, np.ndarray], seq_len: int
-    ):
+    def _process_structure_features(self, features: T.Dict[str, np.ndarray], seq_len: int):
         """Process feature dtypes and pad to max length."""
         for k, v in features.items():
             # Handle data types in converting from numpy to torch
@@ -113,7 +107,7 @@ class StructureFeaturizer:
         features = self._openfold_features_from_pdb(pdb_str, pdb_id)
         features = self._process_structure_features(features, seq_len)
         features = make_all_atom_aatype(features)
-        features = make_seq_mask(features) 
+        features = make_seq_mask(features)
         features = make_atom14_masks(features)
         features = make_atom14_positions(features)
         features = atom37_to_frames(features)

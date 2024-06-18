@@ -51,9 +51,9 @@ def plot_msa_v2(feature_dict, sort_lines=True, dpi=100):
         i = np.where((gapid == g).all(axis=-1))
         qid_ = qid[i]
         gap_ = gap[i]
-        seqid = np.stack(
-            [qid_[:, Ln[i] : Ln[i + 1]].mean(-1) for i in range(len(Ls))], -1
-        ).sum(-1) / (g.sum(-1) + 1e-8)
+        seqid = np.stack([qid_[:, Ln[i] : Ln[i + 1]].mean(-1) for i in range(len(Ls))], -1).sum(-1) / (
+            g.sum(-1) + 1e-8
+        )
         non_gaps = gap_.astype(float)
         non_gaps[non_gaps == 0] = np.nan
         if sort_lines:
@@ -101,8 +101,7 @@ def plot_msa(msa, query_sequence, seq_len_list, total_seq_len, dpi=100):
         chain_msa = np.array(msa[:, prev_pos : prev_pos + l])
         seqid = np.array(
             [
-                np.count_nonzero(chain_seq == msa_line[prev_pos : prev_pos + l])
-                / len(chain_seq)
+                np.count_nonzero(chain_seq == msa_line[prev_pos : prev_pos + l]) / len(chain_seq)
                 for msa_line in msa
             ]
         )
@@ -188,9 +187,7 @@ def show_pdb(
 
     if chains is None:
         chains = 1 if Ls is None else len(Ls)
-    view = py3Dmol.view(
-        js="https://3dmol.org/build/3Dmol.js", width=size[0], height=size[1]
-    )
+    view = py3Dmol.view(js="https://3dmol.org/build/3Dmol.js", width=size[0], height=size[1])
     if animate:
         view.addModelsAsFrames(pdb_str, "pdb", {"hbondCutoff": hbondCutoff})
     else:
@@ -234,9 +231,7 @@ def show_pdb(
         )
     if show_mainchains:
         BB = ["C", "O", "N", "CA"]
-        view.addStyle(
-            {"atom": BB}, {"stick": {"colorscheme": f"WhiteCarbon", "radius": 0.3}}
-        )
+        view.addStyle({"atom": BB}, {"stick": {"colorscheme": f"WhiteCarbon", "radius": 0.3}})
     view.zoomTo()
     if animate:
         view.animate()

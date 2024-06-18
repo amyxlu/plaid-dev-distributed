@@ -9,9 +9,7 @@ class CategoricalMixture:
     def __init__(self, param, bins=50, start=0, end=1):
         # All tensors are of shape ..., bins.
         self.logits = param
-        bins = torch.linspace(
-            start, end, bins + 1, device=self.logits.device, dtype=self.logits.dtype
-        )
+        bins = torch.linspace(start, end, bins + 1, device=self.logits.device, dtype=self.logits.dtype)
         self.v_bins = (bins[:-1] + bins[1:]) / 2
 
     def log_prob(self, true):

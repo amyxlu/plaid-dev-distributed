@@ -10,6 +10,7 @@ for i in trange(len(ds)):
     d[header] = seq
 
 import pickle
+
 with open("/shared/amyxlu/data/cath/full.pkl", "wb") as f:
     pickle.dump(d, f)
 

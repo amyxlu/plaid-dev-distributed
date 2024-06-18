@@ -30,17 +30,13 @@ def encode_sequence(
     seq = chain_linker.join(chains)
 
     unk_idx = residue_constants.restype_order_with_x["X"]
-    encoded = torch.tensor(
-        [residue_constants.restype_order_with_x.get(aa, unk_idx) for aa in seq]
-    )
+    encoded = torch.tensor([residue_constants.restype_order_with_x.get(aa, unk_idx) for aa in seq])
     residx = torch.arange(len(encoded))
 
     if residue_index_offset > 0:
         start = 0
         for i, chain in enumerate(chains):
-            residx[start : start + len(chain) + len(chain_linker)] += (
-                i * residue_index_offset
-            )
+            residx[start : start + len(chain) + len(chain_linker)] += i * residue_index_offset
             start += len(chain) + len(chain_linker)
 
     linker_mask = torch.ones_like(encoded, dtype=torch.float32)
@@ -80,9 +76,7 @@ def batch_encode_sequences(
         chain_index_list.append(chain_index_seq)
 
     aatype = collate_dense_tensors(aatype_list)
-    mask = collate_dense_tensors(
-        [aatype.new_ones(len(aatype_seq)) for aatype_seq in aatype_list]
-    )
+    mask = collate_dense_tensors([aatype.new_ones(len(aatype_seq)) for aatype_seq in aatype_list])
     residx = collate_dense_tensors(residx_list)
     linker_mask = collate_dense_tensors(linker_mask_list)
     chain_index_list = collate_dense_tensors(chain_index_list, -1)
@@ -116,9 +110,7 @@ def output_to_pdb(output: T.Dict) -> T.List[str]:
     return pdbs
 
 
-def collate_dense_tensors(
-    samples: T.List[torch.Tensor], pad_v: float = 0
-) -> torch.Tensor:
+def collate_dense_tensors(samples: T.List[torch.Tensor], pad_v: float = 0) -> torch.Tensor:
     """
     Takes a list of tensors with the following dimensions:
         [(d_11,       ...,           d_1K),
@@ -131,14 +123,10 @@ def collate_dense_tensors(
     if len(samples) == 0:
         return torch.Tensor()
     if len(set(x.dim() for x in samples)) != 1:
-        raise RuntimeError(
-            f"Samples has varying dimensions: {[x.dim() for x in samples]}"
-        )
+        raise RuntimeError(f"Samples has varying dimensions: {[x.dim() for x in samples]}")
     (device,) = tuple(set(x.device for x in samples))  # assumes all on same device
     max_shape = [max(lst) for lst in zip(*[x.shape for x in samples])]
-    result = torch.empty(
-        len(samples), *max_shape, dtype=samples[0].dtype, device=device
-    )
+    result = torch.empty(len(samples), *max_shape, dtype=samples[0].dtype, device=device)
     result.fill_(pad_v)
     for i in range(len(samples)):
         result_i = result[i]
@@ -194,9 +182,7 @@ class Attention(nn.Module):
 
         # Do not attend to padding tokens.
         if mask is not None:
-            mask = repeat(
-                mask, "... lk -> ... h lq lk", h=self.num_heads, lq=q.shape[-2]
-            )
+            mask = repeat(mask, "... lk -> ... h lq lk", h=self.num_heads, lq=q.shape[-2])
             a = a.masked_fill(mask == False, -np.inf)
 
         a = F.softmax(a, dim=-1)
@@ -322,9 +308,7 @@ def get_esmfold_model_state(model_name="esmfold_3B_v1"):
         model_data = torch.load(str(model_path), map_location="cpu")
     else:  # load from hub
         url = f"https://dl.fbaipublicfiles.com/fair-esm/models/{model_name}.pt"
-        model_data = torch.hub.load_state_dict_from_url(
-            url, progress=False, map_location="cpu"
-        )
+        model_data = torch.hub.load_state_dict_from_url(url, progress=False, map_location="cpu")
     esmfold_config = model_data["cfg"]["model"]
     model_state = model_data["model"]
     return esmfold_config, model_state

@@ -31,7 +31,7 @@ model_config = {
     "input_channels": 1,
     "input_size": [28, 28],
     "patch_size": [4, 4],
-    "d_ff": 256,  #????? added arbitrarily
+    "d_ff": 256,  # ????? added arbitrarily
     "width": 256,
     "depth": 8,
     "loss_config": "karras",
@@ -41,11 +41,8 @@ model_config = {
     "sigma_data": 0.6162,
     "sigma_min": 1e-2,
     "sigma_max": 80,
-    "sigma_sample_density": {
-        "type": "cosine-interpolated"
-    }
+    "sigma_sample_density": {"type": "cosine-interpolated"},
 }
-
 
 
 model = ImageTransformerDenoiserModelV1(

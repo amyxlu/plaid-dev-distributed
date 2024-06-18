@@ -26,9 +26,7 @@ def write_tmp_file(data, fname) -> str:
     return str(outpath)
 
 
-def run_tmalign(
-    query: str, reference: str, fast: bool = False, delete_tmp=True, verbose=False
-) -> float:
+def run_tmalign(query: str, reference: str, fast: bool = False, delete_tmp=True, verbose=False) -> float:
     """
     Run TMalign on the two given input pdb files
     """
@@ -91,9 +89,7 @@ def max_tm_across_refs(
     along with the corresponding reference
     This is typically a lot of comparisons so we run with fast set to True by default
     """
-    logging.debug(
-        f"Matching against {len(references)} references using {n_threads} workers with fast={fast}"
-    )
+    logging.debug(f"Matching against {len(references)} references using {n_threads} workers with fast={fast}")
     args = [(query, ref, fast) for ref in references]
     if parallel:
         n_threads = min(n_threads, len(references))

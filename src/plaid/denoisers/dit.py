@@ -46,55 +46,56 @@ class Attention(nn.Module):
     def __init__(
         self,
         dim,
-        heads = 8,
-        qkv_bias = False,
-        dropout = 0.,
+        heads=8,
+        qkv_bias=False,
+        dropout=0.0,
     ):
         super().__init__()
         self.heads = heads
         dim_head = dim // heads
-        self.scale = dim_head ** -0.5
+        self.scale = dim_head**-0.5
 
-        self.to_qkv = nn.Linear(dim, dim * 3, bias = qkv_bias)
+        self.to_qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.to_out = nn.Linear(dim, dim)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, mask = None):
+    def forward(self, x, mask=None):
         h, device = self.heads, x.device
-        q, k, v = self.to_qkv(x).chunk(3, dim = -1)
-        q, k, v = map(lambda t: rearrange(t, 'b l (h d) -> b h l d', h = h), (q, k, v))
+        q, k, v = self.to_qkv(x).chunk(3, dim=-1)
+        q, k, v = map(lambda t: rearrange(t, "b l (h d) -> b h l d", h=h), (q, k, v))
 
         q = q * self.scale
 
-        sim = einsum('b h i d, b h j d -> b h i j', q, k)
+        sim = einsum("b h i d, b h j d -> b h i j", q, k)
         mask_value = -torch.finfo(sim.dtype).max
 
         if exists(mask):
-            mask = rearrange(mask, 'b j -> b () () j')
+            mask = rearrange(mask, "b j -> b () () j")
             sim = sim.masked_fill(~mask, mask_value)
 
-        attn = sim.softmax(dim = -1)
+        attn = sim.softmax(dim=-1)
         attn = self.dropout(attn)
 
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-        out = rearrange(out, 'b h l d -> b l (h d)', h = h)
+        out = einsum("b h i j, b h j d -> b h i d", attn, v)
+        out = rearrange(out, "b h l d -> b l (h d)", h=h)
         return self.to_out(out)
 
 
 class Mlp(nn.Module):
-    """ MLP as used in Vision Transformer, MLP-Mixer and related networks
+    """MLP as used in Vision Transformer, MLP-Mixer and related networks
     https://github.com/huggingface/pytorch-image-models/blob/main/timm/layers/mlp.py
     """
+
     def __init__(
-            self,
-            in_features,
-            hidden_features=None,
-            out_features=None,
-            act_layer=nn.GELU,
-            norm_layer=None,
-            bias=True,
-            drop=0.,
-            use_conv=False,
+        self,
+        in_features,
+        hidden_features=None,
+        out_features=None,
+        act_layer=nn.GELU,
+        norm_layer=None,
+        bias=True,
+        drop=0.0,
+        use_conv=False,
     ):
         super().__init__()
         out_features = out_features or in_features
@@ -124,6 +125,7 @@ class DiTBlock(nn.Module):
     """
     A DiT block with adaptive layer norm zero (adaLN-Zero) conditioning.
     """
+
     def __init__(self, hidden_size, num_heads, mlp_ratio=4.0, **block_kwargs):
         super().__init__()
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -132,14 +134,13 @@ class DiTBlock(nn.Module):
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
         self.mlp = Mlp(in_features=hidden_size, hidden_features=mlp_hidden_dim, act_layer=approx_gelu, drop=0)
-        self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(hidden_size, 6 * hidden_size, bias=True)
-        )
+        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True))
 
     def forward(self, x, c, mask):
         """Apply multi-head attention (with mask) and adaLN conditioning (mask agnostic)."""
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(
+            6, dim=1
+        )
         x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), mask)
         x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
         return x
@@ -149,6 +150,7 @@ class FinalLayer(nn.Module):
     """
     The final layer of DiT.
     """
+
     def __init__(self, hidden_size, max_seq_len, out_channels):
         super().__init__()
         self.max_seq_len = max_seq_len
@@ -156,10 +158,7 @@ class FinalLayer(nn.Module):
         self.hidden_size = hidden_size
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.linear = nn.Linear(hidden_size, out_channels, bias=True)
-        self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(hidden_size, 2 * hidden_size, bias=True)
-        )
+        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True))
 
     def forward(self, x, c):
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
@@ -172,21 +171,22 @@ class InputProj(nn.Module):
     """
     Initial x projection, serves a similar purpose as the patch embed
     """
+
     def __init__(self, input_dim, hidden_size, bias=True):
         super().__init__()
         self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
         self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-    
+
     def forward(self, x):
         return self.norm(self.proj(x))
-    
+
 
 class SimpleDiT(nn.Module):
     def __init__(
         self,
         input_dim=8,
         hidden_size=1024,
-        max_seq_len=512, 
+        max_seq_len=512,
         depth=28,
         num_heads=16,
         mlp_ratio=4.0,
@@ -214,9 +214,9 @@ class SimpleDiT(nn.Module):
         else:
             self.y_embedder = None
 
-        self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
-        ])
+        self.blocks = nn.ModuleList(
+            [DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)]
+        )
         self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
         self.initialize_weights()
 
@@ -227,6 +227,7 @@ class SimpleDiT(nn.Module):
                 torch.nn.init.xavier_uniform_(module.weight)
                 if module.bias is not None:
                     nn.init.constant_(module.bias, 0)
+
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
@@ -263,21 +264,21 @@ class SimpleDiT(nn.Module):
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
         x = self.x_proj(x)
-        x += self.pos_embed[:, :x.shape[1], :]
-        t = self.t_embedder(t)                   # (N, D)
+        x += self.pos_embed[:, : x.shape[1], :]
+        t = self.t_embedder(t)  # (N, D)
         if not self.y_embedder is None:
             assert not y is None
             y = self.y_embedder(y, self.training)
             c = t + y
         else:
             c = t
-        
+
         if mask is None:
             mask = torch.ones(x.shape[:2], device=x.device).bool()
 
         for block in self.blocks:
-            x = block(x, c, mask)                # (N, L, D)
-        x = self.final_layer(x, c)               # (N, L, out_channels)
+            x = block(x, c, mask)  # (N, L, D)
+        x = self.final_layer(x, c)  # (N, L, out_channels)
         return x
 
 
@@ -289,7 +290,7 @@ class SimpleDiT(nn.Module):
 #         self,
 #         input_dim=8,
 #         hidden_size=1024,
-#         max_seq_len=512, 
+#         max_seq_len=512,
 #         depth=28,
 #         num_heads=16,
 #         mlp_ratio=4.0,
@@ -329,9 +330,9 @@ class SimpleDiT(nn.Module):
 #             self.turn_embedder == LabelEmbedder(NUM_SECONDARY_STRUCTURE_BINS, hidden_size, class_dropout_prob)
 #             self.sheet_embedder == LabelEmbedder(NUM_SECONDARY_STRUCTURE_BINS, hidden_size, class_dropout_prob)
 #             if use_secondary_structure_fractions == "cath":
-#                 self.boundaries = CATH_SS_BOUNDARIES 
+#                 self.boundaries = CATH_SS_BOUNDARIES
 #             if use_secondary_structure_fractions == "uniref":
-#                 self.boundaries = UNIREF_SS_BOUNDARIES 
+#                 self.boundaries = UNIREF_SS_BOUNDARIES
 
 #         # make blocks
 #         self.blocks = nn.ModuleList([
@@ -391,7 +392,7 @@ class SimpleDiT(nn.Module):
 #             c = t + y
 #         else:
 #             c = t
-        
+
 #         if mask is None:
 #             mask = torch.ones(x.shape[:2], device=x.device).bool()
 

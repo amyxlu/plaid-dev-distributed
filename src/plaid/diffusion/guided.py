@@ -30,9 +30,9 @@ from plaid.utils import (
     get_lr_scheduler,
     sequences_to_secondary_structure_fracs,
     to_tensor,
-    print_cuda_info
+    print_cuda_info,
 )
-from plaid.diffusion.beta_schedulers import make_beta_scheduler 
+from plaid.diffusion.beta_schedulers import make_beta_scheduler
 from plaid.losses.functions import masked_mse_loss, masked_huber_loss
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.esmfold.misc import batch_encode_sequences
@@ -103,6 +103,7 @@ class GaussianDiffusion(L.LightningModule):
     Additional features, adapted from Lucidrains and elsewhere:
     * loss weighting by SNR
     """
+
     def __init__(
         self,
         model: torch.nn.Module,  # denoiser
@@ -116,7 +117,9 @@ class GaussianDiffusion(L.LightningModule):
         objective="pred_v",
         min_snr_loss_weight=False,
         min_snr_gamma=5,
-        x_clip_val: T.Optional[float] = 1.0,  # determines behavior during training, and value to use during sampling
+        x_clip_val: T.Optional[
+            float
+        ] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
         shorten_factor=1.0,
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
@@ -146,7 +149,11 @@ class GaussianDiffusion(L.LightningModule):
         ##########################################################################################
 
         ignore_args_for_hparams = [
-            "model", "uncompressor", "esmfold", "sequence_constructor", "structure_constructor"
+            "model",
+            "uncompressor",
+            "esmfold",
+            "sequence_constructor",
+            "structure_constructor",
         ]
         self.model = model
         self.beta_scheduler = make_beta_scheduler(
@@ -176,7 +183,6 @@ class GaussianDiffusion(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-
         ##########################################################################################
         # Auxiliary modules set up
         ##########################################################################################
@@ -199,7 +205,7 @@ class GaussianDiffusion(L.LightningModule):
         self.structure_loss_fn = None
 
         ##########################################################################################
-        # Diffusion set up  
+        # Diffusion set up
         ##########################################################################################
 
         # Use float64 for accuracy.
@@ -225,27 +231,19 @@ class GaussianDiffusion(L.LightningModule):
         self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
-        self.posterior_variance = (
-            betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-        )
+        self.posterior_variance = betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         # log calculation clipped because the posterior variance is 0 at the
         # beginning of the diffusion chain.
         self.posterior_log_variance_clipped = np.log(
             np.append(self.posterior_variance[1], self.posterior_variance[1:])
         )
-        self.posterior_mean_coef1 = (
-            betas * np.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-        )
+        self.posterior_mean_coef1 = betas * np.sqrt(self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
         self.posterior_mean_coef2 = (
-            (1.0 - self.alphas_cumprod_prev)
-            * np.sqrt(alphas)
-            / (1.0 - self.alphas_cumprod)
+            (1.0 - self.alphas_cumprod_prev) * np.sqrt(alphas) / (1.0 - self.alphas_cumprod)
         )
 
         # sampling specific specifications
-        self.sampling_timesteps = default(
-            sampling_timesteps, timesteps
-        )
+        self.sampling_timesteps = default(sampling_timesteps, timesteps)
         assert self.sampling_timesteps <= timesteps
         self.sampling_seq_len = sampling_seq_len
 
@@ -255,7 +253,7 @@ class GaussianDiffusion(L.LightningModule):
         if min_snr_loss_weight:
             maybe_clipped_snr = maybe_clipped_snr.clip(max=min_snr_gamma)
 
-        # model prediction 
+        # model prediction
         if objective == "pred_noise":
             self.loss_weight = maybe_clipped_snr / self.snr
         elif objective == "pred_x0":
@@ -266,63 +264,64 @@ class GaussianDiffusion(L.LightningModule):
         # other hyperparameters
         self.add_secondary_structure_conditioning = add_secondary_structure_conditioning
         self.save_hyperparameters(ignore=ignore_args_for_hparams)
-    
+
     """
     Converting between model output, x_start, and eps
     """
+
     def predict_start_from_noise(self, x_t, t, noise):
         return (
-            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t -
-            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
+            extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
+            - extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * noise
         )
 
     def predict_noise_from_start(self, x_t, t, x0):
-        return (
-            (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0) / \
-            extract(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape)
+        return (extract(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t - x0) / extract(
+            self.sqrt_recipm1_alphas_cumprod, t, x_t.shape
         )
 
     def predict_v(self, x_start, t, noise):
         return (
-            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * noise -
-            extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * x_start
+            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * noise
+            - extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * x_start
         )
 
     def predict_start_from_v(self, x_t, t, v):
         return (
-            extract(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t -
-            extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
+            extract(self.sqrt_alphas_cumprod, t, x_t.shape) * x_t
+            - extract(self.sqrt_one_minus_alphas_cumprod, t, x_t.shape) * v
         )
 
     def model_output_conversion_wrapper(self, model_output, x, t):
-        """Based on the objective, converts model outputs to noise or start"""        
-        if self.objective == 'pred_noise':
+        """Based on the objective, converts model outputs to noise or start"""
+        if self.objective == "pred_noise":
             pred_noise = model_output
             x_start = self.predict_start_from_noise(x, t, pred_noise)
             x_start = maybe_clip(x_start, self.x_clip_val)
 
-        elif self.objective == 'pred_x0':
+        elif self.objective == "pred_x0":
             x_start = model_output
             x_start = maybe_clip(x_start, self.x_clip_val)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
 
-        elif self.objective == 'pred_v':
+        elif self.objective == "pred_v":
             v = model_output
             x_start = self.predict_start_from_v(x, t, v)
             x_start = maybe_clip(x_start, self.x_clip_val)
             pred_noise = self.predict_noise_from_start(x, t, x_start)
         return ModelPrediction(pred_noise=pred_noise, pred_x_start=x_start)
-    
-    def model_predictions(self, x, t, y=None, mask = None, x_self_cond = None, model_kwargs = {}):
+
+    def model_predictions(self, x, t, y=None, mask=None, x_self_cond=None, model_kwargs={}):
         """Based on a noised sample and self-conditioning, denoise as x_start and eps."""
         if model_kwargs is None:
             model_kwargs = {}
         model_output = self.model(x=x, t=t, y=y, mask=mask, x_self_cond=x_self_cond, **model_kwargs)
         return self.model_output_conversion_wrapper(model_output, x, t)
-    
+
     """
     Forward process functions
     """
+
     def q_mean_variance(self, x_start, t):
         """
         Get the distribution q(x_t | x_0).
@@ -331,13 +330,9 @@ class GaussianDiffusion(L.LightningModule):
         :param t: the number of diffusion steps (minus 1). Here, 0 means one step.
         :return: A tuple (mean, variance, log_variance), all of x_start's shape.
         """
-        mean = (
-            extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-        )
+        mean = extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
         variance = extract(1.0 - self.alphas_cumprod, t, x_start.shape)
-        log_variance = extract(
-            self.log_one_minus_alphas_cumprod, t, x_start.shape
-        )
+        log_variance = extract(self.log_one_minus_alphas_cumprod, t, x_start.shape)
         return mean, variance, log_variance
 
     def q_sample(self, x_start, t, noise=None):
@@ -356,8 +351,7 @@ class GaussianDiffusion(L.LightningModule):
         assert noise.shape == x_start.shape
         return (
             extract(self.sqrt_alphas_cumprod, t, x_start.shape) * x_start
-            + extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape)
-            * noise
+            + extract(self.sqrt_one_minus_alphas_cumprod, t, x_start.shape) * noise
         )
 
     def q_posterior_mean_variance(self, x_start, x_t, t):
@@ -373,17 +367,13 @@ class GaussianDiffusion(L.LightningModule):
             + extract(self.posterior_mean_coef2, t, x_t.shape) * x_t
         )
         posterior_variance = extract(self.posterior_variance, t, x_t.shape)
-        posterior_log_variance_clipped = extract(
-            self.posterior_log_variance_clipped, t, x_t.shape
-        )
+        posterior_log_variance_clipped = extract(self.posterior_log_variance_clipped, t, x_t.shape)
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
-
 
     """Backward process functions
     """
-    def p_mean_variance(
-        self, x, t, y=None, mask=None, x_self_cond=None, clip_denoised=True, model_kwargs={}
-    ):
+
+    def p_mean_variance(self, x, t, y=None, mask=None, x_self_cond=None, clip_denoised=True, model_kwargs={}):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
         the initial x, x_0.
@@ -424,9 +414,7 @@ class GaussianDiffusion(L.LightningModule):
         model_variance = extract(model_variance, t, x.shape)
         model_log_variance = extract(model_log_variance, t, x.shape)
 
-        model_mean, _, _ = self.q_posterior_mean_variance(
-            x_start=pred_xstart, x_t=x, t=t
-        )
+        model_mean, _, _ = self.q_posterior_mean_variance(x_start=pred_xstart, x_t=x, t=t)
 
         return {
             "mean": to_tensor(model_mean, self.device),
@@ -448,10 +436,8 @@ class GaussianDiffusion(L.LightningModule):
         https://github.com/openai/guided-diffusion/issues/51
         """
         gradient = cond_fn(x, t, **model_kwargs)
-        
-        new_mean = (
-            p_mean_var["mean"].float() + p_mean_var["variance"] * gradient.float()
-        )
+
+        new_mean = p_mean_var["mean"].float() + p_mean_var["variance"] * gradient.float()
         return new_mean
 
     def p_sample(
@@ -460,8 +446,8 @@ class GaussianDiffusion(L.LightningModule):
         t,
         y=None,
         mask=None,
-        x_self_cond = None,
-        clip_denoised = True,
+        x_self_cond=None,
+        clip_denoised=True,
         cond_fn=None,
         model_kwargs=None,
     ):
@@ -489,16 +475,12 @@ class GaussianDiffusion(L.LightningModule):
             mask=mask,
             x_self_cond=x_self_cond,
             clip_denoised=clip_denoised,
-            model_kwargs=model_kwargs
+            model_kwargs=model_kwargs,
         )
         noise = torch.randn_like(x)
-        nonzero_mask = (
-            (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
-        )  # no noise when t == 0
+        nonzero_mask = (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))  # no noise when t == 0
         if cond_fn is not None:
-            out["mean"] = self.condition_mean(
-                cond_fn, out, x, t, model_kwargs=model_kwargs
-            )
+            out["mean"] = self.condition_mean(cond_fn, out, x, t, model_kwargs=model_kwargs)
         sample = out["mean"] + nonzero_mask * torch.exp(0.5 * out["log_variance"]) * noise
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
@@ -593,6 +575,7 @@ class GaussianDiffusion(L.LightningModule):
     """
     Lightning set up
     """
+
     def setup_sequence_decoder(self):
         """If a reference pointer to the auxiliary sequence decoder wasn't already passed in
         at the construction of the class, load the sequence decoder onto the GPU now.
@@ -616,7 +599,7 @@ class GaussianDiffusion(L.LightningModule):
             self.structure_constructor, weight=self.structure_decoder_weight
         )
         self.need_to_setup_structure_decoder = False
-    
+
     def _move_auxiliary_models_to_device(self):
         if self.hourglass_model is not None:
             self.hourglass_model.to(self.device)
@@ -628,10 +611,8 @@ class GaussianDiffusion(L.LightningModule):
     def training_step(self, batch):
         # print_cuda_info()
         self._move_auxiliary_models_to_device()
-        
-        loss, log_dict = self.run_step(
-            batch, model_kwargs={}, noise=None, clip_x_start=True
-        )
+
+        loss, log_dict = self.run_step(batch, model_kwargs={}, noise=None, clip_x_start=True)
         N = self._get_batch_size(batch)
         self.log_dict(
             {f"train/{k}": v for k, v in log_dict.items()}, on_step=True, on_epoch=False, batch_size=N
@@ -643,19 +624,19 @@ class GaussianDiffusion(L.LightningModule):
         self._move_auxiliary_models_to_device()
 
         # Extract the starting images from data batch
-        loss, log_dict = self.run_step(
-            batch, model_kwargs={}, noise=None, clip_x_start=True
-        )
+        loss, log_dict = self.run_step(batch, model_kwargs={}, noise=None, clip_x_start=True)
         N = self._get_batch_size(batch)
         self.log_dict(
-            {f"val/{k}": v for k, v in log_dict.items()}, on_step=False, on_epoch=True, batch_size=N, sync_dist=True
+            {f"val/{k}": v for k, v in log_dict.items()},
+            on_step=False,
+            on_epoch=True,
+            batch_size=N,
+            sync_dist=True,
         )
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(
-            self.model.parameters(), lr=self.lr, betas=self.adam_betas
-        )
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, betas=self.adam_betas)
         scheduler = get_lr_scheduler(
             optimizer=optimizer,
             sched_type=self.lr_sched_type,
@@ -710,13 +691,11 @@ class GaussianDiffusion(L.LightningModule):
         # add conditioning information here
         if self.add_secondary_structure_conditioning:
             assert not sequences is None
-            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(
-                sequences
-            )
+            model_kwargs["cond_dict"] = self.get_secondary_structure_fractions(sequences)
 
         # main inner model forward pass
         model_out = self.model(x_t, t, y=clan_idx, mask=mask, **model_kwargs)
-        
+
         # reconstruction / "main diffusion loss"
         if self.objective == "pred_noise":
             target = noise
@@ -729,10 +708,8 @@ class GaussianDiffusion(L.LightningModule):
             raise ValueError(f"unknown objective {self.objective}")
 
         diffusion_loss = masked_mse_loss(model_out, target, mask, reduce="batch")
-        diffusion_loss = diffusion_loss * extract(
-            self.loss_weight, t, diffusion_loss.shape
-        )
-        return model_out, x_t, t, diffusion_loss.mean() 
+        diffusion_loss = diffusion_loss * extract(self.loss_weight, t, diffusion_loss.shape)
+        return model_out, x_t, t, diffusion_loss.mean()
 
     def sequence_loss(self, latent, aatype, mask, cur_weight=None):
         if self.need_to_setup_sequence_decoder:
@@ -775,10 +752,10 @@ class GaussianDiffusion(L.LightningModule):
             # hack: embedding batch output is a dict
             out = self._run_diffusion_step_saved_embeddings(batch, model_kwargs, noise)
         elif isinstance(batch, list) or isinstance(batch, tuple):
-            # hack: fasta datamodule outputs (header, sequence) 
+            # hack: fasta datamodule outputs (header, sequence)
             out = self._run_diffusion_step_embed_on_the_fly(batch)
 
-        # unpack outputs 
+        # unpack outputs
         diffusion_loss = out.get("diffusion_loss")
         model_output = out.get("model_output")
         sequences = out.get("sequences")
@@ -786,7 +763,7 @@ class GaussianDiffusion(L.LightningModule):
         t = out.get("t")
 
         log_dict = {"diffusion_loss": diffusion_loss}
-        using_seq_loss = self.sequence_decoder_weight > 0.0 
+        using_seq_loss = self.sequence_decoder_weight > 0.0
         using_struct_loss = self.structure_decoder_weight > 0.0
 
         ###############
@@ -795,7 +772,7 @@ class GaussianDiffusion(L.LightningModule):
         if using_seq_loss or using_struct_loss:
             pred_x_start = self.model_output_conversion_wrapper(model_output, x_t, t).pred_x_start
             pred_latent = self.process_x_to_latent(pred_x_start)
-        
+
         if self.sequence_decoder_weight > 0.0:
             true_aatype, seq_mask, _, _, _ = batch_encode_sequences(sequences)
             seq_loss, seq_loss_dict, recons_strs = self.sequence_loss(
@@ -840,7 +817,7 @@ class GaussianDiffusion(L.LightningModule):
             clan_idx=clan,
             sequences=sequences,
             model_kwargs=model_kwargs,
-            noise=noise
+            noise=noise,
         )
         return {
             "diffusion_loss": diffusion_loss,
@@ -848,7 +825,7 @@ class GaussianDiffusion(L.LightningModule):
             "sequences": sequences,
             "x_t": x_t,
             "clan": clan,
-            "t": t
+            "t": t,
         }
 
     def _run_diffusion_step_embed_on_the_fly(self, batch, model_kwargs={}, noise=None):
@@ -860,11 +837,11 @@ class GaussianDiffusion(L.LightningModule):
         """
         assert not self.esmfold is None
         headers, sequences = batch
-        res = self.esmfold.infer_embedding(sequences)['s']
-        latent, mask = res['s'], res['mask']
+        res = self.esmfold.infer_embedding(sequences)["s"]
+        latent, mask = res["s"], res["mask"]
         scaled_latent = self.unscaler.scale(latent)
         x_start = self.uncompressor.compress(scaled_latent)
-        
+
         clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(
@@ -882,28 +859,24 @@ class GaussianDiffusion(L.LightningModule):
             "sequences": sequences,
             "x_t": x_t,
             "clan": clan_idxs,
-            "t": t
+            "t": t,
         }
 
     def _get_batch_size(self, batch):
         if isinstance(batch, dict):
-            return len(batch['emb'])
+            return len(batch["emb"])
         elif isinstance(batch, tuple):
             return len(batch[0])
         else:
             raise TypeError(f"Expected batch to be dict or tuple, got {type(batch)}.")
-        
+
     def _make_accession_to_clan_data_structures(self):
-        fam_to_clan_df = pd.read_csv(
-            self.accession_to_clan_file,
-            sep="\t",
-            header=None
-    )
+        fam_to_clan_df = pd.read_csv(self.accession_to_clan_file, sep="\t", header=None)
         # read accession to clan dataframe and grab the first clan for each pfam family accession
         header = ["accession", "clan", "short_name", "gene_name", "description"]
         fam_to_clan_df.columns = header
-        accession_to_clan = fam_to_clan_df.groupby("accession").first().filter(['accession','clan'], axis=1)
-        accession_to_clan = accession_to_clan.to_dict()['clan']
+        accession_to_clan = fam_to_clan_df.groupby("accession").first().filter(["accession", "clan"], axis=1)
+        accession_to_clan = accession_to_clan.to_dict()["clan"]
 
         # create an unique index representer for each clan
         clans = fam_to_clan_df.clan.dropna().unique()
@@ -913,7 +886,7 @@ class GaussianDiffusion(L.LightningModule):
         self.clans_to_idx = dict(zip(clans, np.arange(len(clans))))
         self.accession_to_clan = accession_to_clan
         self.clans = clans
-    
+
     def _header_to_clan_idx(self, header):
         subid = header.split(" ")[-1]
         accession = subid.split(".")[0]
@@ -922,4 +895,3 @@ class GaussianDiffusion(L.LightningModule):
             return len(self.clans)  # dummy idx for unknown clan
         else:
             return self.clans_to_idx[clan_id]
-    

@@ -1,6 +1,7 @@
 """
 Embed with ESMFold, compress, and save to h5py with each header getting its own index
 """
+
 import random
 import typing as T
 from pathlib import Path
@@ -24,22 +25,29 @@ from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 
 PathLike = T.Union[Path, str]
-os.environ['TORCH_LOGS'] = "+dynamo"
-os.environ['TORCH_DYNAMO_CACHE_SIZE'] = "16"
-os.environ['TORCHDYNAMO_VERBOSE'] = "1"
+os.environ["TORCH_LOGS"] = "+dynamo"
+os.environ["TORCH_DYNAMO_CACHE_SIZE"] = "16"
+os.environ["TORCHDYNAMO_VERBOSE"] = "1"
 
 
 def argument_parser():
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--compression_model_id", type=str, default="jzlv54wl")
     parser.add_argument("--compression_model_name", type=str, default="last.ckpt")
     parser.add_argument("--fasta_file", type=str, default="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta")
-    parser.add_argument("--accession_to_clan_file", type=str, default="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv")
+    parser.add_argument(
+        "--accession_to_clan_file", type=str, default="/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv"
+    )
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--max_seq_len", type=int, default=512)
     parser.add_argument("--max_dataset_size", type=int, default=-1)
-    parser.add_argument("--output_dir", type=str, default="/homefs/home/lux70/storage/data/pfam/compressed/subset_30K_with_clan")
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="/homefs/home/lux70/storage/data/pfam/compressed/subset_30K_with_clan",
+    )
     parser.add_argument("--train_split_frac", type=float, default=0.9)
     parser.add_argument("--float_type", type=str, choices=["fp16", "fp32", "fp64"], default="fp16")
     return parser.parse_args()
@@ -58,6 +66,7 @@ def get_dtype(dtype: str):
 
 class _ToH5:
     """Class that deals with writeable H5 file creation."""
+
     def __init__(
         self,
         compression_model_id: str,
@@ -74,7 +83,7 @@ class _ToH5:
         train_split_frac: float = 0.8,
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
         device_mode: str = "cuda",
-        use_dataparallel: bool = False
+        use_dataparallel: bool = False,
     ):
         # basic attributes
         self.compression_model_id = compression_model_id
@@ -82,10 +91,10 @@ class _ToH5:
         self.fasta_file = fasta_file
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.max_seq_len = max_seq_len  
+        self.max_seq_len = max_seq_len
         self.pad_to_even_number = pad_to_even_number
         self.train_split_frac = train_split_frac
-        self.val_split_frac = 1. - train_split_frac
+        self.val_split_frac = 1.0 - train_split_frac
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
         if compression_model_name is None:
@@ -125,8 +134,10 @@ class _ToH5:
         if not Path(outpath).parent.exists():
             Path(outpath).parent.mkdir(parents=True)
 
-    def _make_hourglass(self) -> HourglassVQLightningModule: 
-        ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / self.compression_model_name
+    def _make_hourglass(self) -> HourglassVQLightningModule:
+        ckpt_path = (
+            Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / self.compression_model_name
+        )
         print("Loading hourglass from", str(ckpt_path))
         model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
         model = model.eval()
@@ -139,23 +150,37 @@ class _ToH5:
             indices = random.sample(range(len(ds)), self.max_dataset_size)
             ds = torch.utils.data.Subset(ds, indices)
             print(f"Subsetting dataset to {len(ds)} data points.")
-        
-        train_ds, val_ds = torch.utils.data.random_split(ds, [self.train_split_frac, self.val_split_frac], generator=torch.Generator().manual_seed(42))
+
+        train_ds, val_ds = torch.utils.data.random_split(
+            ds, [self.train_split_frac, self.val_split_frac], generator=torch.Generator().manual_seed(42)
+        )
         train_dataloader = torch.utils.data.DataLoader(
-            train_ds, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, drop_last=False, pin_memory=True, persistent_workers=True
+            train_ds,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=True,
+            persistent_workers=True,
         )
         val_dataloader = torch.utils.data.DataLoader(
-            val_ds, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, drop_last=False, pin_memory=True, persistent_workers=True
+            val_ds,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=True,
+            persistent_workers=True,
         )
         return train_dataloader, val_dataloader
 
     def process_and_compress(self, feats, mask):
         device = self.hourglass_model.device
-        x_norm = self.latent_scaler.scale(feats) 
+        x_norm = self.latent_scaler.scale(feats)
         del feats
 
         # if shortened and using a Fasta loader, the latent might not be a multiple of 2
-        s = self.shorten_factor 
+        s = self.shorten_factor
         extra = x_norm.shape[1] % s
         if extra != 0:
             needed = s - extra
@@ -170,32 +195,36 @@ class _ToH5:
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
-            compressed_representation = self.hourglass_model_compiled(x_norm, mask.bool(), log_wandb=False, infer_only=True)
+            compressed_representation = self.hourglass_model_compiled(
+                x_norm, mask.bool(), log_wandb=False, infer_only=True
+            )
 
-        downsampled_mask = reduce(mask, 'b (n s) -> b n', 'sum', s = s) > 0
+        downsampled_mask = reduce(mask, "b (n s) -> b n", "sum", s=s) > 0
         return compressed_representation, downsampled_mask
-    
+
     def run_batch(self, *args, **kwargs):
         raise NotImplementedError
-        
+
     def make_h5_database(self, h5_path, dataloader):
         # set global index per database
-        cur_idx = mp.Value('i', 0)  # Create a shared value for cur_idx
+        cur_idx = mp.Value("i", 0)  # Create a shared value for cur_idx
         print("Making h5 database at", h5_path)
 
         # open handle
         fh = h5py.File(h5_path, "w")
 
         # store metadata
-        fh.attrs['max_seq_len'] = self.max_seq_len
-        fh.attrs['shorten_factor'] = self.shorten_factor
-        fh.attrs['compressed_hid_dim'] = self.hid_dim
-        fh.attrs['dataset_size'] = len(dataloader.dataset)
+        fh.attrs["max_seq_len"] = self.max_seq_len
+        fh.attrs["shorten_factor"] = self.shorten_factor
+        fh.attrs["compressed_hid_dim"] = self.hid_dim
+        fh.attrs["dataset_size"] = len(dataloader.dataset)
 
         # writes each data point as its own dataset within the run batch method
         pool = mp.Pool(processes=self.num_workers)
         batch_results = []
-        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
+        for batch in tqdm(
+            dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"
+        ):
             batch_results.append(pool.apply_async(self.run_batch, args=(fh, batch, cur_idx.value)))
 
         pool.close()
@@ -232,7 +261,7 @@ class FastaToH5Clans(_ToH5):
         train_split_frac: float = 0.8,
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
         device_mode: str = "cuda",
-        float_type: str = "fp16"
+        float_type: str = "fp16",
     ):
         super().__init__(
             compression_model_id=compression_model_id,
@@ -255,16 +284,12 @@ class FastaToH5Clans(_ToH5):
         self._make_accession_to_clan_data_structures()
 
     def _make_accession_to_clan_data_structures(self):
-        fam_to_clan_df = pd.read_csv(
-            self.accession_to_clan_file,
-            sep="\t",
-            header=None
-    )
+        fam_to_clan_df = pd.read_csv(self.accession_to_clan_file, sep="\t", header=None)
         # read accession to clan dataframe and grab the first clan for each pfam family accession
         header = ["accession", "clan", "short_name", "gene_name", "description"]
         fam_to_clan_df.columns = header
-        accession_to_clan = fam_to_clan_df.groupby("accession").first().filter(['accession','clan'], axis=1)
-        accession_to_clan = accession_to_clan.to_dict()['clan']
+        accession_to_clan = fam_to_clan_df.groupby("accession").first().filter(["accession", "clan"], axis=1)
+        accession_to_clan = accession_to_clan.to_dict()["clan"]
 
         # create an unique index representer for each clan
         clans = fam_to_clan_df.clan.dropna().unique()
@@ -274,7 +299,7 @@ class FastaToH5Clans(_ToH5):
         self.clans_to_idx = dict(zip(clans, np.arange(len(clans))))
         self.accession_to_clan = accession_to_clan
         self.clans = clans
-    
+
     def _header_to_clan_idx(self, header):
         subid = header.split(" ")[-1]
         accession = subid.split(".")[0]
@@ -283,15 +308,21 @@ class FastaToH5Clans(_ToH5):
             return len(self.clans)  # dummy idx for unknown clan
         else:
             return self.clans_to_idx[clan_id]
-    
+
     def process_batch(self, batch):
         headers, sequences = batch
         """
         1. make LM embeddings
-        """    
+        """
         with torch.no_grad():
-            feats, mask, sequences = embed_batch_esmfold(self.esmfold_compiled, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
-        
+            feats, mask, sequences = embed_batch_esmfold(
+                self.esmfold_compiled,
+                sequences,
+                self.max_seq_len,
+                embed_result_key="s",
+                return_seq_lens=False,
+            )
+
         """
         2. make hourglass compression
         """
@@ -309,17 +340,17 @@ class FastaToH5Clans(_ToH5):
     def write_sample(self, fh, compressed, clan_idxs, sequences, compressed_lens, cur_idx):
         # given a batch, write a singular sample
         for i in range(len(compressed)):
-            data = compressed[i, :compressed_lens[i], :].astype(self.dtype)
+            data = compressed[i, : compressed_lens[i], :].astype(self.dtype)
             sequence = sequences[i]
-            clan_idx = clan_idxs[i] 
+            clan_idx = clan_idxs[i]
 
             ds = fh.create_dataset(str(cur_idx), data=data, dtype="f")
-            ds.attrs['clan'] = np.array([clan_idx], dtype=np.int16)
-            ds.attrs['len'] = np.array([len(sequences[i])], dtype=np.int16)
-            ds.attrs['sequence'] = sequence
+            ds.attrs["clan"] = np.array([clan_idx], dtype=np.int16)
+            ds.attrs["len"] = np.array([len(sequences[i])], dtype=np.int16)
+            ds.attrs["sequence"] = sequence
             cur_idx += 1
         return cur_idx
-    
+
 
 def main():
     args = argument_parser()
@@ -334,10 +365,10 @@ def main():
         output_dir=args.output_dir,
         max_seq_len=args.max_seq_len,
         train_split_frac=args.train_split_frac,
-        float_type=args.float_type
+        float_type=args.float_type,
     )
     runner.run()
 
 
 if __name__ == "__main__":
-    main() 
+    main()

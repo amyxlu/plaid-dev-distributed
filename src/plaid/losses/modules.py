@@ -42,7 +42,10 @@ class SequenceAuxiliaryLoss:
         if return_reconstructed_sequences:
             return weight * loss, logdict, recons_strs
         else:
-            return weight * loss, logdict, 
+            return (
+                weight * loss,
+                logdict,
+            )
 
         # if log_recons_strs:
         #     # wandb logging deep inside a module is suboptimal but lightning logging wandb tables integration is weird
@@ -73,12 +76,8 @@ class BackboneAuxiliaryLoss:
 
         # check shapes
         batch_size, seq_len, _ = latent.shape
-        assert gt_structures["backbone_rigid_tensor"].shape == torch.Size(
-            [batch_size, seq_len, 4, 4]
-        )
-        assert gt_structures["backbone_rigid_mask"].shape == torch.Size(
-            [batch_size, seq_len]
-        )
+        assert gt_structures["backbone_rigid_tensor"].shape == torch.Size([batch_size, seq_len, 4, 4])
+        assert gt_structures["backbone_rigid_mask"].shape == torch.Size([batch_size, seq_len])
 
         # todo: maybe also log pdb strs
         # pred_structures = self.trunk.from_seq_feat(true_aa, latent)[0]
@@ -89,9 +88,7 @@ class BackboneAuxiliaryLoss:
             batch_size=inner_batch_size,
             return_raw_features=True,
         )
-        assert pred_raw_outputs["frames"].shape == torch.Size(
-            [8, batch_size, seq_len, 7]
-        )
+        assert pred_raw_outputs["frames"].shape == torch.Size([8, batch_size, seq_len, 7])
 
         loss = backbone_loss(
             backbone_rigid_tensor=gt_structures["backbone_rigid_tensor"].to(device),
@@ -147,9 +144,7 @@ if __name__ == "__main__":
 
     shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    dm = CATHStructureDataModule(
-        shard_dir, pdb_dir, seq_len=64, batch_size=32, num_workers=0
-    )
+    dm = CATHStructureDataModule(shard_dir, pdb_dir, seq_len=64, batch_size=32, num_workers=0)
     dm.setup()
     train_dataloader = dm.train_dataloader()
     batch = next(iter(train_dataloader))

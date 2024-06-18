@@ -5,15 +5,13 @@ import typing as T
 from torch.nn.functional import nll_loss
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from ..utils import to_tensor 
+from ..utils import to_tensor
 
 
 class RITAPerplexity:
     def __init__(self, device):
         self.device = device
-        self.model = AutoModelForCausalLM.from_pretrained(
-            "lightonai/RITA_xl", trust_remote_code=True
-        )
+        self.model = AutoModelForCausalLM.from_pretrained("lightonai/RITA_xl", trust_remote_code=True)
         self.model.to(self.device)
         self.model.eval().requires_grad_(False)
         self.tokenizer = AutoTokenizer.from_pretrained("lightonai/RITA_xl")
@@ -71,17 +69,13 @@ class ESMPseudoPerplexity:
         # at each position, replace the token with a mask token and calculate the "perplexity"
         for pos in range(len(L)):
             tokens_ = tokens.clone()
-            tokens_[:, pos] = torch.where(
-                tokens[:, pos] == self.pad_idx, self.pad_idx, self.mask_idx
-            )
+            tokens_[:, pos] = torch.where(tokens[:, pos] == self.pad_idx, self.pad_idx, self.mask_idx)
             with torch.no_grad():
                 results = self.model(
                     tokens_.to(self.device),
                     repr_layers=[self.nlayers - 1],
                     return_contacts=False,
                 )
-                nll = nll_loss(
-                    results["logits"], labels.to(self.device), ignore_index=self.pad_idx
-                )
+                nll = nll_loss(results["logits"], labels.to(self.device), ignore_index=self.pad_idx)
                 perplexities.append(torch.exp(nll).item())
         return perplexities

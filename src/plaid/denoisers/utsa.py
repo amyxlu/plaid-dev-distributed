@@ -37,7 +37,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         pairwise_state_dim: int = 128,
         label_num_classes: T.Optional[int] = None,
         cfg_dropout: float = 0.0,
-        input_dim_if_different: T.Optional[int] = None
+        input_dim_if_different: T.Optional[int] = None,
     ):
         super().__init__(
             hid_dim=hid_dim,
@@ -46,12 +46,11 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
             use_self_conditioning=use_self_conditioning,
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
-            input_dim_if_different=input_dim_if_different
+            input_dim_if_different=input_dim_if_different,
         )
         self.default_trunk_cfg: FoldingTrunkConfig = FoldingTrunkConfig()
         self.pairwise_positional_embedding = RelativePosition(
-            bins=self.default_trunk_cfg.position_bins,
-            pairwise_state_dim=pairwise_state_dim
+            bins=self.default_trunk_cfg.position_bins, pairwise_state_dim=pairwise_state_dim
         )
         self.chunk_size = None
 
@@ -95,7 +94,6 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
 
         if mask is None:
             mask = x.new_ones(B, L).long()
-        
 
         if z is None:
             z = x.new_zeros(B, L, L, self.pairwise_state_dim)
@@ -111,9 +109,7 @@ class BaseTriSelfAttnDenoiser(BaseDenoiser):
         else:
             c = t
 
-        residx = einops.repeat(
-            torch.arange(L, device=x.device, dtype=int), "L -> B L", B=B
-        )
+        residx = einops.repeat(torch.arange(L, device=x.device, dtype=int), "L -> B L", B=B)
         z = z + self.pairwise_positional_embedding(residx, mask=mask)
 
         # TODO: multiple iterations?
@@ -149,8 +145,9 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
         )
-        assert hid_dim == self.default_trunk_cfg.sequence_state_dim, \
-            "If finetuning denoiser from ESMFold, input latent must have 1024 features."
+        assert (
+            hid_dim == self.default_trunk_cfg.sequence_state_dim
+        ), "If finetuning denoiser from ESMFold, input latent must have 1024 features."
 
     def _filter_state_dict(self, state_dict):
         orig_keys = list(state_dict.keys())
@@ -169,9 +166,7 @@ class PreinitializedTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         missing_keys = unmatched_keys.missing_keys
         # unexpected_keys = unmatched_keys.unexpected_keys
         missing_keys = list(filter(lambda x: not "conditioning_mlp" in x, missing_keys))
-        print(
-            f"Loaded pretrained weights for {len(model_state) - len(unmatched_keys)} keys."
-        )
+        print(f"Loaded pretrained weights for {len(model_state) - len(unmatched_keys)} keys.")
         print(f"Missing keys: block conditioning_mlp weights, {','.join(missing_keys)}")
 
     def make_blocks(self):
@@ -224,7 +219,7 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
         pairwise_state_dim: int = 128,
         sequence_head_width: int = 32,
         pairwise_head_width: int = 32,
-        input_dim_if_different: T.Optional[int] = None
+        input_dim_if_different: T.Optional[int] = None,
     ):
         self.num_blocks = num_blocks
         self.use_skip_connections = use_skip_connections
@@ -241,7 +236,7 @@ class UTriSelfAttnDenoiser(BaseTriSelfAttnDenoiser):
             pairwise_state_dim=pairwise_state_dim,
             label_num_classes=label_num_classes,
             cfg_dropout=cfg_dropout,
-            input_dim_if_different=input_dim_if_different
+            input_dim_if_different=input_dim_if_different,
         )
 
     def make_blocks(self):

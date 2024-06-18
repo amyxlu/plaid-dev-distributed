@@ -26,9 +26,9 @@ for i, batch in enumerate(dl):
     print(out)
     print(out.mean())
     print(out.shape)
-    
-    out = diffusion(x, mask) 
-    
+
+    out = diffusion(x, mask)
+
     loss = ((x - out) ** 2).mean()
     optimizer.zero_grad()
     loss.backward()

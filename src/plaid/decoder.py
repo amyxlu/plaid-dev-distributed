@@ -74,12 +74,7 @@ class FullyConnectedNetwork(L.LightningModule):
                 nn.Linear(mlp_hidden_dim // 4, n_classes),
             ]
 
-            layers = (
-                first_layer
-                + second_layer
-                + hidden_layer * num_hidden_layers
-                + final_layer
-            )
+            layers = first_layer + second_layer + hidden_layer * num_hidden_layers + final_layer
 
         if add_sigmoid:
             layers.append(nn.Sigmoid())
@@ -110,12 +105,8 @@ class FullyConnectedNetwork(L.LightningModule):
 
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
-        self.log(
-            "train/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True
-        )
-        self.log(
-            "train/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True
-        )
+        self.log("train/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        self.log("train/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
         return loss
 
     def validation_step(self, batch, batch_idx, **kwargs):
@@ -130,12 +121,8 @@ class FullyConnectedNetwork(L.LightningModule):
         loss = self.loss(logits, aatype, mask)
         acc = masked_token_accuracy(logits, aatype, mask=mask)
         print("val loss: ", loss.item(), "val acc: ", acc.item())
-        self.log(
-            "val/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True
-        )
-        self.log(
-            "val/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True
-        )
+        self.log("val/loss", loss, batch_size=logits.shape[0], on_epoch=False, on_step=True)
+        self.log("val/acc", acc, batch_size=logits.shape[0], on_epoch=False, on_step=True)
         return loss
 
     def test_step(self, batch, batch_idx, **kwargs):

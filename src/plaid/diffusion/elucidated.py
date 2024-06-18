@@ -100,9 +100,7 @@ class ElucidatedDiffusion(L.LightningModule):
     # preconditioned network output
     # equation (7) in the paper
 
-    def preconditioned_network_forward(
-        self, x_noised, sigma, self_cond=None, clamp=False, model_kwargs={}
-    ):
+    def preconditioned_network_forward(self, x_noised, sigma, self_cond=None, clamp=False, model_kwargs={}):
         N, L, _ = x_noised.shape
         device = x_noised.device
 
@@ -111,9 +109,7 @@ class ElucidatedDiffusion(L.LightningModule):
         model_kwargs["x_self_cond"] = self_cond
 
         padded_sigma = rearrange(sigma, "b -> b 1 1")
-        net_out = self.denoiser(
-            self.c_in(padded_sigma) * x_noised, self.c_noise(sigma), **model_kwargs
-        )
+        net_out = self.denoiser(self.c_in(padded_sigma) * x_noised, self.c_noise(sigma), **model_kwargs)
         out = self.c_skip(padded_sigma) * x_noised + self.c_out(padded_sigma) * net_out
         print(out.mean(), out.std())
 
@@ -136,8 +132,7 @@ class ElucidatedDiffusion(L.LightningModule):
 
         steps = torch.arange(num_sample_steps, device=self.device)
         sigmas = (
-            self.sigma_max**inv_rho
-            + steps / (N - 1) * (self.sigma_min**inv_rho - self.sigma_max**inv_rho)
+            self.sigma_max**inv_rho + steps / (N - 1) * (self.sigma_min**inv_rho - self.sigma_max**inv_rho)
         ) ** self.rho
 
         sigmas = F.pad(sigmas, (0, 1), value=0.0)  # last step is sigma value of 0.
@@ -166,16 +161,10 @@ class ElucidatedDiffusion(L.LightningModule):
         x_start = None
 
         # gradually denoise
-        for sigma, sigma_next, gamma in tqdm(
-            sigmas_and_gammas, desc="sampling time step"
-        ):
-            sigma, sigma_next, gamma = map(
-                lambda t: t.item(), (sigma, sigma_next, gamma)
-            )
+        for sigma, sigma_next, gamma in tqdm(sigmas_and_gammas, desc="sampling time step"):
+            sigma, sigma_next, gamma = map(lambda t: t.item(), (sigma, sigma_next, gamma))
 
-            eps = self.S_noise * torch.randn(
-                shape, device=self.device
-            )  # stochastic sampling
+            eps = self.S_noise * torch.randn(shape, device=self.device)  # stochastic sampling
 
             sigma_hat = sigma + gamma * sigma
             x_hat = x + sqrt(sigma_hat**2 - sigma**2) * eps
@@ -215,17 +204,13 @@ class ElucidatedDiffusion(L.LightningModule):
         return self.latent_scaler.unscale(x)
 
     @torch.no_grad()
-    def sample_using_dpmpp(
-        self, shape, num_sample_steps=None, clamp=False, model_kwargs={}
-    ):
+    def sample_using_dpmpp(self, shape, num_sample_steps=None, clamp=False, model_kwargs={}):
         """
         thanks to Katherine Crowson (https://github.com/crowsonkb) for figuring it all out!
         https://arxiv.org/abs/2211.01095
         """
 
-        device, num_sample_steps = self.device, default(
-            num_sample_steps, self.num_sample_steps
-        )
+        device, num_sample_steps = self.device, default(num_sample_steps, self.num_sample_steps)
 
         sigmas = self.sample_schedule(num_sample_steps)
         x = sigmas[0] * torch.randn(shape, device=device)
@@ -269,9 +254,7 @@ class ElucidatedDiffusion(L.LightningModule):
         return (sigma**2 + self.sigma_data**2) * (sigma * self.sigma_data) ** -2
 
     def noise_distribution(self, batch_size):
-        return (
-            self.P_mean + self.P_std * torch.randn((batch_size,), device=self.device)
-        ).exp()
+        return (self.P_mean + self.P_std * torch.randn((batch_size,), device=self.device)).exp()
 
     def forward(self, x_unnormalized, mask=None, model_kwargs={}, noise=None):
         x = self.latent_scaler.scale(x_unnormalized)
@@ -295,9 +278,7 @@ class ElucidatedDiffusion(L.LightningModule):
                 self_cond.detach_()
 
         model_kwargs["mask"] = mask
-        denoised = self.preconditioned_network_forward(
-            noised_x, sigmas, self_cond, model_kwargs
-        )
+        denoised = self.preconditioned_network_forward(noised_x, sigmas, self_cond, model_kwargs)
 
         losses = F.mse_loss(denoised, x, reduction="none")
         losses = reduce(losses, "b ... -> b", "mean")

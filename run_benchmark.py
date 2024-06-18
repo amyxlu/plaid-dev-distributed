@@ -50,16 +50,19 @@ def create_working_directory(cfg):
     if world_size > 1 and not dist.is_initialized():
         comm.init_process_group("nccl", init_method="env://")
 
-    output_dir = os.path.join(os.path.expanduser(cfg.output_dir),
-                              cfg.task["class"], cfg.dataset["class"],
-                              cfg.task.model["class"] + "_" + time.strftime("%Y-%m-%d-%H-%M-%S") + "_" + hashid)
+    output_dir = os.path.join(
+        os.path.expanduser(cfg.output_dir),
+        cfg.task["class"],
+        cfg.dataset["class"],
+        cfg.task.model["class"] + "_" + time.strftime("%Y-%m-%d-%H-%M-%S") + "_" + hashid,
+    )
 
     # synchronize working directory
     if comm.get_rank() == 0:
         with open(file_name, "w") as fout:
             fout.write(output_dir)
         os.makedirs(output_dir)
-        
+
     comm.synchronize()
     if comm.get_rank() != 0:
         with open(file_name, "r") as fin:
@@ -75,10 +78,9 @@ def create_working_directory(cfg):
     return output_dir
 
 
-
 def set_seed(seed):
     torch.manual_seed(seed + comm.get_rank())
-    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
@@ -94,7 +96,7 @@ def build_solver(cfg, logger):
     # build dataset
     _dataset = core.Configurable.load_config_dict(cfg.dataset)
     if "test_split" in cfg:
-        train_set, valid_set, test_set = _dataset.split(['train', 'valid', cfg.test_split])
+        train_set, valid_set, test_set = _dataset.split(["train", "valid", cfg.test_split])
     else:
         train_set, valid_set, test_set = _dataset.split()
     if comm.get_rank() == 0:
@@ -128,8 +130,8 @@ def build_solver(cfg, logger):
     solver = core.Engine(task, train_set, valid_set, test_set, optimizer, scheduler, **cfg.engine)
     if "lr_ratio" in cfg:
         cfg.optimizer.params = [
-            {'params': solver.model.model.parameters(), 'lr': cfg.optimizer.lr * cfg.lr_ratio},
-            {'params': solver.model.mlp.parameters(), 'lr': cfg.optimizer.lr}
+            {"params": solver.model.model.parameters(), "lr": cfg.optimizer.lr * cfg.lr_ratio},
+            {"params": solver.model.mlp.parameters(), "lr": cfg.optimizer.lr},
         ]
         optimizer = core.Configurable.load_config_dict(cfg.optimizer)
         solver.optimizer = optimizer

@@ -1,4 +1,4 @@
-from plaid.datasets import CATHStructureDataModule 
+from plaid.datasets import CATHStructureDataModule
 from tqdm import tqdm
 
 
@@ -28,16 +28,11 @@ class CATHStructureDataset(H5ShardDataset):
                 f.write(f"{pdb_id}\n")
             return emb, seq, {}
 """
-CHECK_PHASE=False
+CHECK_PHASE = False
 
 if CHECK_PHASE:
     dm = CATHStructureDataModule(
-        shard_dir,
-        pdb_dir,
-        seq_len=256,
-        batch_size=512,
-        num_workers=0,
-        path_to_dropped_ids=None
+        shard_dir, pdb_dir, seq_len=256, batch_size=512, num_workers=0, path_to_dropped_ids=None
     )
     dm.setup()
     train_dataset = dm.train_dataloader().dataset
@@ -56,7 +51,7 @@ else:
         seq_len=256,
         batch_size=512,
         num_workers=0,
-        path_to_dropped_ids=None #"bad_ids.txt"
+        path_to_dropped_ids=None,  # "bad_ids.txt"
     )
     dm.setup()
     train_dataloader = dm.train_dataloader()

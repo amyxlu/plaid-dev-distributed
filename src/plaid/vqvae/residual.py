@@ -16,9 +16,7 @@ class ResidualLayer(nn.Module):
         super(ResidualLayer, self).__init__()
         self.res_block = nn.Sequential(
             nn.SiLU(),
-            nn.Conv1d(
-                in_dim, res_h_dim, kernel_size=3, stride=1, padding=1, bias=False
-            ),
+            nn.Conv1d(in_dim, res_h_dim, kernel_size=3, stride=1, padding=1, bias=False),
             nn.SiLU(),
             nn.Conv1d(res_h_dim, h_dim, kernel_size=1, stride=1, bias=False),
         )
@@ -41,9 +39,7 @@ class ResidualStack(nn.Module):
         super(ResidualStack, self).__init__()
         self.n_res_layers = n_res_layers
         self.silu = nn.SiLU()
-        self.stack = nn.ModuleList(
-            [ResidualLayer(in_dim, h_dim, res_h_dim)] * n_res_layers
-        )
+        self.stack = nn.ModuleList([ResidualLayer(in_dim, h_dim, res_h_dim)] * n_res_layers)
 
     def forward(self, x):
         for layer in self.stack:

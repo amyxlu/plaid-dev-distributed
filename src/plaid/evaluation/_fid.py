@@ -15,22 +15,15 @@ def frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     sigma1 = np.atleast_2d(sigma1)
     sigma2 = np.atleast_2d(sigma2)
 
-    assert (
-        mu1.shape == mu2.shape
-    ), "Training and test mean vectors have different lengths"
-    assert (
-        sigma1.shape == sigma2.shape
-    ), "Training and test covariances have different dimensions"
+    assert mu1.shape == mu2.shape, "Training and test mean vectors have different lengths"
+    assert sigma1.shape == sigma2.shape, "Training and test covariances have different dimensions"
 
     diff = mu1 - mu2
 
     # Product might be almost singular
     covmean, _ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
     if not np.isfinite(covmean).all():
-        msg = (
-            "fid calculation produces singular product; "
-            "adding %s to diagonal of cov estimates"
-        ) % eps
+        msg = ("fid calculation produces singular product; " "adding %s to diagonal of cov estimates") % eps
         print(msg)
         offset = np.eye(sigma1.shape[0]) * eps
         covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
@@ -102,12 +95,8 @@ def calc_kid_fn(x, y, max_size=5000):
     n_partitions = math.ceil(max(x_size / max_size, y_size / max_size))
     total_mmd = x.new_zeros([])
     for i in range(n_partitions):
-        cur_x = x[
-            round(i * x_size / n_partitions) : round((i + 1) * x_size / n_partitions)
-        ]
-        cur_y = y[
-            round(i * y_size / n_partitions) : round((i + 1) * y_size / n_partitions)
-        ]
+        cur_x = x[round(i * x_size / n_partitions) : round((i + 1) * x_size / n_partitions)]
+        cur_y = y[round(i * y_size / n_partitions) : round((i + 1) * y_size / n_partitions)]
         total_mmd = total_mmd + squared_mmd(cur_x, cur_y)
     return total_mmd / n_partitions
 
@@ -145,8 +134,5 @@ def calc_fid_fn(x, y, eps=1e-8):
     x_cov = x_cov + eps_eye
     y_cov = y_cov + eps_eye
     x_cov_sqrt = sqrtm_eig(x_cov)
-    cov_term = torch.trace(
-        x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt)
-    )
+    cov_term = torch.trace(x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt))
     return mean_term + cov_term
-

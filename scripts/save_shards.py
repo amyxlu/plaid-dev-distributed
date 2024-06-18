@@ -1,6 +1,7 @@
 """
 DEPRECATED. Used to save sharded tensors.
 """
+
 # import torch
 # import safetensors
 # from tqdm import tqdm, trange
@@ -30,8 +31,8 @@ DEPRECATED. Used to save sharded tensors.
 #     fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
 #     train_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/train"
 #     val_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/val"
-#     batch_size: int = 256 
-#     max_seq_len: int = 256 
+#     batch_size: int = 256
+#     max_seq_len: int = 256
 #     min_seq_len: int = 16
 #     num_workers: int = 4
 #     num_batches_per_shard: int = 20
@@ -113,7 +114,7 @@ DEPRECATED. Used to save sharded tensors.
 #     outdir = Path(outdir) / dtype
 #     if not outdir.exists():
 #         outdir.mkdir(parents=True)
-    
+
 #     dtype = _get_dtype(dtype)
 #     embs = embs.to(dtype=dtype)
 #     seq_lens = seq_lens.to(dtype=torch.int16)
@@ -147,14 +148,14 @@ DEPRECATED. Used to save sharded tensors.
 #         num_shards = len(dataloader) // cfg.num_batches_per_shard + 1
 #         num_batches_per_shard = cfg.num_batches_per_shard
 #     else:
-#         num_shards = 1 
+#         num_shards = 1
 #         num_batches_per_shard = len(dataloader)
 
 #     outdir = Path(output_dir) / f"seqlen_{cfg.max_seq_len}"
 #     argsdict = dataclasses.asdict(cfg)
 #     if not outdir.exists():
 #         outdir.mkdir(parents=True)
-        
+
 #     with open(outdir / "config.json", "w") as f:
 #         json.dump(argsdict, f, indent=2)
 
@@ -193,5 +194,5 @@ DEPRECATED. Used to save sharded tensors.
 
 # if __name__ == "__main__":
 #     import tyro
-#     cfg = tyro.cli(ShardConfig) 
+#     cfg = tyro.cli(ShardConfig)
 #     main(cfg)

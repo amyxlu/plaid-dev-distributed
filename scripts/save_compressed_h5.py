@@ -1,6 +1,7 @@
 """
 Embed with ESMFold, compress, and save to h5py with each header getting its own index
 """
+
 import random
 import typing as T
 from pathlib import Path
@@ -24,6 +25,7 @@ PathLike = T.Union[Path, str]
 
 class FastaToH5:
     """Class that deals with writeable H5 file creation."""
+
     def __init__(
         self,
         compression_model_id: str,
@@ -47,10 +49,10 @@ class FastaToH5:
         self.fasta_file = fasta_file
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.max_seq_len = max_seq_len  
+        self.max_seq_len = max_seq_len
         self.pad_to_even_number = pad_to_even_number
         self.train_split_frac = train_split_frac
-        self.val_split_frac = 1. - train_split_frac
+        self.val_split_frac = 1.0 - train_split_frac
         self.split_header = split_header
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
@@ -84,7 +86,7 @@ class FastaToH5:
         if not Path(outpath).parent.exists():
             Path(outpath).parent.mkdir(parents=True)
 
-    def _make_hourglass(self) -> HourglassVQLightningModule: 
+    def _make_hourglass(self) -> HourglassVQLightningModule:
         ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / "last.ckpt"
         print("Loading hourglass from", str(ckpt_path))
         model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
@@ -98,8 +100,10 @@ class FastaToH5:
             indices = random.sample(range(len(ds)), self.max_dataset_size)
             ds = torch.utils.data.Subset(ds, indices)
             print(f"Subsetting dataset to {len(ds)} data points.")
-        
-        train_ds, val_ds = torch.utils.data.random_split(ds, [self.train_split_frac, self.val_split_frac], generator=torch.Generator().manual_seed(42))
+
+        train_ds, val_ds = torch.utils.data.random_split(
+            ds, [self.train_split_frac, self.val_split_frac], generator=torch.Generator().manual_seed(42)
+        )
         train_dataloader = torch.utils.data.DataLoader(
             train_ds, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, drop_last=False
         )
@@ -110,11 +114,11 @@ class FastaToH5:
 
     def process_and_compress(self, feats, mask):
         device = self.hourglass_model.device
-        x_norm = self.latent_scaler.scale(feats) 
+        x_norm = self.latent_scaler.scale(feats)
         del feats
 
         x_norm, mask = x_norm.to(device), mask.to(device)
-        s = self.hourglass_model.enc.shorten_factor 
+        s = self.hourglass_model.enc.shorten_factor
         extra = x_norm.shape[1] % s
         if extra != 0:
             needed = s - extra
@@ -127,10 +131,14 @@ class FastaToH5:
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
-            compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False, infer_only=True)
+            compressed_representation = self.hourglass_model(
+                x_norm, mask.bool(), log_wandb=False, infer_only=True
+            )
         return compressed_representation
-    
-    def run_batch(self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
+
+    def run_batch(
+        self, fh: h5py._hl.files.File, batch: T.Tuple[str, str], cur_idx: int
+    ) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
         headers, sequences = batch
 
         if self.split_header:
@@ -139,9 +147,11 @@ class FastaToH5:
 
         """
         1. make LM embeddings
-        """    
-        feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
-        
+        """
+        feats, mask, sequences = embed_batch_esmfold(
+            self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False
+        )
+
         """
         2. make hourglass compression
         """
@@ -155,17 +165,16 @@ class FastaToH5:
         3. Write to h5 
         """
         for i in range(compressed.shape[0]):
-            sequence = sequences[i] 
-            data = compressed[i, :len(sequence), :].astype(np.float32)
+            sequence = sequences[i]
+            data = compressed[i, : len(sequence), :].astype(np.float32)
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="gzip")
             # ds = fh.create_dataset(str(cur_idx), data=data, dtype="f", compression="lzf")
             ds = fh.create_dataset(str(cur_idx), data=data, dtype="f")
-            ds.attrs['sequence'] = sequence
+            ds.attrs["sequence"] = sequence
             cur_idx += 1
-        
+
         return cur_idx
 
-        
     def make_h5_database(self, h5_path, dataloader):
         # set global index per database
         cur_idx = 0
@@ -175,22 +184,24 @@ class FastaToH5:
         fh = h5py.File(h5_path, "w")
 
         # store metadata
-        fh.attrs['max_seq_len'] = self.max_seq_len
-        fh.attrs['shorten_factor'] = self.shorten_factor
-        fh.attrs['compressed_hid_dim'] = self.hid_dim
-        fh.attrs['dataset_size'] = len(dataloader.dataset)
+        fh.attrs["max_seq_len"] = self.max_seq_len
+        fh.attrs["shorten_factor"] = self.shorten_factor
+        fh.attrs["compressed_hid_dim"] = self.hid_dim
+        fh.attrs["dataset_size"] = len(dataloader.dataset)
 
         # writes each data point as its own dataset within the run batch method
-        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
+        for batch in tqdm(
+            dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"
+        ):
             cur_idx = self.run_batch(fh, batch, cur_idx)
 
         # close handle
         fh.close()
-    
+
     def run(self):
         self.make_h5_database(self.val_h5_path, self.val_dataloader)
         self.make_h5_database(self.train_h5_path, self.train_dataloader)
-    
+
 
 def main():
     fasta_to_h5 = FastaToH5(

@@ -54,9 +54,7 @@ class FoldingTrunkConfig:
     chunk_size: T.Optional[int] = None
 
     # structure_module: StructureModuleConfig = StructureModuleConfig()
-    structure_module: StructureModuleConfig = field(
-        default_factory=StructureModuleConfig
-    )
+    structure_module: StructureModuleConfig = field(default_factory=StructureModuleConfig)
 
 
 def get_axial_mask(mask):
@@ -132,9 +130,7 @@ class FoldingTrunk(nn.Module):
         assert c_z % self.cfg.pairwise_head_width == 0
         block = TriangularSelfAttentionBlock
 
-        self.pairwise_positional_embedding = RelativePosition(
-            self.cfg.position_bins, c_z
-        )
+        self.pairwise_positional_embedding = RelativePosition(self.cfg.position_bins, c_z)
 
         self.blocks = nn.ModuleList(
             [
@@ -173,9 +169,7 @@ class FoldingTrunk(nn.Module):
         z = z + self.pairwise_positional_embedding(residx, mask=mask)
 
         for block in self.blocks:
-            s, z = block(
-                s, z, mask=mask, residue_index=residx, chunk_size=self.chunk_size
-            )
+            s, z = block(s, z, mask=mask, residue_index=residx, chunk_size=self.chunk_size)
         return s, z
 
     def forward(
@@ -222,9 +216,7 @@ class FoldingTrunk(nn.Module):
                 recycle_z = self.recycle_z_norm(recycle_z.detach())
                 recycle_z += self.recycle_disto(recycle_bins.detach())
 
-                s_s, s_z = self.trunk_iter(
-                    s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask
-                )
+                s_s, s_z = self.trunk_iter(s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask)
 
                 # === Structure module ===
                 sm_s = self.trunk2sm_s(s_s)
@@ -295,9 +287,7 @@ class FoldingTrunk(nn.Module):
                 recycle_z = self.recycle_z_norm(recycle_z.detach())
                 recycle_z += self.recycle_disto(recycle_bins.detach())
 
-                s_s, s_z = self.trunk_iter(
-                    s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask
-                )
+                s_s, s_z = self.trunk_iter(s_s_0 + recycle_s, s_z_0 + recycle_z, residx, mask)
 
                 # === Structure module ===
                 sm_s = self.trunk2sm_s(s_s)
@@ -340,11 +330,7 @@ class FoldingTrunk(nn.Module):
         c = C - CA
         a = b.cross(c, dim=-1)
         CB = -0.58273431 * a + 0.56802827 * b - 0.54067466 * c + CA
-        dists = (
-            (CB[..., None, :, :] - CB[..., :, None, :])
-            .pow(2)
-            .sum(dim=-1, keepdims=True)
-        )
+        dists = (CB[..., None, :, :] - CB[..., :, None, :]).pow(2).sum(dim=-1, keepdims=True)
         bins = torch.sum(dists > boundaries, dim=-1)  # [..., L, L]
         return bins
 
@@ -354,9 +340,7 @@ class FoldingTrunk(nn.Module):
 
         esmfold_cfg, esmfold_weights_cpu = get_esmfold_model_state()
         model = cls(esmfold_cfg.trunk)
-        trunk_weights_cpu = {
-            k: v for k, v in esmfold_weights_cpu.items() if k[:6] == "trunk."
-        }
+        trunk_weights_cpu = {k: v for k, v in esmfold_weights_cpu.items() if k[:6] == "trunk."}
         trunk_weights_cpu = {k[6:]: v for k, v in trunk_weights_cpu.items()}
         missing_keys = model.load_state_dict(trunk_weights_cpu, strict=False)
         assert len(missing_keys.missing_keys) == 0

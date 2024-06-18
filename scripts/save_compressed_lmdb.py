@@ -1,6 +1,7 @@
 """
 Uses LMDB to embed with ESMFold, then compress.
 """
+
 import random
 import typing as T
 from pathlib import Path
@@ -39,7 +40,7 @@ class FastaToLMDB:
         latent_scaler_mode: T.Optional[str] = "channel_minmaxnorm",
         split_header: bool = False,
         device_mode: str = "cuda",
-        lmdb_map_size: int = int(1e9)
+        lmdb_map_size: int = int(1e9),
     ):
         # basic attributes
         self.compression_model_id = compression_model_id
@@ -47,10 +48,10 @@ class FastaToLMDB:
         self.fasta_file = fasta_file
         self.batch_size = batch_size
         self.num_workers = num_workers
-        self.max_seq_len = max_seq_len  
+        self.max_seq_len = max_seq_len
         self.pad_to_even_number = pad_to_even_number
         self.train_split_frac = train_split_frac
-        self.val_split_frac = 1. - train_split_frac
+        self.val_split_frac = 1.0 - train_split_frac
         self.split_header = split_header
         self.max_dataset_size = max_dataset_size
         self.device = torch.device(device_mode)
@@ -86,7 +87,7 @@ class FastaToLMDB:
         if not Path(outpath).parent.exists():
             Path(outpath).parent.mkdir(parents=True)
 
-    def _make_hourglass(self) -> HourglassVQLightningModule: 
+    def _make_hourglass(self) -> HourglassVQLightningModule:
         ckpt_path = Path(self.hourglass_ckpt_dir) / str(self.compression_model_id) / "last.ckpt"
         print("Loading hourglass from", str(ckpt_path))
         model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path)
@@ -100,8 +101,10 @@ class FastaToLMDB:
             indices = random.sample(range(len(ds)), self.max_dataset_size)
             ds = torch.utils.data.Subset(ds, indices)
             print(f"Subsetting dataset to {len(ds)} data points.")
-        
-        train_ds, val_ds = torch.utils.data.random_split(ds, [self.train_split_frac, self.val_split_frac], generator=torch.Generator().manual_seed(42))
+
+        train_ds, val_ds = torch.utils.data.random_split(
+            ds, [self.train_split_frac, self.val_split_frac], generator=torch.Generator().manual_seed(42)
+        )
         train_dataloader = torch.utils.data.DataLoader(
             train_ds, batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False, drop_last=False
         )
@@ -112,14 +115,14 @@ class FastaToLMDB:
 
     def process_and_compress(self, feats, mask):
         device = self.hourglass_model.device
-        x_norm = self.latent_scaler.scale(feats) 
+        x_norm = self.latent_scaler.scale(feats)
         del feats
 
         x_norm, mask = x_norm.to(device), mask.to(device)
 
         # for now, this is only for the Rocklin dataset, thus hardcard the target length
         if self.pad_to_even_number:
-            self.max_seq_len = 64 
+            self.max_seq_len = 64
             x_norm = trim_or_pad_batch_first(x_norm, pad_to=64)
             mask = trim_or_pad_batch_first(mask, pad_to=64)
 
@@ -128,7 +131,7 @@ class FastaToLMDB:
         with torch.no_grad():
             _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
-    
+
     def run_batch(self, env, batch) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:
         headers, sequences = batch
 
@@ -138,9 +141,11 @@ class FastaToLMDB:
 
         """
         1. make LM embeddings
-        """    
-        feats, mask, sequences = embed_batch_esmfold(self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False)
-        
+        """
+        feats, mask, sequences = embed_batch_esmfold(
+            self.esmfold, sequences, self.max_seq_len, embed_result_key="s", return_seq_lens=False
+        )
+
         """
         2. make hourglass compression
         """
@@ -158,14 +163,16 @@ class FastaToLMDB:
             for i in range(compressed.shape[0]):
                 # save each key/value pair for each sample, trimming only to the actual sequence length
                 key = headers[i].encode("utf-8")
-                value = compressed[i, :sequence_lengths[i], :].tobytes()
+                value = compressed[i, : sequence_lengths[i], :].tobytes()
                 self.all_headers.append(key)
                 txn.put(key, value)
-        
+
     def make_lmdb_database(self, lmdb_path, dataloader):
         env = lmdb.open(str(lmdb_path), map_size=self.lmdb_map_size, create=True)
         print("Making LMDB database at", lmdb_path)
-        for batch in tqdm(dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"):
+        for batch in tqdm(
+            dataloader, desc=f"Running through batches for for {len(dataloader.dataset):,} samples"
+        ):
             self.run_batch(env, batch)
 
         # add some metadata
@@ -175,13 +182,13 @@ class FastaToLMDB:
             txn.put(b"shorten_factor", self.shorten_factor.to_bytes(length=1, signed=False))
             txn.put(b"hid_dim", self.hid_dim.to_bytes(length=2, signed=False))
             txn.put(b"all_headers", pickle.dumps(self.all_headers))
-        print('Finished making dataset at', lmdb_path)
+        print("Finished making dataset at", lmdb_path)
         env.close()
-    
+
     def run(self):
         self.make_lmdb_database(self.val_lmdb_path, self.val_dataloader)
         self.make_lmdb_database(self.train_lmdb_path, self.train_dataloader)
-    
+
 
 def main():
     fasta_to_lmdb = FastaToLMDB(

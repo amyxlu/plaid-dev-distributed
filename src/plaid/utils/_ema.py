@@ -123,8 +123,7 @@ class InverseLR(optim.lr_scheduler._LRScheduler):
     def get_lr(self):
         if not self._get_lr_called_within_step:
             warnings.warn(
-                "To get the last learning rate computed by the scheduler, "
-                "please use `get_last_lr()`."
+                "To get the last learning rate computed by the scheduler, " "please use `get_last_lr()`."
             )
 
         return self._get_closed_form_lr()
@@ -132,9 +131,7 @@ class InverseLR(optim.lr_scheduler._LRScheduler):
     def _get_closed_form_lr(self):
         warmup = 1 - self.warmup ** (self.last_epoch + 1)
         lr_mult = (1 + self.last_epoch / self.inv_gamma) ** -self.power
-        return [
-            warmup * max(self.min_lr, base_lr * lr_mult) for base_lr in self.base_lrs
-        ]
+        return [warmup * max(self.min_lr, base_lr * lr_mult) for base_lr in self.base_lrs]
 
 
 class ExponentialLR(optim.lr_scheduler._LRScheduler):
@@ -175,8 +172,7 @@ class ExponentialLR(optim.lr_scheduler._LRScheduler):
     def get_lr(self):
         if not self._get_lr_called_within_step:
             warnings.warn(
-                "To get the last learning rate computed by the scheduler, "
-                "please use `get_last_lr()`."
+                "To get the last learning rate computed by the scheduler, " "please use `get_last_lr()`."
             )
 
         return self._get_closed_form_lr()
@@ -184,9 +180,7 @@ class ExponentialLR(optim.lr_scheduler._LRScheduler):
     def _get_closed_form_lr(self):
         warmup = 1 - self.warmup ** (self.last_epoch + 1)
         lr_mult = (self.decay ** (1 / self.num_steps)) ** self.last_epoch
-        return [
-            warmup * max(self.min_lr, base_lr * lr_mult) for base_lr in self.base_lrs
-        ]
+        return [warmup * max(self.min_lr, base_lr * lr_mult) for base_lr in self.base_lrs]
 
 
 class ConstantLRWithWarmup(optim.lr_scheduler._LRScheduler):
@@ -210,8 +204,7 @@ class ConstantLRWithWarmup(optim.lr_scheduler._LRScheduler):
     def get_lr(self):
         if not self._get_lr_called_within_step:
             warnings.warn(
-                "To get the last learning rate computed by the scheduler, "
-                "please use `get_last_lr()`."
+                "To get the last learning rate computed by the scheduler, " "please use `get_last_lr()`."
             )
 
         return self._get_closed_form_lr()

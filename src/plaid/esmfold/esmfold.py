@@ -57,7 +57,7 @@ esm_registry = {
 class ESMFold(nn.Module):
     def __init__(self, esmfold_config=None, **kwargs):
         super().__init__()
-        
+
         print("Creating ESMFold...")
         start = time.time()
 
@@ -120,9 +120,7 @@ class ESMFold(nn.Module):
     @staticmethod
     def _af2_to_esm(d: Alphabet):
         # Remember that t is shifted from residue_constants by 1 (0 is padding).
-        esm_reorder = [d.padding_idx] + [
-            d.get_idx(v) for v in residue_constants.restypes_with_x
-        ]
+        esm_reorder = [d.padding_idx] + [d.get_idx(v) for v in residue_constants.restypes_with_x]
         return torch.tensor(esm_reorder)
 
     def _af2_idx_to_esm_idx(self, aa, mask):
@@ -147,9 +145,7 @@ class ESMFold(nn.Module):
             repr_layers=range(self.esm.num_layers + 1),
             need_head_weights=self.cfg.use_esm_attn_map,
         )
-        esm_s = torch.stack(
-            [v for _, v in sorted(res["representations"].items())], dim=2
-        )
+        esm_s = torch.stack([v for _, v in sorted(res["representations"].items())], dim=2)
         esm_s = esm_s[:, 1:-1]  # B, L, nLayers, C
         esm_z = (
             res["attentions"].permute(0, 4, 3, 1, 2).flatten(3, 4)[:, 1:-1, 1:-1, :]
@@ -160,10 +156,7 @@ class ESMFold(nn.Module):
         if not return_intermediates:
             return esm_s, esm_z
         else:
-            intermediates = {
-                "lm_res": res,
-                "esm_s": esm_s
-            }
+            intermediates = {"lm_res": res, "esm_s": esm_s}
             return esm_s, esm_z, intermediates
 
     def _mask_inputs_to_esm(self, esmaa, pattern):
@@ -177,7 +170,7 @@ class ESMFold(nn.Module):
         mask: T.Optional[torch.Tensor] = None,
         residx: T.Optional[torch.Tensor] = None,
         masking_pattern: T.Optional[torch.Tensor] = None,
-        return_intermediates: bool = False
+        return_intermediates: bool = False,
     ):
         """First half of original `forward` function to get s_s_0 and s_z_0.
 
@@ -213,7 +206,9 @@ class ESMFold(nn.Module):
             esmaa = self._mask_inputs_to_esm(esmaa, masking_pattern)
 
         if return_intermediates:
-            esm_s, esm_z, intermediates = self._compute_language_model_representations(esmaa, return_intermediates)
+            esm_s, esm_z, intermediates = self._compute_language_model_representations(
+                esmaa, return_intermediates
+            )
 
         else:
             esm_s, esm_z = self._compute_language_model_representations(esmaa, return_intermediates)
@@ -227,11 +222,11 @@ class ESMFold(nn.Module):
         # === preprocessing ===
         esm_s = (self.esm_s_combine.softmax(0).unsqueeze(0) @ esm_s).squeeze(2)
         if return_intermediates:
-            intermediates['s_post_softmax'] = esm_s
+            intermediates["s_post_softmax"] = esm_s
 
         s_s_0 = self.esm_s_mlp(esm_s)
         if return_intermediates:
-            intermediates['s_post_mlp'] = s_s_0
+            intermediates["s_post_mlp"] = s_s_0
 
         if self.cfg.use_esm_attn_map:
             esm_z = esm_z.to(self.esm_s_combine.dtype)
@@ -243,21 +238,17 @@ class ESMFold(nn.Module):
         s_s_0 += self.embedding(aa)
 
         if return_intermediates:
-            intermediates['s'] = s_s_0
-            intermediates['aa_embed'] = self.embedding(aa)
+            intermediates["s"] = s_s_0
+            intermediates["aa_embed"] = self.embedding(aa)
 
         if return_intermediates:
             return s_s_0, s_z_0, aa, residx, mask, intermediates
         else:
             return s_s_0, s_z_0, aa, residx, mask
 
-    def folding_trunk(
-        self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None
-    ):
+    def folding_trunk(self, s_s_0, s_z_0, aa, residx, mask, num_recycles: T.Optional[int] = None):
         assert not self.trunk is None
-        structure: dict = self.trunk(
-            s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles
-        )
+        structure: dict = self.trunk(s_s_0, s_z_0, aa, residx, mask, no_recycles=num_recycles)
         structure = self.post_processing(structure, aa, residx, mask)
         return structure
 
@@ -285,9 +276,7 @@ class ESMFold(nn.Module):
         )
         structure["lddt_head"] = lddt_head
         plddt = categorical_lddt(lddt_head[-1], bins=self.lddt_bins)
-        structure["plddt"] = (
-            100 * plddt
-        )  # we predict plDDT between 0 and 1, scale to be between 0 and 100.
+        structure["plddt"] = 100 * plddt  # we predict plDDT between 0 and 1, scale to be between 0 and 100.
 
         ptm_logits = self.ptm_head(structure["s_z"])
 
@@ -303,11 +292,7 @@ class ESMFold(nn.Module):
                 for batch_ptm_logits, sl in zip(ptm_logits, seqlen)
             ]
         )
-        structure.update(
-            compute_predicted_aligned_error(
-                ptm_logits, max_bin=31, no_bins=self.distogram_bins
-            )
-        )
+        structure.update(compute_predicted_aligned_error(ptm_logits, max_bin=31, no_bins=self.distogram_bins))
 
         return structure
 
@@ -322,9 +307,7 @@ class ESMFold(nn.Module):
 
     def forward(self, aa, mask, residx, masking_pattern=None, num_recycles=None):
         assert not self.trunk is None
-        s_s_0, s_z_0, aa, residx, mask = self.embed_for_folding_trunk(
-            aa, mask, residx, masking_pattern
-        )
+        s_s_0, s_z_0, aa, residx, mask = self.embed_for_folding_trunk(aa, mask, residx, masking_pattern)
         structure = self.folding_trunk(s_s_0, s_z_0, aa, residx, mask, num_recycles)
         return structure
 
@@ -379,13 +362,11 @@ class ESMFold(nn.Module):
             num_recycles=num_recycles,
         )
 
-        output["atom37_atom_exists"] = output[
-            "atom37_atom_exists"
-        ] * linker_mask.unsqueeze(2)
+        output["atom37_atom_exists"] = output["atom37_atom_exists"] * linker_mask.unsqueeze(2)
 
-        output["mean_plddt"] = (output["plddt"] * output["atom37_atom_exists"]).sum(
-            dim=(1, 2)
-        ) / output["atom37_atom_exists"].sum(dim=(1, 2))
+        output["mean_plddt"] = (output["plddt"] * output["atom37_atom_exists"]).sum(dim=(1, 2)) / output[
+            "atom37_atom_exists"
+        ].sum(dim=(1, 2))
         output["chain_index"] = chain_index
 
         return output
@@ -398,7 +379,7 @@ class ESMFold(nn.Module):
         masking_pattern: T.Optional[torch.Tensor] = None,
         residue_index_offset: T.Optional[int] = 512,
         chain_linker: T.Optional[str] = "G" * 25,
-        return_intermediates: bool = False
+        return_intermediates: bool = False,
     ):
         """From a list of sequence strings, obtain embeddings.
 
@@ -448,11 +429,10 @@ class ESMFold(nn.Module):
                 s_s_0, s_z_0, _, residx, mask, intermediates = self.embed_for_folding_trunk(
                     aatype, mask, residx, masking_pattern, return_intermediates
                 )
-                intermediates['z'] = s_z_0
+                intermediates["z"] = s_z_0
                 intermediates["mask"] = mask
                 intermediates["pos"] = residx
             return intermediates
-                
 
     def output_to_pdb(self, output: T.Dict) -> T.List[str]:
         """Returns the pbd (file) string from the model given the model output."""

@@ -19,7 +19,7 @@ from tqdm import tqdm, trange
 from plaid.denoisers import BaseDenoiser
 from plaid.compression.uncompress import UncompressContinuousLatent
 from plaid.diffusion import GaussianDiffusion
-from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid 
+from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.utils import LatentScaler, write_pdb_to_disk, npy
 from plaid.constants import CACHED_TENSORS_DIR
@@ -47,6 +47,7 @@ class SampleCallback(Callback):
     the unnormalized and uncompressed version of the latent and construct the sequence
     and structure.
     """
+
     def __init__(
         self,
         diffusion: GaussianDiffusion,  # most sampling logic is here
@@ -68,7 +69,7 @@ class SampleCallback(Callback):
         sequence_constructor: T.Optional[LatentToSequence] = None,
         structure_constructor: T.Optional[LatentToStructure] = None,
         run_every_n_steps: int = 1000,
-        n_structures_to_log: T.Optional[int] = None
+        n_structures_to_log: T.Optional[int] = None,
     ):
         super().__init__()
         self.outdir = Path(outdir)
@@ -140,8 +141,12 @@ class SampleCallback(Callback):
 
         # calculate FID/KID in the normalized space
         self.real_features = self.scaler.scale(self.real_features)
-    
-        print("FID reference tensor mean/std:", self.real_features.mean().item(), self.real_features.std().item())
+
+        print(
+            "FID reference tensor mean/std:",
+            self.real_features.mean().item(),
+            self.real_features.std().item(),
+        )
         self.is_fid_setup = True
 
     def sample_latent(self, shape, model_kwargs={}):
@@ -152,19 +157,17 @@ class SampleCallback(Callback):
             all_samples.append(x_sampled)
             n_samples += x_sampled.shape[0]
 
-        log_dict = {
-            "sampled/unscaled_latent_hist": np.histogram(x_sampled.numpy().flatten())
-        }
+        log_dict = {"sampled/unscaled_latent_hist": np.histogram(x_sampled.numpy().flatten())}
         all_samples = torch.cat(all_samples)
         return all_samples, log_dict
-    
+
     def calculate_fid(self, x_uncompressed, device):
         """
         Calculate FID in the uncompressed but still normalized space, with mean across feature dim.
         """
         if not self.is_fid_setup:
             self._fid_setup(device)
-        
+
         fake_features = x_uncompressed.mean(dim=1)
 
         # just to be consistent, but not necessary
@@ -193,9 +196,7 @@ class SampleCallback(Callback):
         self.sequence_constructor.to(device)
         x_processed = x_processed.to(device)
         with torch.no_grad():
-            probs, _, strs = self.sequence_constructor.to_sequence(
-                x_processed, return_logits=False
-            )
+            probs, _, strs = self.sequence_constructor.to_sequence(x_processed, return_logits=False)
 
         # organize results for logging
         sequence_results = pd.DataFrame(
@@ -207,9 +208,8 @@ class SampleCallback(Callback):
 
         if self.calc_sequence_properties:
             from plaid.utils import calculate_df_protein_property_mp
-            sequence_results = calculate_df_protein_property_mp(
-                df=sequence_results, sequence_col="sequences"
-            )
+
+            sequence_results = calculate_df_protein_property_mp(df=sequence_results, sequence_col="sequences")
 
         log_dict = {f"sampled/sequences_df": sequence_results}
 
@@ -220,8 +220,7 @@ class SampleCallback(Callback):
             print(f"Mean perplexity: {np.mean(perplexities):.3f}")
             log_dict[f"sampled/perplexity_mean"] = np.mean(perplexities)
             log_dict[f"sampled/perplexity_hist"] = np.histogram(
-                np.array(perplexities).flatten(),
-                bins=min(len(perplexities), 50)
+                np.array(perplexities).flatten(), bins=min(len(perplexities), 50)
             )
         return strs, log_dict
 
@@ -242,15 +241,16 @@ class SampleCallback(Callback):
             )
 
         from plaid.utils import outputs_to_avg_metric
+
         metrics = outputs_to_avg_metric(outputs)
 
         # `outputs` values are numpy arrays on CPU
-        plddt_per_position = npy(outputs['plddt'].flatten())
-        pae_per_position = npy(outputs['predicted_aligned_error'].flatten())
+        plddt_per_position = npy(outputs["plddt"].flatten())
+        pae_per_position = npy(outputs["predicted_aligned_error"].flatten())
 
-        plddt = npy(metrics['plddt'].flatten())
-        pae = npy(metrics['predicted_aligned_error'].flatten())
-        ptm = npy(metrics['ptm'].flatten())
+        plddt = npy(metrics["plddt"].flatten())
+        pae = npy(metrics["predicted_aligned_error"].flatten())
+        ptm = npy(metrics["ptm"].flatten())
 
         N = x_processed.shape[0]
 
@@ -265,7 +265,7 @@ class SampleCallback(Callback):
             f"sampled/pae_per_position_hist": np.histogram(pae_per_position, bins=min(N, 50)),
             f"sampled/ptm_mean": np.mean(pae),
             f"sampled/ptm_std": np.std(pae),
-            f"sampled/ptm_hist": np.histogram(ptm, bins=min(ptm.shape[0], 50))
+            f"sampled/ptm_hist": np.histogram(ptm, bins=min(ptm.shape[0], 50)),
         }
         return pdb_strs, metrics, log_dict
 
@@ -283,14 +283,14 @@ class SampleCallback(Callback):
 
         # sample latent (compressed and standardized)
         maybe_print("sampling latent...")
-        x, log_dict = self.sample_latent(shape)   # compressed, i.e. (N, L, C_compressed)
+        x, log_dict = self.sample_latent(shape)  # compressed, i.e. (N, L, C_compressed)
         if log_to_wandb:
             _wandb_log(logger, log_dict)
 
         # uncompress
         uncompressed = self.diffusion.hourglass_model.uncompress(x).detach()
 
-        # calculate FID with uncompressed (but still standardized!) 
+        # calculate FID with uncompressed (but still standardized!)
         if self.calc_fid:
             maybe_print("calculating FID...")
             log_dict = self.calculate_fid(uncompressed, device)
@@ -302,9 +302,7 @@ class SampleCallback(Callback):
 
         # subset, and perhaps calculate sequence and structure
         if not self.n_to_construct == -1:
-            maybe_print(
-                f"subsampling to only reconstruct {self.n_to_construct} samples..."
-            )
+            maybe_print(f"subsampling to only reconstruct {self.n_to_construct} samples...")
             latent = latent[torch.randperm(x.shape[0])][: self.n_to_construct]
 
         if self.calc_sequence:
@@ -324,12 +322,11 @@ class SampleCallback(Callback):
 
                 if not self.n_structures_to_log is None:
                     df = pd.DataFrame(metrics)
-                    df['pdb_path'] = [str(x) for x in all_pdb_paths]
-                    df = df.sort_values(by="plddt", ascending=False) 
-                    df = df.iloc[:self.n_structures_to_log, :]
-                    df['protein'] = df['pdb_path'].map(lambda x: wandb.Molecule(str(x)))
+                    df["pdb_path"] = [str(x) for x in all_pdb_paths]
+                    df = df.sort_values(by="plddt", ascending=False)
+                    df = df.iloc[: self.n_structures_to_log, :]
+                    df["protein"] = df["pdb_path"].map(lambda x: wandb.Molecule(str(x)))
                     wandb.log({"sampled_proteins_df": df})
-
 
     def save_structures_to_disk(self, pdb_strs, cur_step: int):
         paths = []

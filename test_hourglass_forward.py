@@ -1,5 +1,5 @@
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
-from plaid.datasets import CATHShardedDataModule 
+from plaid.datasets import CATHShardedDataModule
 import torch
 
 dm = CATHShardedDataModule(
@@ -14,4 +14,6 @@ from plaid.esmfold import esmfold_v1
 
 esmfold = esmfold_v1()
 model = HourglassVQLightningModule(dim=1024, esmfold=esmfold)
-import IPython; IPython.embed()
+import IPython
+
+IPython.embed()

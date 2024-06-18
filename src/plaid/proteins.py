@@ -29,17 +29,13 @@ CANONICAL_AA = "ACDEFGHIKLMNPQRSTVWY"
 
 # https://github.com/dauparas/ProteinMPNN/blob/main/protein_mpnn_utils.py#L61
 PROTEINMPNN_AACHAR_TO_AAIDX_ARR = list("ARNDCQEGHILKMFPSTWYV-")
-PROTEINMPNN_AAIDX_TO_AACHAR = {
-    idx: char for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)
-}
-PROTEINMPNN_AACHAR_TO_AAIDX = {
-    char: idx for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)
-}
+PROTEINMPNN_AAIDX_TO_AACHAR = {idx: char for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
+PROTEINMPNN_AACHAR_TO_AAIDX = {char: idx for idx, char in enumerate(PROTEINMPNN_AACHAR_TO_AAIDX_ARR)}
 
 
 def stack_tensor_dicts(dicts: T.List[T.Dict[str, torch.Tensor]], list_of_igored_keys: T.List[str]):
     keys = set(k for d in dicts for k in d.keys())
-    keys = keys - set(list_of_igored_keys) 
+    keys = keys - set(list_of_igored_keys)
     return {key: torch.cat([d[key] for d in dicts if key in d], dim=0) for key in keys}
 
 
@@ -66,9 +62,7 @@ class DecoderTokenizer:
     def _char2idx(self, char: str) -> int:
         return self.aachar_to_aaidx.get(char, self.unk_idx)
 
-    def str_to_aatype_sequence(
-        self, seq: T.Union[T.Iterable, str], as_torch_tensor: bool = True
-    ):
+    def str_to_aatype_sequence(self, seq: T.Union[T.Iterable, str], as_torch_tensor: bool = True):
         if isinstance(seq, str):
             seq = list(seq)
 
@@ -98,9 +92,7 @@ class DecoderTokenizer:
             raise ValueError(f"Unrecognized strip_mode: {strip_mode}")
         return aastr
 
-    def collate_dense_tensors(
-        self, samples: T.List[torch.Tensor], pad_v: int
-    ) -> torch.Tensor:
+    def collate_dense_tensors(self, samples: T.List[torch.Tensor], pad_v: int) -> torch.Tensor:
         """
         Takes a list of tensors with the following dimensions:
             [(d_11,       ...,           d_1K),
@@ -114,14 +106,10 @@ class DecoderTokenizer:
         if len(samples) == 0:
             return torch.Tensor()
         if len(set(x.dim() for x in samples)) != 1:
-            raise RuntimeError(
-                f"Samples has varying dimensions: {[x.dim() for x in samples]}"
-            )
+            raise RuntimeError(f"Samples has varying dimensions: {[x.dim() for x in samples]}")
         (device,) = tuple(set(x.device for x in samples))  # assumes all on same device
         max_shape = [max(lst) for lst in zip(*[x.shape for x in samples])]
-        result = torch.empty(
-            len(samples), *max_shape, dtype=samples[0].dtype, device=device
-        )
+        result = torch.empty(len(samples), *max_shape, dtype=samples[0].dtype, device=device)
         result.fill_(pad_v)
         for i in range(len(samples)):
             result_i = result[i]
@@ -165,7 +153,6 @@ class DecoderTokenizer:
         return "".join([s for s in string if self._is_valid_aa(s)])
 
 
-
 class LatentToSequence:
     def __init__(self, temperature: float = 1.0):
         """On construction, all models are on the CPU."""
@@ -184,9 +171,7 @@ class LatentToSequence:
         self.device = device
         return self
 
-    def to_sequence(
-        self, latent: ArrayLike, mask=None, return_logits=False, drop_mask_idx=True
-    ):
+    def to_sequence(self, latent: ArrayLike, mask=None, return_logits=False, drop_mask_idx=True):
         if not mask is None:
             mask = torch.ones_like(latent)
         latent = to_tensor(latent, device=self.device)
@@ -202,10 +187,7 @@ class LatentToSequence:
 
         # remove UNK token
         if drop_mask_idx:
-            _mask = (
-                torch.arange(output_logits.shape[-1], device=self.device)
-                != self.tokenizer.unk_idx
-            )
+            _mask = torch.arange(output_logits.shape[-1], device=self.device) != self.tokenizer.unk_idx
             drop_mask_logits = torch.index_select(
                 input=output_logits,
                 dim=-1,
@@ -219,18 +201,13 @@ class LatentToSequence:
             argmax_idx = output_logits.argmax(-1)
             dist = torch.distributions.OneHotCategorical(logits=output_logits)
             sequence_probs = F.softmax(output_logits, dim=-1)
-        
+
         sequence_idx = dist.sample().argmax(-1)
-        sequence_probs = torch.gather(
-            sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)
-        ).squeeze(-1)
+        sequence_probs = torch.gather(sequence_probs, dim=-1, index=argmax_idx.unsqueeze(-1)).squeeze(-1)
         stochasticity = (argmax_idx == sequence_idx).sum() / torch.numel(argmax_idx)
         # print(f"percentage similarty to argmax idx: {stochasticity:.3f}")
 
-        sequence_str = [
-            self.tokenizer.aatype_to_str_sequence(s)
-            for s in sequence_idx.long().cpu().numpy()
-        ]
+        sequence_str = [self.tokenizer.aatype_to_str_sequence(s) for s in sequence_idx.long().cpu().numpy()]
 
         if return_logits:
             # return the original output logits, e.g. for loss & backprop purposes
@@ -242,8 +219,8 @@ class LatentToSequence:
 class LatentToStructure:
     def __init__(self, esmfold=None, chunk_size=128, delete_esm_lm=True):
         if esmfold is None:
-            esmfold = esmfold_v1() 
-        
+            esmfold = esmfold_v1()
+
         self.esmfold = esmfold
         self.esmfold.set_chunk_size(chunk_size)
         if delete_esm_lm:
@@ -262,9 +239,7 @@ class LatentToStructure:
         return self
 
     @torch.no_grad()
-    def run_batch(
-        self, s_, aa_, mask_, residx_, num_recycles, *args, **kwargs
-    ):
+    def run_batch(self, s_, aa_, mask_, residx_, num_recycles, *args, **kwargs):
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
         _, L, _ = s_.shape
@@ -275,7 +250,7 @@ class LatentToStructure:
                 return trim_or_pad_batch_first(tensor, length, pad_idx=0)
             else:
                 return tensor
-            
+
         mask_ = maybe_pad(mask_, L)
         aa_ = maybe_pad(aa_, L)
         residx_ = maybe_pad(residx_, L)
@@ -307,13 +282,11 @@ class LatentToStructure:
         return_additional_info: str = "outputs",
         verbose: bool = False,
         *args,
-        **kwargs
+        **kwargs,
     ) -> T.Tuple[T.List[PathLike], T.Union[T.Dict, pd.DataFrame]]:
         """set up devices and tensors"""
         aatype, mask, residx, _, _ = batch_encode_sequences(sequences)
-        aatype, mask, residx = tuple(
-            map(lambda x: x.to(self.device), (aatype, mask, residx))
-        )
+        aatype, mask, residx = tuple(map(lambda x: x.to(self.device), (aatype, mask, residx)))
         latent = to_tensor(latent, device=self.device)
         assert (
             latent.device == self.esmfold.device
@@ -322,16 +295,12 @@ class LatentToStructure:
         if batch_size is None:
             if verbose:
                 print("Generating structure from latents")
-            return self.run_batch(
-                latent, aatype, mask, residx, num_recycles, return_additional_info
-            )
+            return self.run_batch(latent, aatype, mask, residx, num_recycles, return_additional_info)
 
         else:
             all_output_dicts = []
             all_pdb_strs = []
-            for start in trange(
-                0, len(latent), batch_size, desc="(Generating structure)"
-            ):
+            for start in trange(0, len(latent), batch_size, desc="(Generating structure)"):
                 # Process current batch
                 s_, aa_, mask_, residx_ = tuple(
                     map(
@@ -339,13 +308,17 @@ class LatentToStructure:
                         (latent, aatype, mask, residx),
                     )
                 )
-                
+
                 # Collect outputs
-                pdb_str, outputs = self.run_batch(s_, aa_, mask_, residx_, num_recycles, return_additional_info)
+                pdb_str, outputs = self.run_batch(
+                    s_, aa_, mask_, residx_, num_recycles, return_additional_info
+                )
                 all_pdb_strs.extend(pdb_str)
                 all_output_dicts.append(outputs)
 
-            all_output_dicts = stack_tensor_dicts(all_output_dicts, list_of_igored_keys=["max_predicted_aligned_error"])
+            all_output_dicts = stack_tensor_dicts(
+                all_output_dicts, list_of_igored_keys=["max_predicted_aligned_error"]
+            )
             return all_pdb_strs, all_output_dicts
 
 
