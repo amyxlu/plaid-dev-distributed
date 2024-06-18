@@ -3,6 +3,7 @@
 
 defaults:
   - override /datamodule: pfam_fasta
+  - _self_
 
 datamodule:
   batch_size: 64 

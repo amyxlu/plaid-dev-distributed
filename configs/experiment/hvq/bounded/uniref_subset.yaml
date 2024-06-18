@@ -2,6 +2,7 @@
 
 defaults:
   - override /datamodule: seqrep_cached/uniref_subset_sharded
+  - _self_
   # - override /datamodule: cath_h5
 
 datamodule:

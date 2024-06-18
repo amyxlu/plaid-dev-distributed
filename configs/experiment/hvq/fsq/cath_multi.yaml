@@ -6,6 +6,7 @@ defaults:
   - override /trainer: ddp
   - override /datamodule: seqrep_cached/cath_h5
   - override /hourglass: large
+  - _self_
 
 datamodule:
   batch_size: 128 

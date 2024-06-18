@@ -1,6 +1,7 @@
 # @package _global_
 defaults:
   - override /datamodule: seqrep_cached/cath_h5
+  - _self_
 
 datamodule:
   batch_size: 128 

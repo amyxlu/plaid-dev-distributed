@@ -2,6 +2,7 @@
 
 defaults:
   - override /datamodule: pfam_fasta
+  - _self_
 
 compression_model_id: j1v1wv6w
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq

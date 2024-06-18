@@ -7,6 +7,7 @@ defaults:
   - override /denoiser: dit.yaml
   - override /datamodule: compressed/cath_h5
   - override /callbacks/sample: pfam_compressed_fid
+  - _self_
 
 datamodule:
   compression_model_id: ${compression_model_id}

@@ -10,6 +10,7 @@ defaults:
   - override /trainer: ddp.yaml
   - override /datamodule: compressed/pfam_h5
   - override /callbacks/sample: pfam_compressed_fid
+  - _self_
 
 datamodule:
   compression_model_id: ${compression_model_id}

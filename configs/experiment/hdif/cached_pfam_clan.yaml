@@ -5,6 +5,9 @@ compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 32 
 shorten_factor: 2
 
+defaults:
+  - _self_
+
 datamodule:
   compression_model_id: ${compression_model_id}
   h5_root_dir: /homefs/home/lux70/storage/data/pfam/compressed/subset_1M_with_clan/fp16
