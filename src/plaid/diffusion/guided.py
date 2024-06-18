@@ -119,7 +119,6 @@ class GaussianDiffusion(L.LightningModule):
         x_clip_val: T.Optional[float] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
         shorten_factor=1.0,
-        unscaler: LatentScaler = LatentScaler("identity"),
         uncompressor: T.Optional[UncompressContinuousLatent] = None,
         sequence_to_latent_fn: T.Optional[T.Callable] = lambda x: x,
         pfam_to_clan_fpath: T.Optional[T.Union[str, Path]] = None,
@@ -152,7 +151,7 @@ class GaussianDiffusion(L.LightningModule):
         self.hourglass_model = uncompressor
         self.sequence_to_latent_fn = sequence_to_latent_fn
         if pfam_to_clan_fpath is not None:
-            self.pfam_to_clan = pd.read_csv()
+            self.pfam_to_clan = pd.read_csv(pfam_to_clan_fpath, sep=",")
         assert objective in {
             "pred_noise",
             "pred_x0",
@@ -165,7 +164,7 @@ class GaussianDiffusion(L.LightningModule):
         roughly between (-1, 1). If self.x_clip_val is not None, at each p_sample loop, the value will
         be clipped so that we can get a cleaner range when doing the final calculation.
         """
-        self.unscaler = unscaler
+        self.unscaler = LatentScaler()
         self.x_clip_val = x_clip_val
 
         # Use float64 for accuracy.

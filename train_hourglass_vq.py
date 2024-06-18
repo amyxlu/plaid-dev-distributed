@@ -9,7 +9,7 @@ from lightning.pytorch.utilities import rank_zero_only
 from omegaconf import DictConfig, OmegaConf
 import torch
 
-from plaid.transforms import ESMFoldEmbed
+from plaid.esmfold import esmfold_v1
 from plaid.datasets import FastaDataModule
 import os
 
@@ -70,18 +70,15 @@ def train(cfg: DictConfig):
     end = time.time()
     print(f"Datamodule set up in {end - start:.2f} seconds.")
 
-    # normalize by channel
-    latent_scaler = hydra.utils.instantiate(cfg.latent_scaler)
+    # maybe load esmfold if we need to normalize by channel
+    esmfold = None
     if isinstance(datamodule, FastaDataModule):
-        seq_emb_fn = ESMFoldEmbed(shorten_len_to=cfg.datamodule.seq_len)
-    else:
-        seq_emb_fn = None
+        esmfold = esmfold_v1()
 
     # set up lightning module
     model = hydra.utils.instantiate(
         cfg.hourglass,
-        latent_scaler=latent_scaler,
-        seq_emb_fn=seq_emb_fn
+        esmfold=esmfold
     )
     
     if not cfg.dryrun:

@@ -46,15 +46,12 @@ class HourglassVQLightningModule(L.LightningModule):
         lr_num_warmup_steps: int = 0,
         lr_num_training_steps: int = 10_000_000,
         lr_num_cycles: int = 1,
-        # scaler
-        latent_scaler=LatentScaler(),
-        seq_emb_fn=None,
         # auxiliary losses
         seq_loss_weight: float = 0.0,
         struct_loss_weight: float = 0.0,
         log_sequence_loss=False,
         log_structure_loss=False,
-        # !!!
+        # in case we need to embed on the fly
         esmfold=None
     ):
         super().__init__()
@@ -63,7 +60,7 @@ class HourglassVQLightningModule(L.LightningModule):
         none (i.e. output of encoder goes directly back into the decoder).
         """
 
-        ignored_hparams = ["latent_scaler"]
+        ignored_hparams = []
 
         if esmfold is not None:
             self.esmfold = esmfold

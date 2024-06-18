@@ -1,5 +1,0 @@
-_target_: plaid.utils.LatentScaler
-
-mode: "channel_minmaxnorm"
-origin_dataset: "cath"
-lm_embedder_type: "esmfold"

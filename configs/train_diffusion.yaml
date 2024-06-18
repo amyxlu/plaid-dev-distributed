@@ -4,7 +4,6 @@ defaults:
   - trainer: default
   - datamodule: /compressed/pfam_h5
   - denoiser: dit
-  - latent_scaler: esmfold 
   - diffusion: diffusion
   - callbacks/checkpoint: diffusion # ema
   - callbacks/lr_monitor: default
