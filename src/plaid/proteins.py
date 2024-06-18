@@ -15,7 +15,7 @@ import numpy as np
 import re
 from openfold.np import residue_constants
 
-from .utils._misc import npy, to_tensor, outputs_to_avg_metric
+from .utils._misc import npy, to_tensor, get_model_device, outputs_to_avg_metric
 from .decoder import FullyConnectedNetwork
 from .esmfold import ESMFOLD_Z_DIM, esmfold_v1, output_to_pdb, batch_encode_sequences
 from .transforms import trim_or_pad_batch_first
@@ -241,7 +241,6 @@ class LatentToSequence:
 
 class LatentToStructure:
     def __init__(self, esmfold=None, chunk_size=128, delete_esm_lm=True):
-        self.device = torch.device("cpu")
         if esmfold is None:
             esmfold = esmfold_v1() 
         
@@ -254,6 +253,8 @@ class LatentToStructure:
         self.esmfold.eval()
         for param in self.esmfold.parameters():
             param.requires_grad = False
+
+        self.device = get_model_device(self.esmfold)
 
     def to(self, device):
         self.esmfold = self.esmfold.to(device)

@@ -6,7 +6,7 @@ import wandb
 import hydra
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.utilities import rank_zero_only
+from lightning.pytorch.utilities import rank_zero_only, rank_zero_info
 import torch.profiler
 from lightning.pytorch.profilers import AdvancedProfiler, PyTorchProfiler
 
@@ -66,14 +66,14 @@ def train(cfg: DictConfig):
         config_path = dirpath / "config.yaml"
         if config_path.exists():
             cfg = OmegaConf.load(config_path)
-            print("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
+            rank_zero_info("*" * 10, "\n", "Overriding config from job ID", job_id,  "\n", "*" * 10)
         else:
             dirpath.mkdir(parents=True)
             if not config_path.exists():
                 OmegaConf.save(cfg, config_path)    
             
         log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
-        print(OmegaConf.to_yaml(log_cfg))
+        rank_zero_info(OmegaConf.to_yaml(log_cfg))
 
     ####################################################################################################
     # Data and beta scheduler 
@@ -99,20 +99,24 @@ def train(cfg: DictConfig):
             cfg.callbacks.sample.calc_perplexity and cfg.run_sample_callback
         ):
             # this loads the trained decoder:
+            rank_zero_info("WILL load sequence constructor weights.")
             return LatentToSequence(temperature=1.0)
         else:
+            rank_zero_info("WILL NOT load sequence constructor weights.")
             return None
 
     def to_load_structure_constructor(cfg):
         if (cfg.diffusion.structure_decoder_weight > 0.0) or (
             cfg.callbacks.sample.calc_structure and cfg.run_sample_callback
         ):
+            rank_zero_info("WILL load structure constructor weights.")
             # this creates the esmfold trunk on CPU, without the LM:
             if BATCH_FASTA_MODE:
                 return LatentToStructure(delete_esm_lm=False)
             else:
                 return LatentToStructure(delete_esm_lm=True)
         else:
+            rank_zero_info("WILL NOT load structure constructor weights.")
             return None
 
     def to_load_uncompressor(cfg):
@@ -120,6 +124,9 @@ def train(cfg: DictConfig):
             return None
         else:
             if isinstance(datamodule, FastaDataModule) or cfg.run_sample_callback:
+                rank_zero_info("WILL load uncompression decoder weights.")
+                if BATCH_FASTA_MODE:
+                    rank_zero_info("WILL load uncompression encoder weights.")
                 return UncompressContinuousLatent(
                     cfg.compression_model_id,
                     cfg.compression_ckpt_dir,
@@ -220,7 +227,7 @@ def train(cfg: DictConfig):
         if IS_RESUMED:
             # job id / dirpath was already updated to match the to-be-resumed directory 
             ckpt_fname = dirpath / find_latest_checkpoint(dirpath)
-            print("Resuming from ", ckpt_fname)
+            rank_zero_info("Resuming from ", ckpt_fname)
             assert ckpt_fname.exists()
             trainer.fit(diffusion, datamodule=datamodule, ckpt_path=dirpath / ckpt_fname)
         else:
