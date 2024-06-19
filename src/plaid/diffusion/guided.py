@@ -94,7 +94,7 @@ class GaussianDiffusion(L.LightningModule):
 
     Additional considerations specific to our architecture:
     * shorten factor
-    * uncompressor (on the normalized x; for auxiliary losses only)
+    * hourglass_model (on the normalized x; for auxiliary losses only)
     * unscaler (to undo the normalization; for auxiliary losses only)
 
     The sampling loop returns x_sampled, where x is the normalized-and-compressed
@@ -122,7 +122,7 @@ class GaussianDiffusion(L.LightningModule):
         ] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
         shorten_factor=1.0,
-        uncompressor: T.Optional[UncompressContinuousLatent] = None,
+        hourglass_model: T.Optional[UncompressContinuousLatent] = None,
         esmfold: torch.nn.Module = None,
         pfam_to_clan_fpath: T.Optional[T.Union[str, Path]] = None,
         # sampling
@@ -150,7 +150,7 @@ class GaussianDiffusion(L.LightningModule):
 
         ignore_args_for_hparams = [
             "model",
-            "uncompressor",
+            "hourglass_model",
             "esmfold",
             "sequence_constructor",
             "structure_constructor",
@@ -163,12 +163,13 @@ class GaussianDiffusion(L.LightningModule):
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective
         self.shorten_factor = shorten_factor
-        self.hourglass_model = uncompressor
+        self.hourglass_model = hourglass_model 
         self.esmfold = esmfold
         self.x_clip_val = x_clip_val
 
         if pfam_to_clan_fpath is not None:
-            self.pfam_to_clan = pd.read_csv(pfam_to_clan_fpath, sep=",")
+            self.pfam_to_clan = pd.read_csv(pfam_to_clan_fpath, sep=",").to_dict()
+
         assert objective in {
             "pred_noise",
             "pred_x0",
@@ -741,10 +742,10 @@ class GaussianDiffusion(L.LightningModule):
     #     cond_dict = {"secondary_structure": sec_struct_fracs}
     #     return cond_dict
 
-    def process_x_to_latent(self, x):
+    def process_x_to_latent(self, x, mask=None):
         """Decompress and undo channel-wise scaling"""
         if self.hourglass_model is not None:
-            x = self.hourglass_model.uncompress(x)
+            x = self.hourglass_model.uncompress(x, mask)
         return self.unscaler.unscale(x)
 
     def run_step(self, batch, model_kwargs={}, noise=None, clip_x_start=True):
@@ -839,10 +840,10 @@ class GaussianDiffusion(L.LightningModule):
         with torch.no_grad():
             assert not self.esmfold is None
             headers, sequences = batch
-            res = self.esmfold.infer_embedding(sequences)["s"]
+            res = self.esmfold.infer_embedding(sequences)
             latent, mask = res["s"], res["mask"]
             scaled_latent = self.unscaler.scale(latent)
-            x_start = self.uncompressor.compress(scaled_latent)
+            x_start = self.hourglass_model.compress(scaled_latent)
             clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(

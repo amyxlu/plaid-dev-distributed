@@ -155,7 +155,7 @@ def train(cfg: DictConfig):
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
         model=denoiser,
-        uncompressor=hourglass_model,
+        hourglass_model=hourglass_model,
         esmfold=esmfold,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
@@ -183,6 +183,9 @@ def train(cfg: DictConfig):
     # ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
 
     callbacks = [lr_monitor, checkpoint_callback]  # , ema_callback]
+
+    if cfg.run_batch_size_callback:
+        callbacks += [hydra.utils.instantiate(cfg.callbacks.batch_size)]
 
     if cfg.run_sample_callback:
         sample_callback = hydra.utils.instantiate(

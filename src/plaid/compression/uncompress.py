@@ -12,34 +12,18 @@ class UncompressionLatent:
         init_compress_mode=False,
     ):
         self.device = torch.device("cpu")
-
         ckpt_path = Path(compression_ckpt_dir) / str(compression_model_id) / "last.ckpt"
-        model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path).cpu()
-
-        # we only keep the decoder weights and some attributes for downstream
-        self.quantize_scheme = model.quantize_scheme
-        self.decoder = deepcopy(model.dec)
-        self.quantizer = deepcopy(model.quantizer)
-        self.decoder.to(self.device).eval()
-
-        if model.post_quant_proj is not None:
-            self.post_quant_proj = model.post_quant_proj
-            self.post_quant_proj.to(self.device).eval()
-        else:
-            self.post_quant_proj = None
-
-        # if we also want to init the weights necessary to compress, don't delete the encoder
-        if init_compress_mode:
-            self.hourglass_model = model
-        else:
-            del model
+        self.model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path).cpu()
 
     def to(self, device):
         self.device = device
-        self.decoder.to(device)
+        self.model.to(device)
         return self
 
     def uncompress(self, *args, **kwargs):
+        raise NotImplementedError
+    
+    def compress(self, *args, **kwargs):
         raise NotImplementedError
 
 
@@ -62,24 +46,23 @@ class UncompressContinuousLatent(UncompressionLatent):
         if mask is not None:
             mask = mask.to(self.device)
 
-        if self.post_quant_proj is not None:
-            z_q = self.post_quant_proj(z_q)
+        if self.model.post_quant_proj is not None:
+            z_q = self.model.post_quant_proj(z_q)
 
-        return self.decoder(z_q, mask, verbose)
+        return self.model.dec(z_q, mask, verbose)
 
-    def compress(self, feats, mask=None):
+    def compress(self, x_norm, mask=None):
         """
         scale latent and compress with hourglass transformer
         """
-        if mask is not None:
+        if mask is None:
             mask = torch.ones((x_norm.shape[0], x_norm.shape[1]))
-        del feats
-
+        
         x_norm, mask = x_norm.to(self.device), mask.to(self.device)
 
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
-        _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
+        _, _, _, compressed_representation = self.model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
 
 
@@ -102,7 +85,7 @@ class UncompressDiscreteLatent:
 
 
 if __name__ == "__main__":
-    compression_model_id = "2024-03-21T18-49-51"
+    compression_model_id = "jzlv54wl"
     device = torch.device("cuda")
 
     uncompressor = UncompressContinuousLatent(compression_model_id)
@@ -113,7 +96,7 @@ if __name__ == "__main__":
 
     dm = CATHShardedDataModule(
         shard_dir="/homefs/home/lux70/storage/data/cath/shards",
-        seq_len=256,
+        seq_len=128,
     )
     dm.setup()
     loader = dm.train_dataloader()

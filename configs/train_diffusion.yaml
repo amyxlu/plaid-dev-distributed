@@ -8,7 +8,8 @@ defaults:
   - callbacks/checkpoint: diffusion # ema
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 
-  - callbacks/ema: default
+  # - callbacks/ema: default
+  - callbacks/batch_size: default
   - logger: diffusion
   - experiment: null
 
@@ -19,4 +20,6 @@ resume_from_model_id: null
 compression_model_id: null
 compression_ckpt_dir: null
 shorten_factor: null
+
 run_sample_callback: true
+run_batch_size_callback: false
