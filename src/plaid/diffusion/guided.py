@@ -836,14 +836,14 @@ class GaussianDiffusion(L.LightningModule):
         header parsed to map to the clan. If these models aren't already created,
         the method will trigger its creation.
         """
-        assert not self.esmfold is None
-        headers, sequences = batch
-        res = self.esmfold.infer_embedding(sequences)["s"]
-        latent, mask = res["s"], res["mask"]
-        scaled_latent = self.unscaler.scale(latent)
-        x_start = self.uncompressor.compress(scaled_latent)
-
-        clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
+        with torch.no_grad():
+            assert not self.esmfold is None
+            headers, sequences = batch
+            res = self.esmfold.infer_embedding(sequences)["s"]
+            latent, mask = res["s"], res["mask"]
+            scaled_latent = self.unscaler.scale(latent)
+            x_start = self.uncompressor.compress(scaled_latent)
+            clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(
             x_start=x_start,

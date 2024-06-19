@@ -1,9 +1,10 @@
 # @package _global_
 
+run_sample_callback: false
 
 defaults:
-  - override /datamodule: pfam_fasta
   - _self_
+  - override /datamodule: pfam_fasta
 
 datamodule:
   batch_size: 64 
