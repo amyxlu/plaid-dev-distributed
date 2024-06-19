@@ -330,6 +330,11 @@ class HourglassEncoder(nn.Module):
         # top half of hourglass, pre-transformer layers
         x = self.pre_transformer(x, mask=mask)
 
+        # pad to multiple of shortening factor, in preparation for pooling
+        x = pad_to_multiple(x, s, dim = -2)
+        if exists(mask):
+            mask = pad_to_multiple(mask, s, dim = -1, value = False)
+
         # if autoregressive, do the shift by shortening factor minus one
         if self.causal:
             shift = s - 1
@@ -351,17 +356,17 @@ class HourglassEncoder(nn.Module):
         # pre-valley "attention resampling" - they have the pooled token in each bucket attend to the tokens pre-pooled
         if exists(self.attn_resampling_pre_valley):
             if exists(mask):
-                attn_resampling_mask = rearrange(downsampled_mask, "b (n s) -> (b n) s", s=s)
-                maybe_shape_check(attn_resampling_mask, verbose)
+                attn_resampling_mask = rearrange(mask, 'b (n s) -> (b n) s', s = s)
             else:
                 attn_resampling_mask = None
-
+            
             downsampled = self.attn_resampling_pre_valley(
-                rearrange(downsampled, "b n d -> (b n) () d"),
-                rearrange(x, "b (n s) d -> (b n) s d", s=s),
-                mask=attn_resampling_mask,
+                rearrange(downsampled, 'b n d -> (b n) () d'),
+                rearrange(x, 'b (n s) d -> (b n) s d', s = s),
+                mask = attn_resampling_mask
             )
-            downsampled = rearrange(downsampled, "(b n) () d -> b n d", b=b)
+
+            downsampled = rearrange(downsampled, '(b n) () d -> b n d', b = b)
             maybe_shape_check(downsampled, verbose)
 
         # also possibly reduce along dim=-1

@@ -88,6 +88,7 @@ def train(cfg: DictConfig):
 
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=dirpath)
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
+
     callbacks = [checkpoint_callback, lr_monitor]
 
     if cfg.use_compression_callback:
