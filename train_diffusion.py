@@ -18,7 +18,7 @@ import re
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.datasets import FastaDataModule
 from plaid.compression.uncompress import UncompressContinuousLatent
-from plaid.transforms import ESMFoldEmbed
+from plaid.esmfold import esmfold_v1
 from plaid import constants
 from plaid.utils import print_cuda_info
 
@@ -95,6 +95,23 @@ def train(cfg: DictConfig):
     # Load auxiliary model weights
     ####################################################################################################
 
+    def to_load_esmfold(cfg):
+        to_return = False
+        if (cfg.diffusion.structure_decoder_weight > 0.0):
+            to_return = True
+        if (cfg.callbacks.sample.calc_structure and cfg.run_sample_callback):
+            to_return = True
+        if BATCH_FASTA_MODE:
+            to_return = True
+        
+        if to_return:
+            esmfold = esmfold_v1()
+            rank_zero_info("WILL load ESMFold.")
+            return esmfold
+        else:
+            rank_zero_info("WILL NOT load structure constructor weights.")
+            return None
+
     def to_load_sequence_constructor(cfg):
         if (cfg.diffusion.sequence_decoder_weight > 0.0) or (
             cfg.callbacks.sample.calc_perplexity and cfg.run_sample_callback
@@ -106,16 +123,16 @@ def train(cfg: DictConfig):
             rank_zero_info("WILL NOT load sequence constructor weights.")
             return None
 
-    def to_load_structure_constructor(cfg):
+    def to_load_structure_constructor(cfg, esmfold=None):
         if (cfg.diffusion.structure_decoder_weight > 0.0) or (
             cfg.callbacks.sample.calc_structure and cfg.run_sample_callback
         ):
             rank_zero_info("WILL load structure constructor weights.")
             # this creates the esmfold trunk on CPU, without the LM:
             if BATCH_FASTA_MODE:
-                return LatentToStructure(delete_esm_lm=False)
+                return LatentToStructure(esmfold=esmfold, delete_esm_lm=False)
             else:
-                return LatentToStructure(delete_esm_lm=True)
+                return LatentToStructure(esmfold=esmfold, delete_esm_lm=True)
         else:
             rank_zero_info("WILL NOT load structure constructor weights.")
             return None
@@ -137,15 +154,10 @@ def train(cfg: DictConfig):
                 return None
 
     # maybe make sequence/structure constructors
+    esmfold = to_load_esmfold(cfg)
     sequence_constructor = to_load_sequence_constructor(cfg)
-    structure_constructor = to_load_structure_constructor(cfg)
+    structure_constructor = to_load_structure_constructor(cfg, esmfold=esmfold)
     hourglass_model = to_load_uncompressor(cfg)
-
-    # is esmfold already loaded?
-    if structure_constructor is not None:
-        esmfold = structure_constructor.esmfold
-    else:
-        esmfold = None
 
     ####################################################################################################
     # Diffusion module

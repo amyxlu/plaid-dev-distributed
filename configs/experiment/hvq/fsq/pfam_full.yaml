@@ -15,16 +15,14 @@ logger:
   name: "pfam-fsq"
 
 hourglass:
-  n_e: 128 
-  e_dim: 64
   use_quantizer: "fsq"
   fsq_levels: [8,8,8,6,5]
-  downproj_factor: 128 
-  lr: 5e-5
+  lr: 1e-4
   lr_num_warmup_steps: 3000
   lr_sched_type: "cosine_with_restarts"
   lr_num_training_steps: 800_000
   lr_num_cycles: 2
+  depth: [8, 4, 8]
 
 trainer:
   precision: "bf16-mixed"

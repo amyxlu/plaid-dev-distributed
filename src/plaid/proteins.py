@@ -14,6 +14,7 @@ import typing as T
 import numpy as np
 import re
 from openfold.np import residue_constants
+from lightning.pytorch.utilities import rank_zero_info
 
 from .utils._misc import npy, to_tensor, get_model_device, outputs_to_avg_metric
 from .decoder import FullyConnectedNetwork
@@ -217,7 +218,7 @@ class LatentToSequence:
 
 
 class LatentToStructure:
-    def __init__(self, esmfold=None, chunk_size=128, delete_esm_lm=True):
+    def __init__(self, esmfold=None, chunk_size=128, delete_esm_lm=False):
         if esmfold is None:
             esmfold = esmfold_v1()
 
@@ -239,7 +240,7 @@ class LatentToStructure:
         return self
 
     @torch.no_grad()
-    def run_batch(self, s_, aa_, mask_, residx_, num_recycles, *args, **kwargs):
+    def run_batch(self, s_, aa_, mask_, residx_, num_recycles=1, *args, **kwargs):
         # https://github.com/facebookresearch/esm/blob/main/esm/esmfold/v1/esmfold.py#L208
         # utils.print_cuda_memory_usage()
         _, L, _ = s_.shape
@@ -279,7 +280,7 @@ class LatentToStructure:
         sequences: T.List[str],
         num_recycles: int = 4,
         batch_size: T.Optional[int] = None,
-        return_additional_info: str = "outputs",
+        return_raw_outputs: bool = False,
         verbose: bool = False,
         *args,
         **kwargs,
@@ -295,7 +296,7 @@ class LatentToStructure:
         if batch_size is None:
             if verbose:
                 print("Generating structure from latents")
-            return self.run_batch(latent, aatype, mask, residx, num_recycles, return_additional_info)
+            return self.run_batch(latent, aatype, mask, residx, num_recycles)
 
         else:
             all_output_dicts = []
@@ -311,15 +312,21 @@ class LatentToStructure:
 
                 # Collect outputs
                 pdb_str, outputs = self.run_batch(
-                    s_, aa_, mask_, residx_, num_recycles, return_additional_info
+                    s_, aa_, mask_, residx_, num_recycles
                 )
                 all_pdb_strs.extend(pdb_str)
                 all_output_dicts.append(outputs)
 
-            all_output_dicts = stack_tensor_dicts(
-                all_output_dicts, list_of_igored_keys=["max_predicted_aligned_error"]
-            )
-            return all_pdb_strs, all_output_dicts
+            if return_raw_outputs:
+                try:
+                    all_output_dicts = stack_tensor_dicts(
+                        all_output_dicts, list_of_igored_keys=["max_predicted_aligned_error"]
+                    )
+                except:
+                    rank_zero_info("Error stacking tensors from batches, returning raw list of outputs instead.")
+                return all_pdb_strs, all_output_dicts
+            else:
+                return all_pdb_strs
 
 
 if __name__ == "__main__":

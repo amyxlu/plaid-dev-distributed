@@ -30,7 +30,7 @@ export NCCL_DEBUG=INFO
 cd /homefs/home/lux70/code/plaid/
 
 nvidia-smi
-srun python train_hourglass.py {flags}
+srun python train_hourglass_vq.py {flags}
 """
 
 hashid = uuid.uuid4().hex[:7]
