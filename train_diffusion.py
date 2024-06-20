@@ -109,7 +109,7 @@ def train(cfg: DictConfig):
             rank_zero_info("WILL load ESMFold.")
             return esmfold
         else:
-            rank_zero_info("WILL NOT load structure constructor weights.")
+            rank_zero_info("WILL NOT load ESMFold.")
             return None
 
     def to_load_sequence_constructor(cfg):
@@ -212,19 +212,19 @@ def train(cfg: DictConfig):
     # Train
     ####################################################################################################
 
-    profiler = PyTorchProfiler(
-        schedule=torch.profiler.schedule(wait=2, warmup=2, active=6, repeat=1),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler("./log_dir"),
-        record_shapes=True,
-        profile_memory=True,
-        with_stack=True,
-        with_flops=True,
-    )
+    # profiler = PyTorchProfiler(
+    #     schedule=torch.profiler.schedule(wait=2, warmup=2, active=6, repeat=1),
+    #     on_trace_ready=torch.profiler.tensorboard_trace_handler("./log_dir"),
+    #     record_shapes=True,
+    #     profile_memory=True,
+    #     with_stack=True,
+    #     with_flops=True,
+    # )
 
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         logger=logger,
-        profiler=profiler,
+        # profiler=profiler,
         callbacks=callbacks,
     )
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
