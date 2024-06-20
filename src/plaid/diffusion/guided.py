@@ -842,17 +842,18 @@ class GaussianDiffusion(L.LightningModule):
             res = self.esmfold.infer_embedding(sequences)
             latent, mask = res["s"], res["mask"]
             scaled_latent = self.unscaler.scale(latent)
-            x_start = self.hourglass_model.compress(scaled_latent)
+            compressed_embedding, downsampled_mask = self.hourglass_model.compress(scaled_latent, mask)
             clan_idx = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(
-            x_start=x_start,
+            x_start=compressed_embedding,
             mask=downsampled_mask,
             clan_idx=clan_idx,
             sequences=sequences,
             model_kwargs=model_kwargs,
             noise=noise,
         )
+        
         return {
             "diffusion_loss": diffusion_loss,
             "model_output": model_output,
