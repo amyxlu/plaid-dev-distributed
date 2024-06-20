@@ -165,9 +165,6 @@ class GaussianDiffusion(L.LightningModule):
         self.esmfold = esmfold
         self.x_clip_val = x_clip_val
 
-        if pfam_to_clan_fpath is not None:
-            self.pfam_to_clan = pd.read_csv(pfam_to_clan_fpath, sep=",").to_dict()
-
         assert objective in {
             "pred_noise",
             "pred_x0",
@@ -181,6 +178,10 @@ class GaussianDiffusion(L.LightningModule):
         self.lr_num_warmup_steps = lr_num_warmup_steps
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
+
+        # for clan conditioning
+        if pfam_to_clan_fpath is not None:
+            self._make_accession_to_clan_data_structures(pfam_to_clan_fpath)
 
         ##########################################################################################
         # Auxiliary modules set up
@@ -842,14 +843,13 @@ class GaussianDiffusion(L.LightningModule):
             latent, mask = res["s"], res["mask"]
             scaled_latent = self.unscaler.scale(latent)
             x_start = self.hourglass_model.compress(scaled_latent)
-            clan_idxs = list(map(lambda header: self._header_to_clan_idx(header), headers))
+            clan_idx = list(map(lambda header: self._header_to_clan_idx(header), headers))
 
         model_output, x_t, t, diffusion_loss = self(
             x_start=x_start,
-            mask=mask,
-            clan_idx=clan_idxs,
+            mask=downsampled_mask,
+            clan_idx=clan_idx,
             sequences=sequences,
-            clan_idxs=clan_idxs,
             model_kwargs=model_kwargs,
             noise=noise,
         )
@@ -858,7 +858,7 @@ class GaussianDiffusion(L.LightningModule):
             "model_output": model_output,
             "sequences": sequences,
             "x_t": x_t,
-            "clan": clan_idxs,
+            "clan": clan_idx,
             "t": t,
         }
 
@@ -870,8 +870,8 @@ class GaussianDiffusion(L.LightningModule):
         else:
             raise TypeError(f"Expected batch to be dict or tuple, got {type(batch)}.")
 
-    def _make_accession_to_clan_data_structures(self):
-        fam_to_clan_df = pd.read_csv(self.accession_to_clan_file, sep="\t", header=None)
+    def _make_accession_to_clan_data_structures(self, pfam_to_clan_fpath):
+        fam_to_clan_df = pd.read_csv(pfam_to_clan_fpath, sep="\t", header=None)
         # read accession to clan dataframe and grab the first clan for each pfam family accession
         header = ["accession", "clan", "short_name", "gene_name", "description"]
         fam_to_clan_df.columns = header
@@ -884,13 +884,13 @@ class GaussianDiffusion(L.LightningModule):
 
         # store mapping
         self.clans_to_idx = dict(zip(clans, np.arange(len(clans))))
-        self.accession_to_clan = accession_to_clan
+        self.accession_to_clan_dict = accession_to_clan
         self.clans = clans
 
     def _header_to_clan_idx(self, header):
         subid = header.split(" ")[-1]
         accession = subid.split(".")[0]
-        clan_id = self.accession_to_clan[accession]
+        clan_id = self.accession_to_clan_dict[accession]
         if clan_id is None:
             return len(self.clans)  # dummy idx for unknown clan
         else:
