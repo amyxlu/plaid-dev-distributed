@@ -129,7 +129,7 @@ class FastaToLMDB:
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
         with torch.no_grad():
-            _, _, _, compressed_representation = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
+            _, _, _, compressed_representation, downsampled_mask = self.hourglass_model(x_norm, mask.bool(), log_wandb=False)
         return compressed_representation
 
     def run_batch(self, env, batch) -> T.Tuple[np.ndarray, T.List[str], T.List[str]]:

@@ -14,6 +14,8 @@ class UncompressionLatent:
         self.device = torch.device("cpu")
         ckpt_path = Path(compression_ckpt_dir) / str(compression_model_id) / "last.ckpt"
         self.model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path).cpu()
+        self.shorten_factor = self.model.enc.shorten_factor
+        self.downproj_factor = self.model.enc.downproj_factor
 
     def to(self, device):
         self.device = device
@@ -51,7 +53,7 @@ class UncompressContinuousLatent(UncompressionLatent):
 
         return self.model.dec(z_q, mask, verbose)
 
-    def compress(self, x_norm, mask=None):
+    def compress(self, x_norm, mask=None, return_downsampled_mask=True):
         """
         scale latent and compress with hourglass transformer
         """
@@ -62,8 +64,8 @@ class UncompressContinuousLatent(UncompressionLatent):
 
         # compressed_representation manipulated in the Hourglass compression module forward pass
         # to return the detached and numpy-ified representation based on the quantization mode.
-        _, _, _, compressed_representation = self.model(x_norm, mask.bool(), log_wandb=False)
-        return compressed_representation
+        _, _, _, compressed_representation, downsampled_mask = self.model(x_norm, mask.bool(), log_wandb=False)
+        return compressed_representation, downsampled_mask
 
 
 class UncompressDiscreteLatent:

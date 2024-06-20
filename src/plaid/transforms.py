@@ -130,9 +130,9 @@ class ESMFoldEmbed:
             assert not self.hourglass_model is None
             assert not self.scaler is None
             embedding = self.scaler.scale(embedding)
-            embedding = self.hourglass_model.compress(embedding)
-
-        return embedding, mask
+            compressed_embedding, downsampled_mask = self.hourglass_model.compress(embedding)
+        
+        return compressed_embedding, downsampled_mask 
 
     def __call__(self, sequence, device=None):
         sequence = self.transform(sequence)

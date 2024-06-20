@@ -182,7 +182,7 @@ class HourglassVQLightningModule(L.LightningModule):
         recons_loss = masked_mse_loss(x_recons, x, mask)
         loss = recons_loss
         log_dict = {"loss": loss.item(), "recons_loss": recons_loss.item()}
-        return x_recons, loss, log_dict, z_e_out
+        return x_recons, loss, log_dict, z_e_out, downsampled_mask
 
     def forward(self, x, mask=None, verbose=False, log_wandb=True, infer_only=False, *args, **kwargs):
         if mask is None:
@@ -236,7 +236,11 @@ class HourglassVQLightningModule(L.LightningModule):
             raise NotImplementedError
 
         if infer_only:
-            return compressed_representation
+            return compressed_representation, downsampled_mask
+
+        ##################
+        # if also training, push through decoder
+        ##################
 
         if self.post_quant_proj is not None:
             z_q = self.post_quant_proj(z_q)
@@ -253,7 +257,8 @@ class HourglassVQLightningModule(L.LightningModule):
         loss = vq_loss + recons_loss
         log_dict["recons_loss"] = recons_loss.item()
         log_dict["loss"] = loss.item()
-        return x_recons, loss, log_dict, compressed_representation
+
+        return x_recons, loss, log_dict, compressed_representation, downsampled_mask
 
     def configure_optimizers(self):
         parameters = list(self.enc.parameters()) + list(self.dec.parameters())
@@ -318,9 +323,9 @@ class HourglassVQLightningModule(L.LightningModule):
 
         # forward pass
         if not self.quantize_scheme is None:
-            x_recons, loss, log_dict, _ = self(x, mask.bool())
+            x_recons, loss, log_dict, _, _ = self(x, mask.bool())
         else:
-            x_recons, loss, log_dict, _ = self.forward_no_quantize(x, mask.bool())
+            x_recons, loss, log_dict, _, _ = self.forward_no_quantize(x, mask.bool())
         self.log_dict({f"{prefix}/{k}": v for k, v in log_dict.items()}, batch_size=x.shape[0])
 
         # unscale to decode into sequence and/or structure
