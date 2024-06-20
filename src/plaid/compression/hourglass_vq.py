@@ -210,6 +210,9 @@ class HourglassVQLightningModule(L.LightningModule):
             z_e = self.pre_quant_proj(z_e)
 
         # quantize and get z_q
+        # note: keep compressed representation on the GPU, but this might
+        # break some unimportant debugging visualization code, TBD.
+        
         if self.quantize_scheme == "vq":
             quant_out = self.quantizer(z_e, verbose)
             if not infer_only:
@@ -217,17 +220,17 @@ class HourglassVQLightningModule(L.LightningModule):
                 vq_loss = quant_out["loss"]
                 log_dict["vq_loss"] = quant_out["loss"]
                 log_dict["vq_perplexity"] = quant_out["perplexity"]
-                compressed_representation = quant_out["min_encoding_indices"].detach().cpu().numpy()
+                compressed_representation = quant_out["min_encoding_indices"].detach() #.cpu().numpy()
 
         elif self.quantize_scheme == "fsq":
             z_q = self.quantizer.quantize(z_e)
             vq_loss = 0
-            compressed_representation = self.quantizer.codes_to_indexes(z_q).detach().cpu().numpy()
+            compressed_representation = self.quantizer.codes_to_indexes(z_q).detach() #.cpu().numpy()
 
         elif self.quantize_scheme == "tanh":
             z_e = z_e.to(torch.promote_types(z_e.dtype, torch.float32))
             z_q = torch.tanh(z_e)
-            compressed_representation = z_q.detach().cpu().numpy()
+            compressed_representation = z_q.detach() #.cpu().numpy()
             vq_loss = 0
         else:
             raise NotImplementedError

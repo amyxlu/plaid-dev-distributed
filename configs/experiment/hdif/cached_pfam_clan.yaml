@@ -3,7 +3,6 @@
 compression_model_id: j1v1wv6w
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
 input_dim: 32 
-shorten_factor: 2
 
 defaults:
   - _self_
@@ -16,6 +15,3 @@ datamodule:
 
 dit:
   input_dim: ${input_dim}
-
-diffusion:
-  shorten_factor: ${shorten_factor}

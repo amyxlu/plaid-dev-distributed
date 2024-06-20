@@ -121,7 +121,6 @@ class GaussianDiffusion(L.LightningModule):
             float
         ] = 1.0,  # determines behavior during training, and value to use during sampling
         # compression and architecture
-        shorten_factor=1.0,
         hourglass_model: T.Optional[UncompressContinuousLatent] = None,
         esmfold: torch.nn.Module = None,
         pfam_to_clan_fpath: T.Optional[T.Union[str, Path]] = None,
@@ -162,7 +161,6 @@ class GaussianDiffusion(L.LightningModule):
         self.self_condition = self.model.use_self_conditioning
         self.x_downscale_factor = x_downscale_factor
         self.objective = objective
-        self.shorten_factor = shorten_factor
         self.hourglass_model = hourglass_model 
         self.esmfold = esmfold
         self.x_clip_val = x_clip_val

@@ -7,13 +7,14 @@ dit = SimpleDiT()
 device = torch.device("cuda")
 dit.to(device)
 
-dm = CompressedH5DataModule(batch_size=16)
-dm.setup("fit")
-dl = dm.train_dataloader()
-
+# dm = CompressedH5DataModule(batch_size=16)
+# dm.setup("fit")
+# dl = dm.train_dataloader()
+import IPython; IPython.embed()
 optimizer = torch.optim.Adam(dit.parameters(), lr=1e-4)
 diffusion = GaussianDiffusion(model=dit)
 diffusion.to(device)
+
 
 for i, batch in enumerate(dl):
     if i > 15:

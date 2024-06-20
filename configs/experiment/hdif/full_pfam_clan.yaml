@@ -6,11 +6,7 @@ defaults:
 
 compression_model_id: j1v1wv6w
 compression_ckpt_dir: ${paths.checkpoint_dir}/hourglass_vq
-shorten_factor: 2
 
 datamodule: 
   compression_model_id: ${compression_model_id}
-
-diffusion:
-  shorten_factor: ${shorten_factor}
 

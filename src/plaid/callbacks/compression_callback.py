@@ -56,7 +56,7 @@ class CompressionReconstructionCallback(Callback):
         run_every_n_steps: int = 10000,
     ):
         self.latent_scaler = LatentScaler()
-        self.structure_constructor = LatentToStructure(esmfold=esmfold)  # on CPU
+        self.structure_constructor = LatentToStructure(esmfold=esmfold) 
 
         self.batch_size = batch_size
         self.shard_dir = shard_dir

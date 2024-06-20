@@ -5,10 +5,9 @@ defaults:
   - datamodule: /compressed/pfam_h5
   - denoiser: dit
   - diffusion: diffusion
-  - callbacks/checkpoint: diffusion # ema
+  - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
   - callbacks/sample: pfam_compressed_fid 
-  # - callbacks/ema: default
   - callbacks/batch_size: default
   - logger: diffusion
   - experiment: null

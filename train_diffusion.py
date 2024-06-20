@@ -163,7 +163,6 @@ def train(cfg: DictConfig):
     # Diffusion module
     ####################################################################################################
     from plaid.utils import count_parameters
-
     diffusion = hydra.utils.instantiate(
         cfg.diffusion,
         model=denoiser,
@@ -171,7 +170,6 @@ def train(cfg: DictConfig):
         esmfold=esmfold,
         sequence_constructor=sequence_constructor,
         structure_constructor=structure_constructor,
-        shorten_factor=shorten_factor,
     )
 
     trainable_parameters = count_parameters(diffusion, require_grad_only=True)

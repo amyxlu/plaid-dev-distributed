@@ -92,7 +92,7 @@ def train(cfg: DictConfig):
     callbacks = [checkpoint_callback, lr_monitor]
 
     if cfg.use_compression_callback:
-        callbacks += [hydra.utils.instantiate(cfg.callbacks.compression)]  # creates ESMFold on CPU
+        callbacks += [hydra.utils.instantiate(cfg.callbacks.compression, esmfold=esmfold)]  # creates ESMFold on CPU
 
     trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, callbacks=callbacks)
 
