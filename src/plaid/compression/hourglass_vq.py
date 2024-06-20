@@ -139,7 +139,7 @@ class HourglassVQLightningModule(L.LightningModule):
             elongate_factor=shorten_factor,
             upproj_factor=downproj_factor,
             attn_resampling=True,
-            updown_sample_type="linear",
+            updown_sample_type=updown_sample_type,
         )
 
         # other misc settings
