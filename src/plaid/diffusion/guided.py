@@ -896,3 +896,8 @@ class GaussianDiffusion(L.LightningModule):
             return len(self.clans)  # dummy idx for unknown clan
         else:
             return self.clans_to_idx[clan_id]
+    
+    def state_dict(self):
+        state = super().state_dict()
+        state = {k: v for k, v in state.items() if "esmfold" not in k}
+        return state
