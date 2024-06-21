@@ -212,6 +212,14 @@ class SampleCallback(Callback):
             sequence_results = calculate_df_protein_property_mp(df=sequence_results, sequence_col="sequences")
 
         log_dict = {f"sampled/sequences_df": sequence_results}
+        log_dict[f"sampled/molecular_weights"] = np.histogram(
+            sequence_results['molecular_weight'].values,
+            bins=min(len(sequence_results), 50)
+        )
+        log_dict[f"sampled/isoelectric_point"] = np.histogram(
+            sequence_results['isoelectric_point'].values,
+            bins=min(len(sequence_results), 50)
+        )
 
         if self.calc_perplexity:
             if not self.is_perplexity_setup:
@@ -238,6 +246,7 @@ class SampleCallback(Callback):
                 sequences=seq_str,
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
+                return_raw_outputs=True
             )
 
         from plaid.utils import outputs_to_avg_metric
