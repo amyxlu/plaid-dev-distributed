@@ -186,6 +186,8 @@ def train(cfg: DictConfig):
     total_parameters = count_parameters(diffusion, require_grad_only=False)
     log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
     log_cfg["total_params_millions"] = total_parameters / 1_000_000
+    log_cfg["shorten_factor"] = shorten_factor
+    log_cfg["input_dim"] = input_dim
 
     if not cfg.dryrun:
         run_name = format_wandb_run_name(cfg.logger.name, cfg.compression_model_id)
