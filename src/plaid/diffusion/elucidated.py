@@ -44,7 +44,6 @@ class ElucidatedDiffusion(L.LightningModule):
         self,
         denoiser: BaseDenoiser,
         latent_scaler: LatentScaler = LatentScaler(),
-        # sampling_seq_len=64,
         num_sample_steps=32,  # number of sampling steps
         sigma_min=0.002,  # min noise level
         sigma_max=80,  # max noise level

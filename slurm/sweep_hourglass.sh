@@ -38,20 +38,20 @@
 ############
 # vqvae 
 ############
-for codebook_size in 16 64 256 1024 4096 16384; do
-    sbatch train_hourglass.slrm experiment=hvq/vq/cath ++hourglass.n_e=${codebook_size} ++hourglass.downproj_factor=4 ++hourglass.shorten_factor=1
-done
+# for codebook_size in 16 64 256 1024 4096 16384; do
+#     sbatch train_hourglass.slrm experiment=hvq/vq/cath ++hourglass.n_e=${codebook_size} ++hourglass.downproj_factor=4 ++hourglass.shorten_factor=1
+# done
 
-sbatch train_hourglass.slrm experiment=hvq/vq/cath ++hourglass.n_e=65536 ++hourglass.downproj_factor=4 ++hourglass.shorten_factor=1
+# sbatch train_hourglass.slrm experiment=hvq/vq/cath ++hourglass.n_e=65536 ++hourglass.downproj_factor=4 ++hourglass.shorten_factor=1
 
 
 # ############
 # # FSQ 
 # ############
 
-for fsq_levels in "[4,4]" "[4,4,4]" "[8,6,5]" "[8,5,5,5]" "[7,5,5,5,5]" "[8,8,8,6,5]" "[8,8,8,5,5,5]"; do
-    sbatch train_hourglass.slrm experiment=hvq/fsq/cath_small ++hourglass.fsq_levels=${fsq_levels} ++hourglass.downproj_factor=4 ++hourglass.shorten_factor=1
-done
+# for fsq_levels in "[4,4]" "[4,4,4]" "[8,6,5]" "[8,5,5,5]" "[7,5,5,5,5]" "[8,8,8,6,5]" "[8,8,8,5,5,5]"; do
+#     sbatch train_hourglass.slrm experiment=hvq/fsq/cath_small ++hourglass.fsq_levels=${fsq_levels} ++hourglass.downproj_factor=4 ++hourglass.shorten_factor=1
+# done
 
 
 ############
@@ -61,3 +61,5 @@ done
 #     sbatch train_hourglass.slrm resume_from_model_id=$id
 # done
 
+python run_hourglass_slrm.py --n_gpus 1 --flags "++resume_from_model_id=885ive5u"
+python run_hourglass_slrm.py --n_gpus 1 --flags "++resume_from_model_id=wlzjj4hk"

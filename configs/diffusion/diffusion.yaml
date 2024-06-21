@@ -12,7 +12,6 @@ min_snr_loss_weight: True
 min_snr_gamma: 5
 x_clip_val: 1.0
 sampling_timesteps: 100
-sampling_seq_len: 64
 pfam_to_clan_fpath: ${paths.data_dir}/pfam/Pfam-A.clans.tsv
 
 sequence_decoder_weight: 0.0 

@@ -14,9 +14,6 @@ datamodule:
 callbacks/sample:
   batch_size: 64
 
-diffusion:
-  sampling_seq_len: 45
-
 logger:
   project: plaid_rocklin
 
