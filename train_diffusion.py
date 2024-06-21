@@ -43,6 +43,16 @@ def extract_step(checkpoint_file):
     return -1
 
 
+def format_wandb_run_name(cfg_name, compression_model_id):
+    if cfg_name is None:
+        cfg_name == ""
+    else:
+        cfg_name += "_"
+    input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[compression_model_id]
+    shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[compression_model_id]
+    return f"{cfg_name}dim{input_dim}_shorten{shorten_factor}"
+
+
 @hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
 def train(cfg: DictConfig):
     ####################################################################################################
@@ -178,8 +188,9 @@ def train(cfg: DictConfig):
     log_cfg["total_params_millions"] = total_parameters / 1_000_000
 
     if not cfg.dryrun:
+        run_name = format_wandb_run_name(cfg.logger.name, cfg.compression_model_id)
         # this will automatically log to the same wandb page
-        logger = hydra.utils.instantiate(cfg.logger, id=job_id)
+        logger = hydra.utils.instantiate(cfg.logger, id=job_id, name=run_name)
         # logger.watch(model, log="all", log_graph=False)
     else:
         logger = None

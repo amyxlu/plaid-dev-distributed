@@ -3,3 +3,6 @@ _target_: lightning.pytorch.loggers.WandbLogger
 project: plaid
 # entity: ${paths.entity}
 entity: prescient-design
+name: null
+tags: null
+group: null
