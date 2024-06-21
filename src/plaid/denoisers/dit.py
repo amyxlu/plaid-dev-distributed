@@ -207,7 +207,12 @@ class SimpleDiT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
 
         if self.use_self_conditioning:
-            self.self_conditioning_mlp = Mlp(input_dim * 2, input_dim)
+            # (N, D * 2) -> (N, D)
+            self.self_conditioning_mlp = Mlp(
+                in_features=input_dim * 2,
+                hidden_features=input_dim * 2,
+                out_features=input_dim
+            )
 
         if not num_classes == -1:
             self.y_embedder == LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
