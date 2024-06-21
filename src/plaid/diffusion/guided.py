@@ -126,7 +126,6 @@ class GaussianDiffusion(L.LightningModule):
         pfam_to_clan_fpath: T.Optional[T.Union[str, Path]] = None,
         # sampling
         sampling_timesteps=500,  # None,
-        sampling_seq_len=64,
         # optimization
         lr=1e-4,
         adam_betas=(0.9, 0.999),
@@ -245,7 +244,6 @@ class GaussianDiffusion(L.LightningModule):
         # sampling specific specifications
         self.sampling_timesteps = default(sampling_timesteps, timesteps)
         assert self.sampling_timesteps <= timesteps
-        self.sampling_seq_len = sampling_seq_len
 
         # loss weight by SNR
         self.snr = self.alphas_cumprod / (1 - self.alphas_cumprod)
