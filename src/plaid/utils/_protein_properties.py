@@ -1,6 +1,7 @@
 """ Calculate additional protein attributes from sequence for conditioning.
 """
 
+import os
 import multiprocessing as mp
 from functools import partial
 
@@ -8,6 +9,7 @@ import numpy as np
 import typing as T
 import pandas as pd
 from Bio.SeqUtils.ProtParam import ProteinAnalysis
+from Bio import PDB
 
 from plaid.constants import RESTYPES
 
@@ -120,3 +122,66 @@ def calculate_df_protein_property_mp(df, sequence_col="sequences", properties=DE
         df[prop] = pd.concat(results)
 
     return df
+
+
+def analyze_secondary_structure(pdb_file):
+    parser = PDB.PDBParser(QUIET=True)
+    structure = parser.get_structure('protein', pdb_file)
+    
+    dssp = PDB.DSSP(structure[0], pdb_file)
+    
+    secondary_structure = {
+        'Helix': 0,
+        'Sheet': 0,
+        'Turn': 0,
+        'Other': 0
+    }
+    
+    for key in dssp.keys():
+        ss = dssp[key][2]
+        if ss == 'H' or ss == 'G' or ss == 'I':
+            secondary_structure['Helix'] += 1
+        elif ss == 'E' or ss == 'B':
+            secondary_structure['Sheet'] += 1
+        elif ss == 'T' or ss == 'S':
+            secondary_structure['Turn'] += 1
+        else:
+            secondary_structure['Other'] += 1
+    
+    total_residues = sum(secondary_structure.values())
+    
+    result = {
+        'file': pdb_file,
+        'total_residues': total_residues,
+        'Helix': secondary_structure['Helix'],
+        'Helix_percentage': (secondary_structure['Helix'] / total_residues) * 100,
+        'Sheet': secondary_structure['Sheet'],
+        'Sheet_percentage': (secondary_structure['Sheet'] / total_residues) * 100,
+        'Turn': secondary_structure['Turn'],
+        'Turn_percentage': (secondary_structure['Turn'] / total_residues) * 100,
+        'Other': secondary_structure['Other'],
+        'Other_percentage': (secondary_structure['Other'] / total_residues) * 100,
+    }
+    
+    return result
+
+
+def analyze_secondary_structure_mp(pdb_files, num_cpus):
+    """
+    Example usage:
+
+    pdb_files = ['file1.pdb', 'file2.pdb', 'file3.pdb']  # Replace with your list of PDB file paths
+    num_cpus = os.cpu_count()  # Use all available CPUs, or set to a specific number
+    results = analyze_multiple_pdb_files(pdb_files, num_cpus)
+    
+    for result in results:
+        print(f"File: {result['file']}")
+        print(f"Total residues: {result['total_residues']}")
+        print(f"Helix: {result['Helix']} ({result['Helix_percentage']:.2f}%)")
+        print(f"Sheet: {result['Sheet']} ({result['Sheet_percentage']:.2f}%)")
+        print(f"Turn: {result['Turn']} ({result['Turn_percentage']:.2f}%)")
+        print(f"Other: {result['Other']} ({result['Other_percentage']:.2f}%)\n")
+    """
+    with mp.Pool(num_cpus) as pool:
+        results = pool.map(analyze_secondary_structure, pdb_files)
+    return results
