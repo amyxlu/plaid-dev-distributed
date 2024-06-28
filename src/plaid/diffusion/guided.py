@@ -864,7 +864,7 @@ class GaussianDiffusion(L.LightningModule):
     def _get_batch_size(self, batch):
         if isinstance(batch, dict):
             return len(batch["emb"])
-        elif isinstance(batch, tuple):
+        elif isinstance(batch, tuple) or isinstance(batch, list):
             return len(batch[0])
         else:
             raise TypeError(f"Expected batch to be dict or tuple, got {type(batch)}.")

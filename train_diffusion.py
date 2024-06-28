@@ -44,10 +44,10 @@ def extract_step(checkpoint_file):
 
 
 def format_wandb_run_name(cfg_name, compression_model_id):
-    if cfg_name is None:
-        cfg_name == ""
-    else:
+    if isinstance(cfg_name, str):
         cfg_name += "_"
+    else:
+        cfg_name == ""
     input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[compression_model_id]
     shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[compression_model_id]
     return f"{cfg_name}dim{input_dim}_shorten{shorten_factor}"
