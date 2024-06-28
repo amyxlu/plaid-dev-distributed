@@ -58,6 +58,7 @@ class HourglassVQLightningModule(L.LightningModule):
         log_structure_loss=False,
         # in case we need to embed on the fly
         esmfold=None,
+        force_infer=False
     ):
         super().__init__()
 
@@ -159,16 +160,17 @@ class HourglassVQLightningModule(L.LightningModule):
         self.struct_loss_weight = struct_loss_weight
 
         # auxiliary losses
-        if self.log_sequence_loss:
-            self.sequence_constructor = LatentToSequence()
-            self.sequence_constructor.to(self.device)
-            self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
+        if not force_infer:
+            if self.log_sequence_loss:
+                self.sequence_constructor = LatentToSequence()
+                self.sequence_constructor.to(self.device)
+                self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
 
-        if self.log_structure_loss:
-            self.structure_constructor = LatentToStructure(esmfold=esmfold)
-            self.structure_constructor.to(self.device)
-            self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
-        self.save_hyperparameters(ignore=["esmfold"])
+            if self.log_structure_loss:
+                self.structure_constructor = LatentToStructure(esmfold=esmfold)
+                self.structure_constructor.to(self.device)
+                self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
+            self.save_hyperparameters(ignore=["esmfold"])
 
     def check_valid_compression_method(self, method):
         return method in ["fsq", "vq", "tanh", None]
