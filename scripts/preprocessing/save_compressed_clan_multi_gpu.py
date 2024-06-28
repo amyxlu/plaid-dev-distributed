@@ -75,11 +75,15 @@ class ShardRunner:
         args: DistributedInferenceConfig,
     ):
         self.rank = rank
+        print("A")
         self.esmfold = esmfold  # should already be DDP and placed on rank
+        print("B")
         self.hourglass_model = (
             hourglass_model  # should already be DDP and placed on rank
         )
+        print("C")
         self.dataloader = dataloader  # should already use distributed sampler
+        print("D")
         self.latent_scaler = LatentScaler()
         self.args = args
 
@@ -185,13 +189,20 @@ def process_shard_on_rank(
 
     # Create ESMFold module
     esmfold = esmfold_v1().to(rank)
-    ddp_esmfold = DDP(esmfold, device_ids=[rank])
-    ddp_esmfold.eval()
+    for param in esmfold.parameters():
+        param.requires_grad_(False)
 
     # Create hourglass module
     hourglass_model = load_hourglass(
         args.compression_model_id, args.compression_ckpt_dir
     )
+    hourglass_model.to(rank)
+    for param in hourglass_model.parameters():
+        param.requires_grad_(False)
+    
+    ddp_esmfold = DDP(esmfold, device_ids=[rank])
+    ddp_esmfold.eval()
+
     ddp_hourglass = DDP(hourglass_model, device_ids=[rank])
     ddp_hourglass.eval()
 
@@ -199,9 +210,11 @@ def process_shard_on_rank(
     sampler = DistributedSampler(
         dataset, num_replicas=world_size, rank=rank, shuffle=False
     )
+    sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
 
     # create shard runner
+    logger.info(f"Setting up runner for rank/shard {rank}...")
     runner = ShardRunner(
         rank=rank,
         esmfold=esmfold,
