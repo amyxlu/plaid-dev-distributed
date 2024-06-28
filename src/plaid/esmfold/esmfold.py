@@ -15,6 +15,7 @@ from torch.nn import LayerNorm
 
 import esm
 from esm import Alphabet
+from lightning.pytorch.utilities import rank_zero_info
 
 from openfold.data.data_transforms import make_atom14_masks
 from openfold.np import residue_constants
@@ -58,7 +59,7 @@ class ESMFold(nn.Module):
     def __init__(self, esmfold_config=None, **kwargs):
         super().__init__()
 
-        print("Creating ESMFold...")
+        rank_zero_info("Creating ESMFold...")
         start = time.time()
 
         self.cfg = esmfold_config if esmfold_config else ESMFoldConfig(**kwargs)
@@ -115,7 +116,7 @@ class ESMFold(nn.Module):
         )
 
         end = time.time()
-        print(f"ESMFold model loaded in {(end - start):.2} seconds.")
+        rank_zero_info(f"ESMFold model loaded in {(end - start):.2f} seconds.")
 
     @staticmethod
     def _af2_to_esm(d: Alphabet):
