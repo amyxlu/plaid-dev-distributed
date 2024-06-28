@@ -1,7 +1,7 @@
 from plaid.denoisers.dit import SimpleDiT
 from plaid.callbacks.sample_callback import SampleCallback
 from plaid.diffusion.guided import GaussianDiffusion
-from plaid.compression.uncompress import UncompressContinuousLatent
+from plaid.compression.inference import UncompressContinuousLatent
 from plaid.constants import COMPRESSION_INPUT_DIMENSIONS
 from plaid.utils import LatentScaler
 import torch

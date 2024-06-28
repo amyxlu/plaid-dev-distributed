@@ -17,7 +17,7 @@ import re
 
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.datasets import FastaDataModule
-from plaid.compression.uncompress import UncompressContinuousLatent
+from plaid.compression.inference import UncompressContinuousLatent
 from plaid.esmfold import esmfold_v1
 from plaid import constants
 from plaid.utils import print_cuda_info

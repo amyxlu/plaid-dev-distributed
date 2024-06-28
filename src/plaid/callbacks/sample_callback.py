@@ -17,7 +17,7 @@ import numpy as np
 from tqdm import tqdm, trange
 
 from plaid.denoisers import BaseDenoiser
-from plaid.compression.uncompress import UncompressContinuousLatent
+from plaid.compression.inference import UncompressContinuousLatent
 from plaid.diffusion import GaussianDiffusion
 from plaid.evaluation import RITAPerplexity, parmar_fid, parmar_kid
 from plaid.proteins import LatentToSequence, LatentToStructure

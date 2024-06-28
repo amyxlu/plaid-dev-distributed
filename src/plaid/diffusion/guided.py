@@ -38,7 +38,7 @@ from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.transforms import trim_or_pad_batch_first
-from plaid.compression.uncompress import UncompressContinuousLatent
+from plaid.compression.inference import UncompressContinuousLatent
 
 
 ModelPrediction = namedtuple("ModelPrediction", ["pred_noise", "pred_x_start"])
