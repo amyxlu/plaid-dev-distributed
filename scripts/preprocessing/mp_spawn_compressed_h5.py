@@ -1,28 +1,31 @@
+"""
+Embeds and compresses FASTA sequence into num_visible_devices number of shards.
+"""
+
 from typing import List, Tuple
 from pathlib import Path
 import os
-import dataclasses
+from dataclasses import dataclass, asdict
+import json
 import logging
 
 import h5py
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.distributed as dist
 import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
 from plaid.datasets import FastaDataset
 from plaid.esmfold import esmfold_v1, ESMFold
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
-from plaid.utils import LatentScaler, npy
+from plaid.utils import LatentScaler, npy, print_cuda_info
 
 
 logger = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass
+@dataclass
 class DistributedInferenceConfig:
     compression_model_id: str = "jzlv54wl"
     compression_ckpt_dir: str = (
@@ -30,17 +33,11 @@ class DistributedInferenceConfig:
     )
     # fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
     fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
-    accession_to_clan_file: str = (
-        "/homefs/home/lux70/storage/data/pfam/Pfam-A.clans.tsv"
-    )
+    output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/partial/"
     batch_size: int = 64
     max_seq_len: int = 512
     max_dataset_size: int = -1
-    output_dir: str = (
-        "/homefs/home/lux70/storage/data/pfam/compressed/subset_30K_with_clan"
-    )
-    train_split_frac: float = 0.9
-    float_type: str = "fp16"
+    # train_split_frac: float = 0.9
 
 
 def setup(rank, world_size):
@@ -61,9 +58,9 @@ def load_hourglass(model_id, model_ckpt_dir):
 
 class ShardRunner:
     """
-    With GPUs placed manually on the correct devices, take FASTA dataloader
-    and runs them through the ESMFold -> norm -> compression pipeline
-    and returns the embedding and mask on CPU.
+    Given that models have already been placed onto individual ranks and dataset subsampled,
+    run FASTA dataloader through the ESMFold -> norm -> compression pipeline,
+    and writes results as its own shard as a H5 file.
     """
 
     def __init__(
@@ -75,15 +72,9 @@ class ShardRunner:
         args: DistributedInferenceConfig,
     ):
         self.rank = rank
-        print("A")
-        self.esmfold = esmfold  # should already be DDP and placed on rank
-        print("B")
-        self.hourglass_model = (
-            hourglass_model  # should already be DDP and placed on rank
-        )
-        print("C")
+        self.esmfold = esmfold
+        self.hourglass_model = hourglass_model
         self.dataloader = dataloader  # should already use distributed sampler
-        print("D")
         self.latent_scaler = LatentScaler()
         self.args = args
 
@@ -93,8 +84,8 @@ class ShardRunner:
         self.shard_dataset_size = len(self.dataloader.dataset)
 
     def open_h5_file_handle(self):
-        h5_path = Path(self.args.output_dir) / f"shard{self.rank:02d}.h5"
-        self.cur_shard_idx = 0
+        # open h5 file handle
+        h5_path = Path(self.args.output_dir) / f"shard{self.rank:04d}.h5"
         self.fh = h5py.File(h5_path, "w")
         logger.info("Making h5 database at", h5_path)
 
@@ -111,7 +102,7 @@ class ShardRunner:
 
     def write_result_to_disk(
         self,
-        cur_shard_idx: int,
+        cur_sample_idx: int,
         padded_embedding: np.ndarray,
         sequence_lengths: List[int],
         headers: List[str],
@@ -119,23 +110,31 @@ class ShardRunner:
         """Takes the open h5py handle and writes the unpadded embedding to disk, each individually.
         Uses fp16 precision.
         """
+        print(padded_embedding.shape)
         for i in range(len(padded_embedding)):
             # takes given embedding and saves it without padding
+            print(padded_embedding.shape)
+            print(sequence_lengths[i])
             data = padded_embedding[i, : sequence_lengths[i], :].astype(np.float16)
             header = headers[i]
 
-            ds = self.fh.create_dataset(str(cur_shard_idx), data=data, dtype="f")
-            ds.attrs["len"] = np.array([sequence_lengths[i]], dtype=np.int16)
-            ds.attrs["header"] = header
-            cur_shard_idx += 1
+            ds = self.fh.create_dataset(str(cur_sample_idx), data=data, dtype="f")
 
-        return cur_shard_idx
+            ds.attrs["header"] = header
+
+            # refers to the sequence length, after compression
+            ds.attrs["n_tokens"] = np.array([sequence_lengths[i]], dtype=np.int16)
+
+            cur_sample_idx += 1
+
+        return cur_sample_idx
 
     def esmfold_emb_fasta(
         self, sequences: List[str]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Takes sequence, runs through ESMFold, returns embedding and mask."""
-        res = self.esmfold.infer_embedding(sequences)
+        with torch.no_grad():
+            res = self.esmfold.infer_embedding(sequences)
         return res["s"], res["mask"]
 
     def apply_channel_norm(self, emb: torch.Tensor) -> torch.Tensor:
@@ -144,17 +143,20 @@ class ShardRunner:
     def compress_normed_embedding(
         self, norm_emb: torch.Tensor, mask: torch.Tensor
     ) -> Tuple[np.ndarray, np.ndarray]:
-        compressed_embedding, downsampled_mask = self.hourglass_model.forward(
-            norm_emb, mask, log_wandb=False, infer_only=True
-        )
+        with torch.no_grad():
+            compressed_embedding, downsampled_mask = self.hourglass_model.forward(
+                norm_emb, mask.bool(), log_wandb=False, infer_only=True
+            )
         x, downsampled_mask = npy(compressed_embedding), npy(downsampled_mask)
-        sequence_lengths = downsampled_mask.sum(dim=-1)
+        sequence_lengths = downsampled_mask.sum(axis=-1)
         return x, sequence_lengths
 
     def batch_embed(
         self, batch: Tuple[List[str], List[str]]
     ) -> Tuple[np.ndarray, List[int]]:
         headers, sequences = batch
+        sequences = [s[:self.max_seq_len] for s in sequences]
+
         with torch.no_grad():
             emb, mask = self.esmfold_emb_fasta(sequences)  # (N, L, C)
             emb = self.apply_channel_norm(emb)  # (N, L, C)
@@ -164,15 +166,20 @@ class ShardRunner:
         return emb, sequence_lengths, headers
 
     def run(self):
-        import IPython;IPython.embed()
         # open the h5py filehandle and write metadata
         self.open_h5_file_handle()
         self.write_metadata()
 
+        print_cuda_info()
+
+        cur_sample_idx = 0
+
         # loop through batches
         for batch in self.dataloader:
+            print("batch",batch)
             emb, sequence_lengths, headers = self.batch_embed(batch)
-            self.write_result_to_disk(emb, sequence_lengths, headers)
+            print("embshape", emb.shape)
+            cur_sample_idx = self.write_result_to_disk(emb, sequence_lengths, headers, cur_sample_idx)
 
 
 def process_shard_on_rank(
@@ -187,34 +194,31 @@ def process_shard_on_rank(
     logger.info(f"Running on rank {rank}...")
     setup(rank, world_size)
 
-    # Create ESMFold module
+    # Create ESMFold module on the given rank
     esmfold = esmfold_v1().to(rank)
+    esmfold.eval()
     for param in esmfold.parameters():
         param.requires_grad_(False)
 
-    # Create hourglass module
+    # Create hourglass module on teh given rank
     hourglass_model = load_hourglass(
         args.compression_model_id, args.compression_ckpt_dir
     )
     hourglass_model.to(rank)
+    hourglass_model.eval()
     for param in hourglass_model.parameters():
         param.requires_grad_(False)
     
-    ddp_esmfold = DDP(esmfold, device_ids=[rank])
-    ddp_esmfold.eval()
-
-    ddp_hourglass = DDP(hourglass_model, device_ids=[rank])
-    ddp_hourglass.eval()
-
-    # create distributed sampler...
+    # Create distributed sampler that grabs indices specific to this rank
     sampler = DistributedSampler(
         dataset, num_replicas=world_size, rank=rank, shuffle=False
     )
     sampler.set_epoch(0)
     dataloader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler)
-
+    
     # create shard runner
     logger.info(f"Setting up runner for rank/shard {rank}...")
+
     runner = ShardRunner(
         rank=rank,
         esmfold=esmfold,
@@ -228,6 +232,16 @@ def process_shard_on_rank(
 def main(args):
     world_size = torch.cuda.device_count()
     dataset = FastaDataset(args.fasta_file, cache_indices=True)
+
+    # Make output dir and save config
+    if not Path(args.output_dir).exists():
+        Path(args.output_dir).mkdir(parents=True)
+
+    config_dict = asdict(args)
+    with open(Path(args.output_dir) / "config.json", "w") as json_file:
+        json.dump(config_dict, json_file, indent=4)
+
+    # Launch process on each rank
     mp.spawn(
         process_shard_on_rank,
         args=(world_size, dataset, args,),
@@ -237,5 +251,5 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = DistributedInferenceConfig
+    args = DistributedInferenceConfig()
     main(args)
