@@ -4,12 +4,14 @@ channels:
   - nvidia
   - conda-forge
   - bioconda
+  - salilab
 dependencies:
   - python==3.10
   - pip
+  - gxx_linux-64=11.2.0
   - pytorch-cuda=12.1
   - pytorch
   - bioconda::tmalign
-  - gxx_linux-64=11.2.0
+  - salilab::dssp
   - pip:
     - -r requirements.txt
