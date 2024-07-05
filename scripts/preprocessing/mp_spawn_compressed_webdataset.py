@@ -33,10 +33,11 @@ class DistributedInferenceConfig:
     compression_ckpt_dir: str = (
         "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
     )
-    # fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
-    fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
-    output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/partial/"
-    batch_size: int = 64
+    fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
+    output_dir: str = "/homefs/home/lux70/storage/data/pfam/compressed/jzlv54wl/"
+    # fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
+    # output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/partial/"
+    batch_size: int = 128 
     max_seq_len: int = 512
     max_dataset_size: int = -1
     maxcount: int = 1e5
@@ -81,13 +82,15 @@ class RankRunner:
         self.args = args
 
         self.outdir = Path(args.output_dir) / f"{rank}"
+        if not self.outdir.exists():
+            self.outdir.mkdir(parents=True)
 
         self.max_seq_len = self.args.max_seq_len
         self.hid_dim = 1024 // self.hourglass_model.enc.downproj_factor
         self.shorten_factor = self.hourglass_model.enc.shorten_factor
 
         self.sink = ShardWriter(
-            pattern=str(self.outdir / "shard%06d"),
+            pattern=str(self.outdir / "shard%06d.tar"),
             maxcount=int(args.maxcount),
         )
 
@@ -136,7 +139,7 @@ class RankRunner:
                 print(f"rank {self.rank} header {headers[i]}")
                 self.sink.write({
                     "__key__": "sample%06d" % total_idx,
-                    "embedding.npz": embeddings[i, :sequence_lengths[i], :].astype(np.float32),
+                    "embedding.npy": embeddings[i, :sequence_lengths[i], :].astype(np.float32),
                     "header.txt": headers[i]
                 })
                 total_idx += 1
@@ -186,7 +189,11 @@ def process_shard_on_rank(
         dataloader=dataloader,
         args=args,
     )
-    runner.run()
+
+    try:
+        runner.run()
+    except:
+        cleanup()
 
 
 def main(args):
@@ -201,14 +208,13 @@ def main(args):
     with open(Path(args.output_dir) / "config.json", "w") as json_file:
         json.dump(config_dict, json_file, indent=4)
 
-    # # Launch process on each rank
-    # mp.spawn(
-    #     process_shard_on_rank,
-    #     args=(world_size, dataset, args,),
-    #     nprocs=world_size,
-    #     join=True,
-    # )
-    process_shard_on_rank(rank=0, world_size=1, dataset=dataset, args=args)
+    # Launch process on each rank
+    mp.spawn(
+        process_shard_on_rank,
+        args=(world_size, dataset, args,),
+        nprocs=world_size,
+        join=True,
+    )
 
 
 if __name__ == "__main__":
