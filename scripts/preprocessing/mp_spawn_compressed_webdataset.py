@@ -30,13 +30,20 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DistributedInferenceConfig:
     compression_model_id: str = "jzlv54wl"
-    compression_ckpt_dir: str = (
-        "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
-    )
-    fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
-    output_dir: str = "/homefs/home/lux70/storage/data/pfam/compressed/jzlv54wl/"
+    # compression_ckpt_dir: str = (
+    #     "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
+    # )
+    # fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
+    # output_dir: str = "/homefs/home/lux70/storage/data/pfam/compressed/jzlv54wl/"
     # fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
     # output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/partial/"
+
+    compression_ckpt_dir: str = (
+        "/shared/amyxlu/plaid/checkpoints/hourglass_vq"
+    )
+    fasta_file: str = "/shared/amyxlu/data/pfam/Pfam-A.fasta"
+    output_dir: str = "/shared/amyxlu/data/pfam/compressed/jzlv54wl"
+
     batch_size: int = 128 
     max_seq_len: int = 512
     max_dataset_size: int = -1
@@ -133,16 +140,20 @@ class RankRunner:
     def run(self):
         """Uses webdataset ShardWriter to write to individual shards"""
         total_idx = 0
-        for batch_idx, batch in tqdm(enumerate(self.dataloader)):
+        pbar = tqdm(total=len(self.dataloader), desc=f"Batches [rank {self.rank}]")
+
+        for batch_idx, batch in enumerate(self.dataloader):
             embeddings, sequence_lengths, headers = self.batch_embed(batch)
             for i in range(embeddings.shape[0]):
-                print(f"rank {self.rank} header {headers[i]}")
+                # print(f"rank {self.rank} header {headers[i]}")
                 self.sink.write({
                     "__key__": "sample%06d" % total_idx,
                     "embedding.npy": embeddings[i, :sequence_lengths[i], :].astype(np.float32),
                     "header.txt": headers[i]
                 })
                 total_idx += 1
+            pbar.update(1)
+        pbar.close()
 
 
 def process_shard_on_rank(
@@ -192,8 +203,10 @@ def process_shard_on_rank(
 
     try:
         runner.run()
-    except:
+    except Exception as e:
+        print(e)
         cleanup()
+        print("Finished dist cleanup")
 
 
 def main(args):
