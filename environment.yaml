@@ -1,16 +1,21 @@
 name: plaid
 channels:
-  - pytorch
   - nvidia
   - conda-forge
   - bioconda
   - salilab
+  - pytorch
 dependencies:
   - python==3.10
   - pip
-  - gxx_linux-64=11.2.0
-  - pytorch-cuda=12.1
+  - gcc
+  - cuda-toolkit
   - pytorch
+  - pytorch-cuda=12.1
+  - libjpeg-turbo
+  - libpng
+  - torchvision
+  - torchaudio
   - bioconda::tmalign
   - salilab::dssp
   - pip:
