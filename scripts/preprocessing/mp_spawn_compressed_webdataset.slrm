@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+#SBATCH --job-name preprocess
+#SBATCH --nodes 1 
+#SBATCH --gpus-per-node 8 
+#SBATCH --partition gpu2
+#SBATCH --cpus-per-gpu 8 
+#SBATCH --mem 800G
+#SBATCH --time=15-00:00:00
+
+
+eval "$(conda shell.bash hook)"
+
+source ~/.bashrc
+conda activate plaid 
+
+echo "SLURM_JOB_NODELIST = ${SLURM_JOB_NODELIST}"
+echo "SLURM_JOB_ID = ${SLURM_JOB_ID}"
+echo "SLURMD_NODENAME = ${SLURMD_NODENAME}"
+echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
+
+export HYDRA_FULL_ERROR=1
+export TOKENIZERS_PARALLELISM=false
+cd /homefs/home/lux70/code/plaid/scripts
+
+nvidia-smi
+srun python preprocessing/mp_spawn_compressed_webdataset.py
+

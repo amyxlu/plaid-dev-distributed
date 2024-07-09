@@ -30,24 +30,24 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DistributedInferenceConfig:
     compression_model_id: str = "jzlv54wl"
-    # compression_ckpt_dir: str = (
-    #     "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
-    # )
-    # fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
-    # output_dir: str = "/homefs/home/lux70/storage/data/pfam/compressed/jzlv54wl/"
+    compression_ckpt_dir: str = (
+        "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
+    )
+    fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
+    output_dir: str = "/data/lux70/data/pfam/compressed"
     # fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
     # output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/partial/"
 
-    compression_ckpt_dir: str = (
-        "/shared/amyxlu/plaid/checkpoints/hourglass_vq"
-    )
-    fasta_file: str = "/shared/amyxlu/data/pfam/Pfam-A.fasta"
-    output_dir: str = "/shared/amyxlu/data/pfam/compressed/jzlv54wl"
+    # compression_ckpt_dir: str = (
+    #     "/shared/amyxlu/plaid/checkpoints/hourglass_vq"
+    # )
+    # fasta_file: str = "/shared/amyxlu/data/pfam/Pfam-A.fasta"
+    # output_dir: str = "/shared/amyxlu/data/pfam/compressed/jzlv54wl"
 
     batch_size: int = 128 
     max_seq_len: int = 512
     max_dataset_size: int = -1
-    maxcount: int = 1e5
+    maxcount: int = 1e6
     # train_split_frac: float = 0.9
 
 

@@ -6,6 +6,7 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--n_gpus", type=int, default=1)
 parser.add_argument("--flags", type=str, default="")
+parser.add_argument("--mem", default="200G")
 args = parser.parse_args()
 
 flags = ""
@@ -17,7 +18,7 @@ defaults = f"""#!/usr/bin/env bash
 #SBATCH -p gpu2
 #SBATCH -c 64
 #SBATCH --gpus {args.n_gpus}
-#SBATCH --mem 100G
+#SBATCH --mem {args.mem}
 #SBATCH --time=10-00:00:00
 #SBATCH --job-name train 
 
