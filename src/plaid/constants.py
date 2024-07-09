@@ -48,14 +48,14 @@ COMPRESSION_INPUT_DIMENSIONS = {
     "7str7fhl": 512,
     "g8e83omk": 1024,
     ## CATH, len 512 ##
-    "q3m9fhii": 4,
-    "5z4iaak9": 8,
-    "3rs1hxky": 16,
-    "2tjrgcde": 32,
-    "v2cer77t": 64,
-    "yfel5fnl": 128,
-    "1hr1x9r5": 256,
-    "1b64t79h": 512,
+    "1b64t79h": 4,
+    "1hr1x9r5": 8,
+    "yfel5fnl": 16,
+    "v2cer77t": 32,
+    "2tjrgcde": 64,
+    "3rs1hxky": 128,
+    "5z4iaak9": 256,
+    "q3m9fhii": 512,
 }
 
 
