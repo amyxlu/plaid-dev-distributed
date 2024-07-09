@@ -10,12 +10,19 @@ class UncompressionLatent:
         compression_model_id,
         compression_ckpt_dir,
         init_compress_mode=False,
+        init_decompress_mode=True
     ):
         self.device = torch.device("cpu")
         ckpt_path = Path(compression_ckpt_dir) / str(compression_model_id) / "last.ckpt"
         self.model = HourglassVQLightningModule.load_from_checkpoint(ckpt_path).cpu()
         self.shorten_factor = self.model.enc.shorten_factor
         self.downproj_factor = self.model.enc.downproj_factor
+        
+        assert init_compress_mode or init_decompress_mode
+        if init_compress_mode is False:
+            del self.model.enc
+        if init_decompress_mode is False:
+            del self.model.dec
 
     def to(self, device):
         self.device = device
@@ -37,8 +44,9 @@ class UncompressContinuousLatent(UncompressionLatent):
         compression_model_id,
         compression_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
         init_compress_mode=False,
+        init_decompress_mode=True,
     ):
-        super().__init__(compression_model_id, compression_ckpt_dir, init_compress_mode)
+        super().__init__(compression_model_id, compression_ckpt_dir, init_compress_mode, init_decompress_mode)
 
     def uncompress(self, z_q, mask=None, verbose=False):
         """Uncompresses by decoder (does not rescale the input)"""
@@ -53,7 +61,7 @@ class UncompressContinuousLatent(UncompressionLatent):
 
         return self.model.dec(z_q, mask, verbose)
 
-    def compress(self, x_norm, mask=None, return_downsampled_mask=True):
+    def compress(self, x_norm, mask=None):
         """
         scale latent and compress with hourglass transformer
         """
