@@ -11,6 +11,7 @@ import torch
 
 from plaid.esmfold import esmfold_v1
 from plaid.datasets import FastaDataModule
+from plaid.utils import count_parameters
 import os
 
 
@@ -78,6 +79,9 @@ def train(cfg: DictConfig):
 
     # set up lightning module
     model = hydra.utils.instantiate(cfg.hourglass, esmfold=esmfold)
+
+    trainable_parameters = count_parameters(model, require_grad_only=True)
+    log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
 
     if not cfg.dryrun:
         # this will automatically log to the same wandb page
