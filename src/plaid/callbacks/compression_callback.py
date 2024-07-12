@@ -110,7 +110,7 @@ class CompressionReconstructionCallback(Callback):
             x_norm = x_norm[:max_samples, ...]
             mask = mask[:max_samples, ...]
 
-        recons_norm, loss, log_dict, compressed_representation = compression_model(
+        recons_norm, loss, log_dict, compressed_representation, downsampled_mask = compression_model(
             x_norm, mask, log_wandb=False
         )
         recons = self.latent_scaler.unscale(recons_norm)
