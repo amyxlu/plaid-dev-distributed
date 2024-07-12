@@ -4,11 +4,8 @@ import lightning as L
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from torch.optim import AdamW
-import einops
-import wandb
 import torch
 import numpy as np
-import pandas as pd
 
 import schedulefree
 
@@ -18,7 +15,8 @@ from plaid.compression.modules import (
     VectorQuantizer,
     FiniteScalarQuantizer,
 )
-from plaid.utils import get_lr_scheduler, LatentScaler
+from plaid.utils import get_lr_scheduler, LatentScaler, print_cuda_info
+from plaid.esmfold import esmfold_v1_embed_only 
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
@@ -59,7 +57,6 @@ class HourglassVQLightningModule(L.LightningModule):
         log_sequence_loss=False,
         log_structure_loss=False,
         # in case we need to embed on the fly
-        esmfold=None,
         force_infer=False
     ):
         super().__init__()
@@ -70,16 +67,10 @@ class HourglassVQLightningModule(L.LightningModule):
 
         ignored_hparams = []
 
-        from plaid.utils import print_cuda_info
-        print_cuda_info()
-
         self.latent_scaler = LatentScaler()
-
-        if esmfold is not None:
-            self.esmfold = esmfold
-            for param in self.esmfold.parameters():
-                param.requires_grad = False
-            ignored_hparams += ["esmfold"]
+        self.esmfold = None
+        self.sequence_constructor = None
+        self.structure_constructor = None
 
         if isinstance(use_quantizer, bool):
             if use_quantizer:
@@ -168,18 +159,31 @@ class HourglassVQLightningModule(L.LightningModule):
         self.seq_loss_weight = seq_loss_weight
         self.struct_loss_weight = struct_loss_weight
 
-        # auxiliary losses
-        if not force_infer:
-            if self.make_sequence_constructor:
-                self.sequence_constructor = LatentToSequence()
-                self.sequence_constructor.to(self.device)
-                self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
+        self.save_hyperparameters(ignore=ignored_hparams)
 
-            if self.make_structure_constructor:
-                self.structure_constructor = LatentToStructure(esmfold=esmfold)
-                self.structure_constructor.to(self.device)
-                self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
-            self.save_hyperparameters(ignore=ignored_hparams)
+    def setup_sequence_constructor(self):
+        if self.sequence_constructor is None:
+            self.sequence_constructor = LatentToSequence()
+            self.sequence_constructor.to(self.device)
+            self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
+    
+    def setup_structure_constructor(self):
+        if self.esmfold is None:
+            self.setup_esmfold()
+            self.structure_constructor = LatentToStructure(esmfold=self.esmfold)
+            self.structure_constructor.to(self.device)
+            self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
+        
+    def setup_esmfold(self):
+        # do this after init so that we can move esmfold to the right device
+        if self.esmfold is None:
+            self.esmfold = esmfold_v1_embed_only()
+        
+            self.esmfold.to(self.device)
+            self.esmfold.eval()
+            
+            for param in self.esmfold.parameters():
+                param.requires_grad = False
 
     def check_valid_compression_method(self, method):
         return method in ["fsq", "vq", "tanh", None]
@@ -307,7 +311,9 @@ class HourglassVQLightningModule(L.LightningModule):
             x, sequences, gt_structures = batch
         elif len(batch) == 2:
             # using a FastaLoader, sequence only
-            assert not self.esmfold is None
+            if self.esmfold is None:
+                self.setup_esmfold()
+
             headers, sequences = batch
             x = self.esmfold.infer_embedding(sequences)["s"]
         else:
@@ -349,6 +355,7 @@ class HourglassVQLightningModule(L.LightningModule):
         
         # sequence loss
         if self.make_sequence_constructor:
+            self.setup_sequence_constructor()
             with torch.no_grad():
                 seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(
                     x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True
@@ -362,6 +369,7 @@ class HourglassVQLightningModule(L.LightningModule):
 
         # structure loss
         if self.make_structure_constructor:
+            self.setup_structure_constructor()
             with torch.no_grad():
                 struct_loss, struct_loss_dict = self.structure_loss_fn(
                     x_recons_unscaled, gt_structures, sequences
