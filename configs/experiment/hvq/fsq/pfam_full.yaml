@@ -1,6 +1,6 @@
 # @package _global_
 
-run_sample_callback: false
+use_compresson_callback: True
 
 defaults:
   - override /datamodule: pfam_fasta

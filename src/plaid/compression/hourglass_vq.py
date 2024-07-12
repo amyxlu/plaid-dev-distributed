@@ -18,7 +18,7 @@ from plaid.compression.modules import (
     VectorQuantizer,
     FiniteScalarQuantizer,
 )
-from plaid.utils import get_lr_scheduler
+from plaid.utils import get_lr_scheduler, LatentScaler
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.proteins import LatentToSequence, LatentToStructure
@@ -70,8 +70,15 @@ class HourglassVQLightningModule(L.LightningModule):
 
         ignored_hparams = []
 
+        from plaid.utils import print_cuda_info
+        print_cuda_info()
+
+        self.latent_scaler = LatentScaler()
+
         if esmfold is not None:
             self.esmfold = esmfold
+            for param in self.esmfold.parameters():
+                param.requires_grad = False
             ignored_hparams += ["esmfold"]
 
         if isinstance(use_quantizer, bool):
@@ -156,19 +163,19 @@ class HourglassVQLightningModule(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        make_sequence_constructor = log_sequence_loss or (seq_loss_weight > 0.0)
-        make_structure_constructor = log_structure_loss or (struct_loss_weight > 0.0)
+        self.make_sequence_constructor = log_sequence_loss or (seq_loss_weight > 0.0)
+        self.make_structure_constructor = log_structure_loss or (struct_loss_weight > 0.0)
         self.seq_loss_weight = seq_loss_weight
         self.struct_loss_weight = struct_loss_weight
 
         # auxiliary losses
         if not force_infer:
-            if make_sequence_constructor:
+            if self.make_sequence_constructor:
                 self.sequence_constructor = LatentToSequence()
                 self.sequence_constructor.to(self.device)
                 self.seq_loss_fn = SequenceAuxiliaryLoss(self.sequence_constructor)
 
-            if make_structure_constructor:
+            if self.make_structure_constructor:
                 self.structure_constructor = LatentToStructure(esmfold=esmfold)
                 self.structure_constructor.to(self.device)
                 self.structure_loss_fn = BackboneAuxiliaryLoss(self.structure_constructor)
@@ -339,11 +346,13 @@ class HourglassVQLightningModule(L.LightningModule):
         # unscale to decode into sequence and/or structure
         x_recons_unscaled = self.latent_scaler.unscale(x_recons)
         batch_size = x_recons_unscaled.shape[0]
+        
         # sequence loss
-        if self.log_sequence_loss:
-            seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(
-                x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True
-            )
+        if self.make_sequence_constructor:
+            with torch.no_grad():
+                seq_loss, seq_loss_dict, recons_strs = self.seq_loss_fn(
+                    x_recons_unscaled, tokens, mask, return_reconstructed_sequences=True
+                )
             seq_loss_dict = {f"{prefix}/{k}": v for k, v in seq_loss_dict.items()}
             self.log_dict(seq_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             # if self.global_step % 500 == 0:
@@ -352,10 +361,11 @@ class HourglassVQLightningModule(L.LightningModule):
             loss += seq_loss * self.seq_loss_weight
 
         # structure loss
-        if self.log_structure_loss:
-            struct_loss, struct_loss_dict = self.structure_loss_fn(
-                x_recons_unscaled, gt_structures, sequences
-            )
+        if self.make_structure_constructor:
+            with torch.no_grad():
+                struct_loss, struct_loss_dict = self.structure_loss_fn(
+                    x_recons_unscaled, gt_structures, sequences
+                )
             struct_loss_dict = {f"{prefix}/{k}": v.mean() for k, v in struct_loss_dict.items()}
             self.log_dict(struct_loss_dict, on_step=(prefix != "val"), on_epoch=True, batch_size=batch_size)
             loss += struct_loss * self.struct_loss_weight

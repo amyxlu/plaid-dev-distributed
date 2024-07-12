@@ -1,7 +1,6 @@
 _target_: lightning.pytorch.Trainer
-strategy: ddp
+accelerator: ddp
 devices: -1
-accelerator: gpu
 num_nodes: 1
 # use_distributed_sampler: true
 gradient_clip_val: 0.5

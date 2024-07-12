@@ -3,13 +3,11 @@
 use_compresson_callback: false
 
 defaults:
-  - _self_
-  - override /trainer: ddp
   - override /datamodule: pfam_fasta
   - override /hourglass: large
 
 datamodule:
-  batch_size: 16 
+  batch_size: 4 
   seq_len: 512 
   num_workers: 4 
 
@@ -31,3 +29,8 @@ hourglass:
 
 callbacks/checkpoint:
   every_n_train_steps: 20000
+
+trainer:
+  accelerator: gpu
+  strategy: ddp
+  devices: -1

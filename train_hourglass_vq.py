@@ -100,6 +100,9 @@ def train(cfg: DictConfig):
 
     trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, callbacks=callbacks)
 
+    from plaid.utils import print_cuda_info
+    print_cuda_info()
+
     if rank_zero_only.rank == 0 and isinstance(trainer.logger, WandbLogger):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
@@ -115,4 +118,5 @@ def train(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    from plaid.utils import print_cuda_info
     train()
