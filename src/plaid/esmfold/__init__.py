@@ -4,3 +4,4 @@ from .trunk import RelativePosition, FoldingTrunk, FoldingTrunkConfig
 from .misc import batch_encode_sequences, output_to_pdb, make_s_z_0
 from .pretrained import esmfold_v1
 from .esmfold import ESMFoldConfig, ESMFold
+from .esmfold_embed_only import esmfold_v1_embed_only
