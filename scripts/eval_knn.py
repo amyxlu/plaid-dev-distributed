@@ -1,9 +1,8 @@
-import tqdm
+from tqdm import tqdm
 import argparse
 
-import sklearn
 from pathlib import Path
-import sklearn
+from sklearn.neighbors import KNeighborsClassifier
 import einops
 import pandas as pd
 import numpy as np
@@ -12,6 +11,7 @@ import torch
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
 from plaid.esmfold.misc import batch_encode_sequences
 from plaid.datasets import CATHShardedDataModule
+from plaid.transforms import trim_or_pad_batch_first
 
 
 device = torch.device("cuda")
@@ -23,8 +23,8 @@ def get_args():
     parser.add_argument("--shard_dir", type=str, default="/homefs/home/lux70/storage/data/cath/shards")
     parser.add_argument("--cath_metadata_fpath", type=str, default="/homefs/home/lux70/storage/data/cath/description/cath-domain-list-S35.txt")
     parser.add_argument("--ckpt_dir", type=str, default="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/")
-    parser.add_argument("--compression_id", type=str, default="identity")
-    parser.add_argument("--seq_len", type=int, default=512)
+    parser.add_argument("--compression_id", type=str, default="8ebs7j9h")
+    parser.add_argument("--seq_len", type=int, default=128)
     args = parser.parse_args()
     return args
 
@@ -79,7 +79,7 @@ def load_cath_cache_dataloaders(shard_dir, seq_len):
     return train_dataloader, val_dataloader
 
 
-def collect_batches(dataloader, hourglass, compress=True):
+def collect_batches(dataloader, hourglass, compress=True, max_length=512):
     sequences = []
     cath_ids = []
     
@@ -104,7 +104,10 @@ def collect_batches(dataloader, hourglass, compress=True):
             mask = mask.to(device)
             with torch.no_grad():
                 x_c, m_d = hourglass(x, mask.bool(), infer_only=True)
-        
+
+        x_c = trim_or_pad_batch_first(x_c, max_length)
+        m_d = trim_or_pad_batch_first(m_d, max_length)
+
         all_x_c.append(x_c.cpu().numpy())
         all_m_d.append(m_d.cpu().numpy())
     
@@ -124,7 +127,7 @@ def collect_batches(dataloader, hourglass, compress=True):
 
 
 def run_knn(n_neighbors, target, train_data, train_df, val_data, val_df):
-    knn = sklearn.neighbors.KNeighborsClassifier(n_neighbors=n_neighbors)
+    knn = KNeighborsClassifier(n_neighbors=n_neighbors)
     knn.fit(X=train_data['x_pooled_ordered'], y=train_df[target].values)
     pred_classes = knn.predict(val_data['x_pooled_ordered'])
     correct = (pred_classes == val_df[target].values).sum() / len(val_df)
@@ -145,8 +148,8 @@ def main(args):
     train_dataloader, val_dataloader = load_cath_cache_dataloaders(args.shard_dir, args.seq_len)
 
     compress = not args.no_compress
-    val_data = collect_batches(val_dataloader, hourglass, compress)
-    train_data = collect_batches(train_dataloader, hourglass, compress)
+    val_data = collect_batches(val_dataloader, hourglass, compress, args.seq_len)
+    train_data = collect_batches(train_dataloader, hourglass, compress, args.seq_len)
 
     # create an dataframe to make it easier to manipulate
     train_embed_df = pd.DataFrame({"embedding_idx": np.arange(len(train_data['cath_ids'])), "cath_id": train_data['cath_ids']})
