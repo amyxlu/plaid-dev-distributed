@@ -65,6 +65,8 @@ class HourglassVQLightningModule(L.LightningModule):
         none (i.e. output of encoder goes directly back into the decoder).
         """
 
+        print("Init hourglass model on rank", self.global_rank)
+
         ignored_hparams = []
 
         self.latent_scaler = LatentScaler()
@@ -178,6 +180,7 @@ class HourglassVQLightningModule(L.LightningModule):
         # do this after init so that we can move esmfold to the right device
         if self.esmfold is None:
             self.esmfold = esmfold_v1_embed_only()
+            print("ESMFold device", self.device)
         
             self.esmfold.to(self.device)
             self.esmfold.eval()
@@ -315,7 +318,8 @@ class HourglassVQLightningModule(L.LightningModule):
                 self.setup_esmfold()
 
             headers, sequences = batch
-            x = self.esmfold.infer_embedding(sequences)["s"]
+            with torch.no_grad():
+                x = self.esmfold.infer_embedding(sequences)["s"]
         else:
             raise
 

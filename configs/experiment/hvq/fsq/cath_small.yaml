@@ -16,9 +16,9 @@ hourglass:
   n_e: 128 
   e_dim: 64
   use_quantizer: "fsq"
-  fsq_levels: [8,8,8,6,5]
-  downproj_factor: 4 
-  shorten_factor: 1
+  fsq_levels: [16,16,16,16]
+  downproj_factor: 1 
+  shorten_factor: 4 
   
   lr: 8e-5
   lr_num_warmup_steps: 3000

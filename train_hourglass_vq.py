@@ -9,8 +9,6 @@ from lightning.pytorch.utilities import rank_zero_only
 from omegaconf import DictConfig, OmegaConf
 import torch
 
-from plaid.esmfold import esmfold_v1
-from plaid.datasets import FastaDataModule
 from plaid.utils import count_parameters
 import os
 
@@ -72,13 +70,8 @@ def train(cfg: DictConfig):
     end = time.time()
     print(f"Datamodule set up in {end - start:.2f} seconds.")
 
-    # maybe load esmfold if we need to normalize by channel
-    esmfold = None
-    if isinstance(datamodule, FastaDataModule):
-        esmfold = esmfold_v1()
-
     # set up lightning module
-    model = hydra.utils.instantiate(cfg.hourglass, esmfold=esmfold)
+    model = hydra.utils.instantiate(cfg.hourglass)
 
     trainable_parameters = count_parameters(model, require_grad_only=True)
     log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
@@ -94,8 +87,9 @@ def train(cfg: DictConfig):
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
 
     callbacks = [checkpoint_callback, lr_monitor]
-
-    if cfg.use_compression_callback:
+ 
+    # if cfg.use_compression_callback:
+    if False:
         callbacks += [hydra.utils.instantiate(cfg.callbacks.compression, esmfold=esmfold)]  # creates ESMFold on CPU
 
     trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, callbacks=callbacks)

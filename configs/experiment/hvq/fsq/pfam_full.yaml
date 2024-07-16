@@ -1,6 +1,6 @@
 # @package _global_
 
-use_compresson_callback: True
+use_compresson_callback: False 
 
 defaults:
   - override /datamodule: pfam_fasta
@@ -15,13 +15,16 @@ logger:
 
 hourglass:
   use_quantizer: "fsq"
-  fsq_levels: [8,8,8,6,5]
+  # fsq_levels: [8,8,8,6,5]
+  fsq_levels: [16,16,16,16]
   lr: 1e-4
   lr_num_warmup_steps: 3000
   lr_sched_type: "cosine_with_restarts"
   lr_num_training_steps: 800_000
   lr_num_cycles: 2
   depth: 6
+  downproj_factor: 1 
+  shorten_factor: 2
 
-callbacks/compression:
-  run_every_n_steps: 5000
+# callbacks/compression:
+#   run_every_n_steps: 5000

@@ -1,4 +1,4 @@
-_target_: plaid.compression.hourglass_lightning.HourglassTransformerLightningModule
+_target_: plaid.compression.HourglassVQLightningModule
 
 dim: 1024
 depth: [4, 2, 4]

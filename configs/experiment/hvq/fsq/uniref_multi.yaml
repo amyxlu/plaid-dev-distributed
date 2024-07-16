@@ -1,11 +1,9 @@
 # @package _global_
-
 use_compresson_callback: false
 
 defaults:
-  - override /datamodule: pfam_fasta
-  # - override /hourglass: large
-  - override /hourglass: vq 
+  - override /datamodule: uniref_fasta
+  - override /hourglass: base 
 
 datamodule:
   batch_size: 64
@@ -19,8 +17,8 @@ hourglass:
   log_sequence_loss: false
   log_structure_loss: false
   use_quantizer: "fsq"
-  fsq_levels: [8,8,8,6,5]
-  shorten_factor: 1 
+  fsq_levels: [8,8,8,8,8]
+  shorten_factor: 4 
   
   lr: 1e-4
   lr_num_warmup_steps: 3000
