@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DistributedInferenceConfig:
-    compression_model_id: str = "jzlv54wl"
+    compression_model_id: str = "j1v1wv6w"
     compression_ckpt_dir: str = (
         "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
     )
@@ -88,7 +88,7 @@ class RankRunner:
         self.latent_scaler = LatentScaler()
         self.args = args
 
-        self.outdir = Path(args.output_dir) / f"{rank}"
+        self.outdir = Path(args.output_dir) / args.compression_model_id / f"{rank}"
         if not self.outdir.exists():
             self.outdir.mkdir(parents=True)
 
