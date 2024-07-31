@@ -250,6 +250,31 @@ def main(args):
     )
 
 
+def move_folders(args):
+    import os
+    import subprocess
+
+    path = Path(args.output_dir) / args.compression_model_id
+
+    # for every single subfolder in the path, see all the shard tar files
+    # in that subfolder, and then create a list of all the shard tar files
+    # in the root path, but renumber the shards such that they are
+    # consecutive and unique across all the subfolders
+    shard_list = []
+    for subfolder in os.listdir(path):
+        if not "config.json" in subfolder:
+            subfolder_path = os.path.join(path, subfolder)
+
+        for shard in os.listdir(subfolder_path):
+            shard_list.append(os.path.join(subfolder_path, shard))
+
+    for i, shard_path in enumerate(shard_list):
+        command = ["mv", shard_path, f"{path}/shard{i:06d}.tar"]
+        # print(" ".join(command))
+        subprocess.run(command)
+
+
 if __name__ == "__main__":
     args = DistributedInferenceConfig()
     main(args)
+    # move_folders(args)
