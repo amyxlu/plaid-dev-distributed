@@ -14,7 +14,7 @@ from plaid.losses.functions import masked_mse_loss
 
 
 """Config"""
-compress_model_dir = "/data/lux70/plaid/checkpoints/hourglass_vq/"
+compress_model_dir = "/data/lux70/cheap/checkpoints/"
 compress_model_id = "2024-03-05T06-20-52"  # soft-violet
 compress_model_path = Path(compress_model_dir) / compress_model_id / "last.ckpt"
 

@@ -43,7 +43,7 @@ class DistributedInferenceConfig:
 
     compression_model_id: str = "j1v1wv6w"
     compression_ckpt_dir: str = (
-        "/data/lux70/plaid/checkpoints/hourglass_vq/"
+        "/data/lux70/cheap/checkpoints/"
     )
 
     batch_size: int = 64

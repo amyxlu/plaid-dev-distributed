@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class DistributedInferenceConfig:
     compression_model_id: str = "jzlv54wl"
     compression_ckpt_dir: str = (
-        "/data/lux70/plaid/checkpoints/hourglass_vq/"
+        "/data/lux70/cheap/checkpoints/"
     )
     # fasta_file: str = "/data/lux70/data/pfam/Pfam-A.fasta"
     fasta_file: str = "/data/lux70/data/uniref90/partial.fasta"

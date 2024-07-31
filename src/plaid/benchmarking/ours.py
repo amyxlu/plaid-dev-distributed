@@ -169,7 +169,7 @@ class PLAID(nn.Module, core.Configurable):
     def __init__(
         self,
         compression_model_id="identity",
-        hourglass_weights_dir="/data/lux70/plaid/checkpoints/hourglass_vq",
+        hourglass_weights_dir="/data/lux70/cheap/checkpoints",
         pool="mean",
     ):
         super().__init__()

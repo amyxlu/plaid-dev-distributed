@@ -76,7 +76,7 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
     # Compression forward pass
     ########################################################################################################
 
-    root_dir = Path("/data/lux70/plaid/checkpoints/hourglass_vq/")
+    root_dir = Path("/data/lux70/cheap/checkpoints/")
     dirpath = root_dir / model_id
     print(os.listdir(str(dirpath)))
 

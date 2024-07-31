@@ -42,7 +42,7 @@ class UncompressContinuousLatent(UncompressionLatent):
     def __init__(
         self,
         compression_model_id,
-        compression_ckpt_dir="/data/lux70/plaid/checkpoints/hourglass_vq/",
+        compression_ckpt_dir="/data/lux70/cheap/checkpoints/",
         init_compress_mode=False,
         init_decompress_mode=True,
     ):

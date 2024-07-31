@@ -22,7 +22,7 @@ def get_args():
     parser.add_argument("--no_compress", action="store_true")
     parser.add_argument("--shard_dir", type=str, default="/data/lux70/data/cath/shards")
     parser.add_argument("--cath_metadata_fpath", type=str, default="/data/lux70/data/cath/description/cath-domain-list-S35.txt")
-    parser.add_argument("--ckpt_dir", type=str, default="/data/lux70/plaid/checkpoints/hourglass_vq/")
+    parser.add_argument("--ckpt_dir", type=str, default="/data/lux70/cheap/checkpoints/")
     parser.add_argument("--compression_id", type=str, default="8ebs7j9h")
     parser.add_argument("--seq_len", type=int, default=128)
     args = parser.parse_args()

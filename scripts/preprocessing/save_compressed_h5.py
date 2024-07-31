@@ -206,7 +206,7 @@ class FastaToH5:
 def main():
     fasta_to_h5 = FastaToH5(
         compression_model_id="qjs33lme",
-        hourglass_ckpt_dir="/data/lux70/plaid/checkpoints/hourglass_vq",
+        hourglass_ckpt_dir="/data/lux70/cheap/checkpoints",
         fasta_file="/data/lux70/data/pfam/Pfam-A.fasta",
         output_dir=f"/data/lux70/data/pfam/compressed/subset_1M",
         batch_size=64,

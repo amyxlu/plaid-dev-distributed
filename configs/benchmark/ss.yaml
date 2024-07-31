@@ -21,7 +21,7 @@ task:
   model:
     class: PLAID
     compression_model_id: ???
-    hourglass_weights_dir: /data/lux70/plaid/checkpoints/hourglass_vq
+    hourglass_weights_dir: /data/lux70/cheap/checkpoints
   criterion: ce
   metric: ["micro_acc", "macro_acc"]
   num_mlp_layer: 2

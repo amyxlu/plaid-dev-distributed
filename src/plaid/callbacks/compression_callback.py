@@ -28,7 +28,7 @@ from plaid.evaluation import lDDT
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 
-def load_compression_model(model_id, ckpt_dir="/data/lux70/plaid/checkpoints/hourglass_vq"):
+def load_compression_model(model_id, ckpt_dir="/data/lux70/cheap/checkpoints"):
     dirpath = Path(ckpt_dir) / model_id
     return HourglassVQLightningModule.load_from_checkpoint(dirpath / "last.ckpt")
 

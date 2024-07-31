@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument(
         "--compressor_ckpt_dir",
         type=str,
-        default="/data/lux70/plaid/checkpoints/hourglass_vq/",
+        default="/data/lux70/cheap/checkpoints/",
     )
     parser.add_argument(
         "--fasta_file",
