@@ -88,9 +88,8 @@ def train(cfg: DictConfig):
 
     callbacks = [checkpoint_callback, lr_monitor]
  
-    # if cfg.use_compression_callback:
-    if False:
-        callbacks += [hydra.utils.instantiate(cfg.callbacks.compression, esmfold=esmfold)]  # creates ESMFold on CPU
+    if cfg.use_compression_callback:
+        callbacks += [hydra.utils.instantiate(cfg.callbacks.compression)] # creates ESMFold on CPU
 
     trainer = hydra.utils.instantiate(cfg.trainer, logger=logger, callbacks=callbacks)
 
@@ -113,4 +112,5 @@ def train(cfg: DictConfig):
 
 if __name__ == "__main__":
     from plaid.utils import print_cuda_info
+    print_cuda_info()
     train()
