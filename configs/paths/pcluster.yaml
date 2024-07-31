@@ -1,9 +1,10 @@
-root_dir: /homefs/home/lux70/storage/plaid
-data_dir: /homefs/home/lux70/storage/data
-bucket_dir: /data/bucket/lux70/data
-log_dir: /homefs/home/lux70/storage/plaid/logs
 project_dir: /homefs/home/lux70/code/plaid
+root_dir: /data/lux70/artifacts/plaid
+data_dir: /data/lux70/data
+bucket_dir: /data/bucket/lux70/data
 
+log_dir: ${paths.root_dir}/logs
 checkpoint_dir: ${paths.root_dir}/checkpoints
 artifacts_dir: ${paths.root_dir}/artifacts
+
 entity: lu-amy-al1
