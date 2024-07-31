@@ -1,7 +1,7 @@
 _target_: plaid.datasets.TokenDataModule
 
 compress_model_id: "2024-03-05T06-20-52"  # soft-violet
-token_dir: /homefs/home/lux70/storage/data/cath/tokens/
+token_dir: /data/lux70/data/cath/tokens/
 max_seq_len: 128 
 batch_size: 256
 num_workers: 1

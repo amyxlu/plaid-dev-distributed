@@ -35,18 +35,18 @@ def parse_args():
     parser.add_argument(
         "--compressor_ckpt_dir",
         type=str,
-        default="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
+        default="/data/lux70/plaid/checkpoints/hourglass_vq/",
     )
     parser.add_argument(
         "--fasta_file",
         type=str,
-        default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+        default="/data/lux70/data/cath/cath-dataset-nonredundant-S40.atom.fa",
         help="Path to the fasta file",
     )
     parser.add_argument(
         "--base_output_dir",
         type=str,
-        default="/homefs/home/lux70/storage/data/cath/compressed/",
+        default="/data/lux70/data/cath/compressed/",
         help="Directory for training output shards",
     )
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size")

@@ -1,8 +1,8 @@
-output_dir: /homefs/home/lux70/storage/data/torchdrug/outputs
+output_dir: /data/lux70/data/torchdrug/outputs
 
 dataset:
   class: BindingDB
-  path: /homefs/home/lux70/storage/data/torchdrug
+  path: /data/lux70/data/torchdrug
   atom_feature: null
   bond_feature: null
   transform:
@@ -19,7 +19,7 @@ task:
   model:
     class: PLAID
     compression_model_id: ???
-    hourglass_weights_dir: /homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq
+    hourglass_weights_dir: /data/lux70/plaid/checkpoints/hourglass_vq
   model2:
     class: GIN
     input_dim: 66

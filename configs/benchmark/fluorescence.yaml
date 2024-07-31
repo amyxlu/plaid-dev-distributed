@@ -2,7 +2,7 @@ dataset:
   atom_feature: null
   bond_feature: null
   class: Fluorescence
-  path: /homefs/home/lux70/storage/data/torchdrug
+  path: /data/lux70/data/torchdrug
   transform:
     class: Compose
     transforms:
@@ -18,7 +18,7 @@ fix_encoder: true
 optimizer:
   class: Adam
   lr: 5.0e-05
-output_dir: /homefs/home/lux70/storage/data/torchdrug/outputs
+output_dir: /data/lux70/data/torchdrug/outputs
 task:
   class: PropertyPrediction
   criterion: mse
@@ -29,7 +29,7 @@ task:
   model:
     class: PLAID
     compression_model_id: ??? 
-    hourglass_weights_dir: /homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq
+    hourglass_weights_dir: /data/lux70/plaid/checkpoints/hourglass_vq
   normalization: false
   num_mlp_layer: 2
 train:

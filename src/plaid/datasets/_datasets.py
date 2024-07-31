@@ -234,7 +234,7 @@ class TokenDataset(Dataset):
         self,
         split,
         compress_model_id,  # = "2024-03-05T06-20-52",  # soft-violet
-        token_dir,  # = "/homefs/home/lux70/storage/data/cath/tokens/",
+        token_dir,  # = "/data/lux70/data/cath/tokens/",
         max_seq_len=512,  # = 128,
     ):
         self.split = split
@@ -266,7 +266,7 @@ class CompressedContinuousDataset(Dataset):
         split,
         compression_model_id,
         seq_len,
-        base_data_dir="/homefs/home/lux70/storage/data/rocklin/compressed/",
+        base_data_dir="/data/lux70/data/rocklin/compressed/",
         filtered_ids_list=None,
         max_num_samples=None,
     ):
@@ -623,7 +623,7 @@ class TokenDataModule(L.LightningDataModule):
     def __init__(
         self,
         compress_model_id="2024-03-05T06-20-52",  # soft-violet
-        token_dir="/homefs/home/lux70/storage/data/cath/tokens/",
+        token_dir="/data/lux70/data/cath/tokens/",
         max_seq_len=128,
         batch_size=256,
         num_workers=0,
@@ -725,7 +725,7 @@ class CompressedLMDBDataModule(L.LightningDataModule):
     def __init__(
         self,
         compression_model_id="jzlv54wl",
-        lmdb_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_5000",
+        lmdb_root_dir="/data/lux70/data/pfam/compressed/subset_5000",
         max_seq_len=512,
         batch_size=128,
         num_workers=8,
@@ -907,7 +907,7 @@ class CompressedH5ClansDataset(torch.utils.data.Dataset):
 if __name__ == "__main__":
     dm = CompressedH5DataModule(
         compression_model_id="j1v1wv6w",
-        h5_root_dir="/homefs/home/lux70/storage/data/pfam/compressed/subset_1M_with_clan/fp16/",
+        h5_root_dir="/data/lux70/data/pfam/compressed/subset_1M_with_clan/fp16/",
         max_seq_len=512,
         batch_size=16,
         mayclan_version=True,

@@ -28,9 +28,9 @@ DEPRECATED. Used to save sharded tensors.
 #     # fasta_file: str = "/shared/amyxlu/data/cath/cath-dataset-nonredundant-S40.atom.fa"
 #     # train_output_dir: str = "/shared/amyxlu/data/cath/shards/train"
 #     # val_output_dir: str = "/shared/amyxlu/data/cath/shards/val"
-#     fasta_file: str = "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa"
-#     train_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/train"
-#     val_output_dir: str = "/homefs/home/lux70/storage/data/cath/shards/val"
+#     fasta_file: str = "/data/lux70/data/cath/cath-dataset-nonredundant-S40.atom.fa"
+#     train_output_dir: str = "/data/lux70/data/cath/shards/train"
+#     val_output_dir: str = "/data/lux70/data/cath/shards/val"
 #     batch_size: int = 256
 #     max_seq_len: int = 256
 #     min_seq_len: int = 16

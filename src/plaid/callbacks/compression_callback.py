@@ -28,7 +28,7 @@ from plaid.evaluation import lDDT
 from plaid.compression.hourglass_vq import HourglassVQLightningModule
 
 
-def load_compression_model(model_id, ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq"):
+def load_compression_model(model_id, ckpt_dir="/data/lux70/plaid/checkpoints/hourglass_vq"):
     dirpath = Path(ckpt_dir) / model_id
     return HourglassVQLightningModule.load_from_checkpoint(dirpath / "last.ckpt")
 
@@ -47,7 +47,7 @@ class CompressionReconstructionCallback(Callback):
         self,
         batch_size,
         esmfold=None,
-        shard_dir="/homefs/home/lux70/storage/data/cath/shards/",
+        shard_dir="/data/lux70/data/cath/shards/",
         pdb_dir="/data/bucket/lux70/data/cath/dompdb",
         out_dir="/homefs/home/lux70/cache/",
         num_samples: int = 32,

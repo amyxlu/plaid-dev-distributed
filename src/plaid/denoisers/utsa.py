@@ -327,8 +327,8 @@ if __name__ == "__main__":
     #     conditioning_strategy="length_concat",
     #     use_self_conditioning=True)
     model.to(device)
-    # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    # datadir = "/data/lux70/data/cath/shards/"
+    # pklfile = "/data/lux70/data/cath/sequences.pkl"
     datadir = "/shared/amyxlu/data/cath/shards/"
     pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
     dm = CATHShardedDataModule(

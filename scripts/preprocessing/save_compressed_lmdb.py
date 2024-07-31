@@ -193,9 +193,9 @@ class FastaToLMDB:
 def main():
     fasta_to_lmdb = FastaToLMDB(
         compression_model_id="jzlv54wl",
-        hourglass_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq",
-        fasta_file="/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta",
-        output_dir=f"/homefs/home/lux70/storage/data/pfam/compressed/subset_2M",
+        hourglass_ckpt_dir="/data/lux70/plaid/checkpoints/hourglass_vq",
+        fasta_file="/data/lux70/data/pfam/Pfam-A.fasta",
+        output_dir=f"/data/lux70/data/pfam/compressed/subset_2M",
         batch_size=128,
         max_dataset_size=2_000_000,
     )

@@ -111,8 +111,8 @@ if __name__ == "__main__":
 
     # device = torch.device("cuda:1")
 
-    # # datadir = "/homefs/home/lux70/storage/data/cath/shards/"
-    # # pklfile = "/homefs/home/lux70/storage/data/cath/sequences.pkl"
+    # # datadir = "/data/lux70/data/cath/shards/"
+    # # pklfile = "/data/lux70/data/cath/sequences.pkl"
     # datadir = "/shared/amyxlu/data/cath/shards/"
     # pklfile = "/shared/amyxlu/data/cath/sequences.pkl"
 
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     ####
     from plaid.datasets import CATHStructureDataModule
 
-    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    shard_dir = "/data/lux70/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
     dm = CATHStructureDataModule(shard_dir, pdb_dir, seq_len=64, batch_size=32, num_workers=0)
     dm.setup()

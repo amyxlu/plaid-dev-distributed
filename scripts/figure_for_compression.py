@@ -21,9 +21,9 @@ def load_batch():
     # Load batch of latents
     ########################################################################################################
 
-    shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+    shard_dir = "/data/lux70/data/cath/shards/"
     pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
-    # shard_dir = "/homefs/home/lux70/storage/data/rocklin/shards/"
+    # shard_dir = "/data/lux70/data/rocklin/shards/"
     # pdb_dir = "/data/bucket/lux70/data/rocklin/structures/"
 
     max_seq_len = 512
@@ -76,7 +76,7 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
     # Compression forward pass
     ########################################################################################################
 
-    root_dir = Path("/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/")
+    root_dir = Path("/data/lux70/plaid/checkpoints/hourglass_vq/")
     dirpath = root_dir / model_id
     print(os.listdir(str(dirpath)))
 

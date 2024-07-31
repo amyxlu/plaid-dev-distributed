@@ -331,7 +331,7 @@ if __name__ == "__main__":
     model = TransformerVQVAE()
     device = torch.device("cuda")
 
-    datadir = "/homefs/home/lux70/storage/data/cath/shards"
+    datadir = "/data/lux70/data/cath/shards"
     dm = CATHShardedDataModule(
         storage_type="hdf5", shard_dir=datadir, batch_size=32, seq_len=64, dtype="fp32"
     )

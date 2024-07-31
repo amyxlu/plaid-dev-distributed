@@ -6,7 +6,7 @@ device = torch.device("cuda")
 
 dm = CATHShardedDataModule(
     storage_type="hdf5",
-    shard_dir="/homefs/home/lux70/storage/data/cath/shards",
+    shard_dir="/data/lux70/data/cath/shards",
     seq_len=128,
 )
 dm.setup("fit")

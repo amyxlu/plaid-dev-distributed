@@ -37,13 +37,13 @@ class DictDataParallel(nn.DataParallel):
 
 @dataclasses.dataclass
 class DistributedInferenceConfig:
-    # fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
-    fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
-    output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/"
+    # fasta_file: str = "/data/lux70/data/pfam/Pfam-A.fasta"
+    fasta_file: str = "/data/lux70/data/uniref90/partial.fasta"
+    output_dir: str = "/data/lux70/data/uniref90/compressed/"
 
-    compression_model_id: str = "jzlv54wl"
+    compression_model_id: str = "j1v1wv6w"
     compression_ckpt_dir: str = (
-        "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
+        "/data/lux70/plaid/checkpoints/hourglass_vq/"
     )
 
     batch_size: int = 64

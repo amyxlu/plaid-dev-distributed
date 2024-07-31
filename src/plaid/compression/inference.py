@@ -42,7 +42,7 @@ class UncompressContinuousLatent(UncompressionLatent):
     def __init__(
         self,
         compression_model_id,
-        compression_ckpt_dir="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/",
+        compression_ckpt_dir="/data/lux70/plaid/checkpoints/hourglass_vq/",
         init_compress_mode=False,
         init_decompress_mode=True,
     ):
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     from plaid.datasets import CATHShardedDataModule
 
     dm = CATHShardedDataModule(
-        shard_dir="/homefs/home/lux70/storage/data/cath/shards",
+        shard_dir="/data/lux70/data/cath/shards",
         seq_len=128,
     )
     dm.setup()

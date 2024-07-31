@@ -9,7 +9,7 @@ defaults:
 
 datamodule:
   compression_model_id: ${compression_model_id}
-  h5_root_dir: /homefs/home/lux70/storage/data/pfam/compressed/subset_1M_with_clan/fp16
+  h5_root_dir: /data/lux70/data/pfam/compressed/subset_1M_with_clan/fp16
   num_workers: 16
   mayclan_version: True
 

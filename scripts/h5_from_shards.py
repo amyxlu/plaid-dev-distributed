@@ -24,9 +24,9 @@ def parse_args():
 
 
 device = torch.device("cuda")
-shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
-ckpt_dir = Path("/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq")
-output_dir = f"/homefs/home/lux70/storage/data/cath/compressed/"
+shard_dir = "/data/lux70/data/cath/shards/"
+ckpt_dir = Path("/data/lux70/plaid/checkpoints/hourglass_vq")
+output_dir = f"/data/lux70/data/cath/compressed/"
 
 
 #####################

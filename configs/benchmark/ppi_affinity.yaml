@@ -18,7 +18,7 @@ task:
   model:
     class: PLAID
     compression_model_id: ???
-    hourglass_weights_dir: /homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq
+    hourglass_weights_dir: /data/lux70/plaid/checkpoints/hourglass_vq
   criterion: mse
   metric: [ "mae", "rmse", "spearmanr" ]
   num_mlp_layer: 2

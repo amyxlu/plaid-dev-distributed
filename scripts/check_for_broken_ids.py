@@ -2,7 +2,7 @@ from plaid.datasets import CATHStructureDataModule
 from tqdm import tqdm
 
 
-shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+shard_dir = "/data/lux70/data/cath/shards/"
 pdb_dir = "/data/bucket/lux70/data/cath/dompdb"
 # path_to_dropped_ids = "/homefs/home/lux70/code/plaid/plaid/cath_dropped_pdb_list.txt"
 

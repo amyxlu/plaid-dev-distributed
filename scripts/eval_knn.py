@@ -20,9 +20,9 @@ device = torch.device("cuda")
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--no_compress", action="store_true")
-    parser.add_argument("--shard_dir", type=str, default="/homefs/home/lux70/storage/data/cath/shards")
-    parser.add_argument("--cath_metadata_fpath", type=str, default="/homefs/home/lux70/storage/data/cath/description/cath-domain-list-S35.txt")
-    parser.add_argument("--ckpt_dir", type=str, default="/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/")
+    parser.add_argument("--shard_dir", type=str, default="/data/lux70/data/cath/shards")
+    parser.add_argument("--cath_metadata_fpath", type=str, default="/data/lux70/data/cath/description/cath-domain-list-S35.txt")
+    parser.add_argument("--ckpt_dir", type=str, default="/data/lux70/plaid/checkpoints/hourglass_vq/")
     parser.add_argument("--compression_id", type=str, default="8ebs7j9h")
     parser.add_argument("--seq_len", type=int, default=128)
     args = parser.parse_args()
@@ -197,7 +197,7 @@ def main(args):
             )
             results = pd.concat([results, row])
     
-    results.to_csv(f"/homefs/home/lux70/storage/plaid/artifacts/eval/cath_knn/{args.compression_id}.csv", index=False)
+    results.to_csv(f"/data/lux70/plaid/artifacts/eval/cath_knn/{args.compression_id}.csv", index=False)
 
 
 if __name__ == "__main__":

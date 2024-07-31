@@ -45,19 +45,19 @@ def parse_args():
     parser.add_argument(
         "--fasta_file",
         type=str,
-        default="/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+        default="/data/lux70/data/cath/cath-dataset-nonredundant-S40.atom.fa",
         help="Path to the fasta file",
     )
     parser.add_argument(
         "--train_output_dir",
         type=str,
-        default="/homefs/home/lux70/storage/data/cath/shards/train",
+        default="/data/lux70/data/cath/shards/train",
         help="Directory for training output shards",
     )
     parser.add_argument(
         "--val_output_dir",
         type=str,
-        default="/homefs/home/lux70/storage/data/cath/shards/val",
+        default="/data/lux70/data/cath/shards/val",
         help="Directory for validation output shards",
     )
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size")

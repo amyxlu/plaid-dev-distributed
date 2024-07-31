@@ -14,7 +14,7 @@ from plaid.losses.functions import masked_mse_loss
 
 
 """Config"""
-compress_model_dir = "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
+compress_model_dir = "/data/lux70/plaid/checkpoints/hourglass_vq/"
 compress_model_id = "2024-03-05T06-20-52"  # soft-violet
 compress_model_path = Path(compress_model_dir) / compress_model_id / "last.ckpt"
 
@@ -24,7 +24,7 @@ input_dtype = "fp32"
 batch_size = 256
 num_workers = 0
 lm_embedder_type = "esmfold"
-shard_dir = "/homefs/home/lux70/storage/data/cath/shards/"
+shard_dir = "/data/lux70/data/cath/shards/"
 
 device = torch.device("cuda")
 
@@ -133,7 +133,7 @@ class TokenizeLatent:
 """
 Save tokens
 """
-token_outdir_base = Path("/homefs/home/lux70/storage/data/cath/tokens")
+token_outdir_base = Path("/data/lux70/data/cath/tokens")
 latent_tokenizer = TokenizeLatent(model, "int8")
 
 print("save train tensors")

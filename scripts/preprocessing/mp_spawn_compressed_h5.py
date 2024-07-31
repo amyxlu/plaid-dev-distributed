@@ -29,11 +29,11 @@ logger = logging.getLogger(__name__)
 class DistributedInferenceConfig:
     compression_model_id: str = "jzlv54wl"
     compression_ckpt_dir: str = (
-        "/homefs/home/lux70/storage/plaid/checkpoints/hourglass_vq/"
+        "/data/lux70/plaid/checkpoints/hourglass_vq/"
     )
-    # fasta_file: str = "/homefs/home/lux70/storage/data/pfam/Pfam-A.fasta"
-    fasta_file: str = "/homefs/home/lux70/storage/data/uniref90/partial.fasta"
-    output_dir: str = "/homefs/home/lux70/storage/data/uniref90/compressed/partial/"
+    # fasta_file: str = "/data/lux70/data/pfam/Pfam-A.fasta"
+    fasta_file: str = "/data/lux70/data/uniref90/partial.fasta"
+    output_dir: str = "/data/lux70/data/uniref90/compressed/partial/"
     batch_size: int = 64
     max_seq_len: int = 512
     max_dataset_size: int = -1

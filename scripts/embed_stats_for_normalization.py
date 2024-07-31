@@ -17,8 +17,8 @@ from plaid.constants import CACHED_TENSORS_DIR, ACCEPTED_LM_EMBEDDER_TYPES
 
 # pcluster
 DATASET_TO_FASTA_FILE = {
-    "uniref": "/homefs/home/lux70/storage/data/uniref90/partial.fasta",
-    "cath": "/homefs/home/lux70/storage/data/cath/cath-dataset-nonredundant-S40.atom.fa",
+    "uniref": "/data/lux70/data/uniref90/partial.fasta",
+    "cath": "/data/lux70/data/cath/cath-dataset-nonredundant-S40.atom.fa",
     "pfam": "",
 }
 
