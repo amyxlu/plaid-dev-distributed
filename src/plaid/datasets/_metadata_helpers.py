@@ -1,13 +1,6 @@
 import pandas as pd
 
 
-def _header_to_pfam_id(header: str):
-    return header.split(" ")[-1].split(".")[0]
-
-
-def _header_to_organism(header: str):
-    return header.split("/")[0].split("_")[-1]
-
 
 class MetadataParser:
     def __init__(
@@ -27,15 +20,21 @@ class MetadataParser:
         self.dummy_go_idx = self.go_metadata['GO_idx'].max() + 1
         self.dummy_organism_idx = self.organism_metadata['organism_index'].max() + 1
     
+    def header_to_pfam_id(self, header: str):
+        return header.split(" ")[-1].split(".")[0]
+
+    def header_to_organism(self, header: str):
+        return header.split("/")[0].split("_")[-1]
+
     def header_to_go_idx(self, header: str):
-        pfam_id = _header_to_pfam_id(header)
+        pfam_id = self.header_to_pfam_id(header)
         try:
             return self.go_metadata[self.go_metadata['pfam_id'] == pfam_id]['GO_idx'].item()
         except ValueError:
             return self.dummy_go_idx 
 
     def header_to_organism_idx(self, header: str):
-        organism = _header_to_organism(header)
+        organism = self.header_to_organism(header)
         try:
             return self.organism_metadata[self.organism_metadata.organism_id == organism]['organism_index'].item()
         except ValueError:
