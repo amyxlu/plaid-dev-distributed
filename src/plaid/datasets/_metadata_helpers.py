@@ -1,6 +1,9 @@
 import pandas as pd
 
 
+NUM_FUNCTION_CLASSES = 2219
+NUM_ORGANISM_CLASSES = 3617
+
 
 class MetadataParser:
     def __init__(
@@ -16,6 +19,9 @@ class MetadataParser:
         """
         self.go_metadata = pd.read_csv(go_metadata_fpath)
         self.organism_metadata = pd.read_csv(organism_metadata_fpath)
+
+        assert self.go_metadata['GO_idx'].max() + 1 == NUM_FUNCTION_CLASSES, f"GO_idx max is {self.go_metadata['GO_idx'].max()}, expected {NUM_FUNCTION_CLASSES}"
+        assert self.organism_metadata['organism_index'].max() + 1 == NUM_ORGANISM_CLASSES, f"organism_index max is {self.organism_metadata['organism_index'].max()}, expected {NUM_ORGANISM_CLASSES}"
 
         self.dummy_go_idx = self.go_metadata['GO_idx'].max() + 1
         self.dummy_organism_idx = self.organism_metadata['organism_index'].max() + 1
