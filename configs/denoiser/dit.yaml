@@ -1,8 +1,0 @@
-_target_: plaid.denoisers.SimpleDiT
-
-hidden_size: 1024
-max_seq_len: 512
-depth: 4 
-num_heads: 16
-mlp_ratio: 4.0
-use_self_conditioning: True

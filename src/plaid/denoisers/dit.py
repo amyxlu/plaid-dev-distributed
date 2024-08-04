@@ -1,32 +1,25 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-# --------------------------------------------------------
 # References:
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
+# DiT: https://github.com/facebookresearch/DiT/blob/main/models.py 
+# CFG: https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py
 # --------------------------------------------------------
+
+from functools import partial
+from collections import namedtuple
 
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
 import numpy as np
-from functools import partial
 from einops import rearrange
 
 from .modules.helpers import to_2tuple
 from .modules.embedders import TimestepEmbedder, LabelEmbedder, get_1d_sincos_pos_embed
-
 from ..datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
 
-# There are 659 labelled clans. During data preprocessing, any protein without a clan
-# is assigned the "unknown" clan index (roughly 50% of the dataset), i.e.
-# there are actually 660 unique labels in the cached dataset, but we will
-# also use this "unknown" index as the unconditional index at sampling time,
-# so the number of clans specified here is 659.
-NUM_CLANS = 659
+
+DenoiserKwargs = namedtuple("DenoiserKwargs", ['x', 't', 'function_y', 'organism_y', 'mask', 'x_self_cond'])
 
 
 def exists(val):
@@ -180,116 +173,7 @@ class InputProj(nn.Module):
         return self.norm(self.proj(x))
 
 
-class SimpleDiT(nn.Module):
-    def __init__(
-        self,
-        input_dim=8,
-        hidden_size=1024,
-        max_seq_len=512,
-        depth=28,
-        num_heads=16,
-        mlp_ratio=4.0,
-        use_self_conditioning=False,
-        class_dropout_prob=0.1,
-        num_classes=-1,
-    ):
-        super().__init__()
-        self.max_seq_len = max_seq_len
-        self.input_dim = input_dim
-        self.num_heads = num_heads
-        self.use_self_conditioning = use_self_conditioning
-        self.class_dropout_prob = class_dropout_prob
-        self.num_classes = num_classes
-
-        self.x_proj = InputProj(input_dim, hidden_size, bias=True)
-        self.t_embedder = TimestepEmbedder(hidden_size)
-        self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
-
-        if self.use_self_conditioning:
-            # (N, D * 2) -> (N, D)
-            self.self_conditioning_mlp = Mlp(
-                in_features=input_dim * 2,
-                hidden_features=input_dim * 2,
-                out_features=input_dim
-            )
-
-        if not num_classes == -1:
-            self.y_embedder == LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
-        else:
-            self.y_embedder = None
-
-        self.blocks = nn.ModuleList(
-            [DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)]
-        )
-        self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
-        self.initialize_weights()
-
-    def initialize_weights(self):
-        # Initialize transformer layers:
-        def _basic_init(module):
-            if isinstance(module, nn.Linear):
-                torch.nn.init.xavier_uniform_(module.weight)
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-
-        self.apply(_basic_init)
-
-        # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], np.arange(self.max_seq_len))
-        self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
-
-        # Initialize label embedding table:
-        if self.y_embedder is not None:
-            nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02)
-
-        # Initialize timestep embedding MLP:
-        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
-        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
-
-        # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
-
-        # Zero-out output layers:
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)
-        nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
-        nn.init.constant_(self.final_layer.linear.weight, 0)
-        nn.init.constant_(self.final_layer.linear.bias, 0)
-
-    def forward(self, x, t, mask=None, y=None, x_self_cond=None):
-        """
-        Forward pass of DiT.
-        x: (N, L, C_compressed) tensor of spatial inputs (images or latent representations of images)
-        t: (N,) tensor of diffusion timesteps
-        mask: (N, L) mask where True means to attend and False denotes padding
-        x_self_cond: (N, L, C_compressed) Optional tensor for self-condition
-        """
-        if x_self_cond is not None:
-            x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
-        x = self.x_proj(x)
-        x += self.pos_embed[:, : x.shape[1], :]
-        t = self.t_embedder(t)  # (N, D)
-        if not self.y_embedder is None:
-            assert not y is None
-            y = self.y_embedder(y, self.training)
-            c = t + y
-        else:
-            c = t
-
-        if mask is None:
-            mask = torch.ones(x.shape[:2], device=x.device).bool()
-
-        for block in self.blocks:
-            x = block(x, c, mask)  # (N, L, D)
-        x = self.final_layer(x, c)  # (N, L, out_channels)
-        return x
-
-
 class FunctionOrganismDiT(nn.Module):
-    """
-    Diffusion model with a Transformer backbone.
-    """
     def __init__(
         self,
         input_dim=8,
@@ -369,7 +253,15 @@ class FunctionOrganismDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, x, t, function_y, organism_y, mask=None, x_self_cond=None):
+    def forward(self, denoiser_kwargs: DenoiserKwargs):
+        # unpack named tuple
+        x = denoiser_kwargs.x
+        t = denoiser_kwargs.t
+        function_y = denoiser_kwargs.function_y
+        organism_y = denoiser_kwargs.organism_y
+        mask = denoiser_kwargs.mask
+        x_self_cond = denoiser_kwargs.x_self_cond
+        
         # project along the channel dimension if using self-conditioning
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
@@ -400,18 +292,21 @@ class FunctionOrganismDiT(nn.Module):
         
         return self.final_layer(x, c)  # (N, L, out_channels)
 
-    # def forward_with_cfg(self, x, t, function_y, organism_y, cfg_scale, mask=None, x_self_cond=None):
-    #     """
-    #     Forward pass of DiT, but also batches the unconditional forward pass for classifier-free guidance.
-    #     https://github.com/openai/glide-text2im/blob/main/notebooks/text2im.ipynb
-    #     """
-    #     half = x[: len(x) // 2]
-    #     combined = torch.cat([half, half], dim=0)
-    #     model_out = self.forward(combined, t, function_y, organism_y, mask, x_self_cond)
-    #     eps, rest = model_out[:, :self.in_channels], model_out[:, self.in_channels:]
+    def forward_with_cond_scale(self, denoiser_kwargs: DenoiserKwargs, cond_scale: float, rescaled_phi: float):
+        # https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py#L355
+        logits = self.forward(denoiser_kwargs)
 
-    #     cond_eps, uncond_eps = torch.split(eps, len(eps) // 2, dim=0)
-    #     half_eps = uncond_eps + cfg_scale * (cond_eps - uncond_eps)
-    #     eps = torch.cat([half_eps, half_eps], dim=0)
-    #     return torch.cat([eps, rest], dim=1)
-    
+        if cond_scale == 1:
+            return logits
+
+        null_logits = self.forward(denoiser_kwargs, cond_drop_prob = 1., **kwargs)
+        scaled_logits = null_logits + (logits - null_logits) * cond_scale
+
+        if rescaled_phi == 0.:
+            return scaled_logits
+
+        std_fn = partial(torch.std, dim = tuple(range(1, scaled_logits.ndim)), keepdim = True)
+        rescaled_logits = scaled_logits * (std_fn(logits) / std_fn(scaled_logits))
+
+        return rescaled_logits * rescaled_phi + scaled_logits * (1. - rescaled_phi) 
+
