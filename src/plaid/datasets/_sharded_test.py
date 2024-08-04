@@ -19,8 +19,9 @@ if __name__ == "__main__":
     from plaid.datasets import FunctionOrganismDataModule
 
     datamodule = FunctionOrganismDataModule(
-        train_shards="/data/lux70/data/pfam/compressed/jzlv54wl/shard{00000..00014}.tar",
-        val_shards="/data/lux70/data/pfam/compressed/jzlv54wl/shard{00015..00019}.tar",
+        train_shards="/data/lux70/data/pfam/compressed/jzlv54wl/train/shard{00000..00007}.tar",
+        val_shards="/data/lux70/data/pfam/compressed/jzlv54wl/val/shard{00000..00001}.tar",
+        config_file="/data/lux70/data/pfam/compressed/jzlv54wl/config.json",
         go_metadata_fpath="/data/lux70/data/pfam/pfam2go.csv",
         organism_metadata_fpath="/data/lux70/data/pfam/organism_counts.csv",
         cache_dir="/data/lux70/data/pfam/compressed/jzlv54wl/cache/"

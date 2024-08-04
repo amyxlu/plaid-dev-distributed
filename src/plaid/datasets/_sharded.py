@@ -1,4 +1,5 @@
 import io
+import json
 from pathlib import Path
 import typing as T
 from multiprocessing import Value
@@ -11,11 +12,16 @@ from ._metadata_helpers import MetadataParser
 from ..typed import PathLike
 
 
+def default(value, default):
+    return default if value is None else value
+
+
 def pad_or_trim(arr, max_L):
-    if arr.shape[0] < max_L:
-        padding = max_L - arr.shape[0]
+    original_length = arr.shape[0]
+    if original_length <= max_L:
+        padding = max_L - original_length
         arr = np.pad(arr, ((0, padding), (0, 0)), mode='constant')
-    elif arr.shape[0] > max_L:
+    elif original_length > max_L:
         arr = arr[:max_L]
     return arr
 
@@ -26,27 +32,32 @@ def _decode_header(header):
 
 def _decode_numpy(npy, max_length):
     x = np.load(io.BytesIO(npy)).astype(np.float32)
-    x = pad_or_trim(x, max_length)
-    return x
+    original_length = max(max_length, x.shape[0])
+    mask = np.ones(original_length)
 
+    x = pad_or_trim(x, max_length)
+    mask = pad_or_trim(mask).bool()
+    return x, mask 
+
+
+# TODO: after data is parsed
 
 class FunctionOrganismDataModule:
     def __init__(
-            # TODO: proper PathLike typing
             self,
             train_shards: str,  # should follow brace expansion format
             val_shards: str,
+            config_file: PathLike,
             go_metadata_fpath: PathLike,
             organism_metadata_fpath: PathLike,
-            train_epoch_num_samples: int = 1_000_000,
-            val_epoch_num_samples: int = 100_000,
-            max_length: int = 512,
             cache_dir: T.Optional[PathLike] = None,
+            train_epoch_num_samples: T.Optional[int] = None,  # optionally use only part of the train dataset
+            val_epoch_num_samples: T.Optional[int] = None,  # optionally use only part of the val dataset 
+            shuffle_buffer: int = 1000,
+            shuffle_initial: int = 1000,
+            max_length: int = 512,
             batch_size: int = 64,
-            shuffle_buffer=1000,
-            shuffle_initial=1000,
             num_workers: int = 1,
-            # pin_memory: bool = False,
         ):
         super().__init__()
         self.train_shards = train_shards
@@ -58,28 +69,32 @@ class FunctionOrganismDataModule:
         self.shuffle_buffer = shuffle_buffer
         self.shuffle_initial = shuffle_initial
 
-        self.train_dataset_size = self.get_dataset_size(train_shards)
-        self.val_dataset_size = self.get_dataset_size(val_shards)
-        self.train_epoch_num_samples = train_epoch_num_samples
-        self.val_epoch_num_samples = val_epoch_num_samples
-        self.train_epoch_size = train_epoch_num_samples // batch_size
-        self.val_epoch_size = val_epoch_num_samples // batch_size
+        # actual dataset size as stored on disk
+        with open(config_file, "r") as f:
+            self.train_data_size = json.load(f)["train_dataset_size"]
+            self.val_data_size = json.load(f)["val_dataset_size"]
 
+        # number of samples to use in an epoch
+        self.train_epoch_num_samples = default(train_epoch_num_samples, self.train_data_size)
+        self.val_epoch_num_samples = default(val_epoch_num_samples, self.val_data_size)
+
+        # actual epoch size, which should be a multiple of batch size
+        self.train_epoch_size = self.train_epoch_num_samples // batch_size
+        self.val_epoch_size = self.val_epoch_num_samples // batch_size
+
+        # create local cache dir if it doesn't exist
         if not self.cache_dir.exists():
             self.cache_dir.mkdir(parents=True)
-        
+
+        # metadata parser that turns header into conditioning indices 
         self.metadata_parser = MetadataParser(
             go_metadata_fpath=go_metadata_fpath,
             organism_metadata_fpath=organism_metadata_fpath
         )
     
-    def get_dataset_size(self, shards_brace_expand: str):
-        # TODO:
-        return -1
-
     def make_sample(self, sample, max_length):
         """From a loaded sample from a webdataset, extract the relevant conditioning fields."""
-        embedding = _decode_numpy(sample["embedding.npy"], max_length)
+        embedding, mask = _decode_numpy(sample["embedding.npy"], max_length)
         header = _decode_header(sample["header.txt"])
         sample_id = sample["__key__"]
         local_path = sample["__local_path__"]
@@ -87,7 +102,7 @@ class FunctionOrganismDataModule:
         pfam_id = self.metadata_parser.header_to_pfam_id(header)
         go_idx = [self.metadata_parser.header_to_go_idx(h) for h in header]
         organism_idx = [self.metadata_parser.header_to_organism_idx(h) for h in header]
-        return embedding, go_idx, organism_idx, pfam_id, sample_id, local_path
+        return embedding, mask, go_idx, organism_idx, pfam_id, sample_id, local_path
     
     def make_dataloader(self, split, epoch_size):
         assert split in ["train", "val"]
@@ -117,6 +132,7 @@ class FunctionOrganismDataModule:
             .with_length(epoch_size)
             .batched(self.batch_size)
         )
+        
         return dataset, dataloader
 
     def setup(self, stage=None):
