@@ -61,6 +61,10 @@
 #     sbatch train_hourglass.slrm resume_from_model_id=$id
 # done
 
-for shorten_factor in 1 2 4 8; do
-    python run_hourglass_slrm.py --n_gpus 1 --flags "experiment=/hvq/bounded/cath_small ++use_compression_callback=True ++hourglass.shorten_factor=${shorten_factor}"
+# for shorten_factor in 1 2 4 8; do
+#     python run_hourglass_slrm.py --n_gpus 1 --flags "experiment=/hvq/bounded/cath_small ++use_compression_callback=False ++hourglass.shorten_factor=${shorten_factor} ++hourglass.downproj_factor=1"
+# done
+
+for id in 3j8kj6qy emhebt4i x0a30hwj p6etb6im i34xqstz npqabyji 3n9mrtx6 8ohx6d6b; do
+    python run_hourglass_slrm.py --n_gpus 1 --flags "resume_from_model_id=$id"
 done

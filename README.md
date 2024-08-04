@@ -1,5 +1,6 @@
 # PLAID (Protein LAtent Induced Diffusion)
 
+
 ## Install
 ```
 mamba env create --file environment.yaml
@@ -20,3 +21,11 @@ To develop:
 cd plaid  # directory into which this repo is cloned
 pip install -e .
 ```
+
+## Usage
+The diffusion model further employs a few tricks beyond the standard diffusion formulation which can be turned off:
+
+* Min-SNR loss scaling
+* SchedulerFree AdamW
+* Classifier-free guidance (with GO term and organism)
+* Self-Conditioning
