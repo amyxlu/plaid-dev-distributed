@@ -184,14 +184,12 @@ class FunctionOrganismDiT(nn.Module):
         num_heads=8,
         mlp_ratio=2.0,
         use_self_conditioning=True,
-        class_dropout_prob=0.1,
     ):
         super().__init__()
         self.max_seq_len = max_seq_len
         self.input_dim = input_dim
         self.num_heads = num_heads
         self.use_self_conditioning = use_self_conditioning
-        self.class_dropout_prob = class_dropout_prob
 
         # project input embedding to the same as the hidden size to be used
         self.x_proj = InputProj(input_dim, hidden_size, bias=True)
@@ -254,7 +252,9 @@ class FunctionOrganismDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, denoiser_kwargs: DenoiserKwargs, function_y_cond_drop_prob: T.Optional[float], organism_y_cond_drop_prob: T.Optional[float]):
+    def forward_with_cond_drop(self, denoiser_kwargs: DenoiserKwargs, function_y_cond_drop_prob: float, organism_y_cond_drop_prob: float):
+        """ Forward pass for diffusion training, with label dropout."""
+
         # unpack named tuple
         x = denoiser_kwargs.x
         t = denoiser_kwargs.t
@@ -263,10 +263,6 @@ class FunctionOrganismDiT(nn.Module):
         mask = denoiser_kwargs.mask
         x_self_cond = denoiser_kwargs.x_self_cond
 
-        # override class-specific dropout probabilities if provided
-        function_y_cond_drop_prob = default(function_y_cond_drop_prob, self.class_dropout_prob)
-        organism_y_cond_drop_prob = default(organism_y_cond_drop_prob, self.class_dropout_prob)
-        
         # project along the channel dimension if using self-conditioning
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
@@ -298,16 +294,23 @@ class FunctionOrganismDiT(nn.Module):
         return self.final_layer(x, c)  # (N, L, out_channels)
 
     def forward_with_cond_scale(self, denoiser_kwargs: DenoiserKwargs, cond_scale: float, rescaled_phi: float):
-        # https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py#L355
-        logits = self.forward(denoiser_kwargs, function_y_cond_drop_prob=0., organism_y_cond_drop_prob=0.)
+        """ Forward pass for sampling model predictions, with a conditioning scale.
+        Adapted from https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py#L355
+        """
+
+        # force conditioning: no label drop
+        logits = self.forward_with_cond_drop(denoiser_kwargs, function_y_cond_drop_prob=0., organism_y_cond_drop_prob=0.)
 
         if cond_scale == 1:
             return logits
 
-        null_logits = self.forward(denoiser_kwargs, function_y_cond_drop_prob=1., organism_y_cond_drop_prob=1.)
+        # force unconditional: always no label drop
+        null_logits = self.forward_with_cond_drop(denoiser_kwargs, function_y_cond_drop_prob=1., organism_y_cond_drop_prob=1.)
+
+        # apply cond scaling factor
         scaled_logits = null_logits + (logits - null_logits) * cond_scale
 
-        # https://arxiv.org/abs/2305.08891
+        # use rescaling technique proposed in https://arxiv.org/abs/2305.08891
         if rescaled_phi == 0.:
             return scaled_logits
 
