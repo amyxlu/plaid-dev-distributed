@@ -1,3 +1,5 @@
+import os
+import re
 from contextlib import contextmanager
 from functools import lru_cache, reduce
 import hashlib
@@ -595,6 +597,23 @@ def calc_sequence_recovery(
         
     assert len(pred_seq) == len(orig_seq)
     return np.sum(npy(pred_seq) == npy(orig_seq)) / len(pred_seq)
+
+
+def find_latest_checkpoint(folder):
+    checkpoint_files = [f for f in os.listdir(folder) if f.endswith(".ckpt")]
+    checkpoint_files = list(filter(lambda x: "EMA" not in x, checkpoint_files))
+    if not checkpoint_files:
+        return None
+
+    latest_checkpoint = max(checkpoint_files, key=lambda x: extract_step(x))
+    return latest_checkpoint
+
+
+def extract_step(checkpoint_file):
+    match = re.search(r"(\d+)-(\d+)\.ckpt", checkpoint_file)
+    if match:
+        return int(match.group(2))
+    return -1
 
 
 ######
