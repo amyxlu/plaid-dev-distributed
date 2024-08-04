@@ -5,6 +5,7 @@
 # CFG: https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py
 # --------------------------------------------------------
 
+import typing as T
 from functools import partial
 from collections import namedtuple
 
@@ -253,7 +254,7 @@ class FunctionOrganismDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward(self, denoiser_kwargs: DenoiserKwargs):
+    def forward(self, denoiser_kwargs: DenoiserKwargs, function_y_cond_drop_prob: T.Optional[float], organism_y_cond_drop_prob: T.Optional[float]):
         # unpack named tuple
         x = denoiser_kwargs.x
         t = denoiser_kwargs.t
@@ -261,6 +262,10 @@ class FunctionOrganismDiT(nn.Module):
         organism_y = denoiser_kwargs.organism_y
         mask = denoiser_kwargs.mask
         x_self_cond = denoiser_kwargs.x_self_cond
+
+        # override class-specific dropout probabilities if provided
+        function_y_cond_drop_prob = default(function_y_cond_drop_prob, self.class_dropout_prob)
+        organism_y_cond_drop_prob = default(organism_y_cond_drop_prob, self.class_dropout_prob)
         
         # project along the channel dimension if using self-conditioning
         if x_self_cond is not None:
@@ -275,9 +280,9 @@ class FunctionOrganismDiT(nn.Module):
         # add trainable timestep embedding
         t = self.t_embedder(t)  # (N, D)
 
-        # get function and organism label embeddings
-        function_y = self.function_y_embedder(function_y, self.training)
-        organism_y = self.organism_y_embedder(organism_y, self.training)
+        # get function and organism label embeddings, potentially dropping out the label for classifier-free guidance training
+        function_y = self.function_y_embedder(function_y, self.training, function_y_cond_drop_prob)
+        organism_y = self.organism_y_embedder(organism_y, self.training, organism_y_cond_drop_prob)
 
         # combine timestep and label conditioning labels
         c = t + function_y + organism_y
@@ -294,14 +299,15 @@ class FunctionOrganismDiT(nn.Module):
 
     def forward_with_cond_scale(self, denoiser_kwargs: DenoiserKwargs, cond_scale: float, rescaled_phi: float):
         # https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py#L355
-        logits = self.forward(denoiser_kwargs)
+        logits = self.forward(denoiser_kwargs, function_y_cond_drop_prob=0., organism_y_cond_drop_prob=0.)
 
         if cond_scale == 1:
             return logits
 
-        null_logits = self.forward(denoiser_kwargs, cond_drop_prob = 1., **kwargs)
+        null_logits = self.forward(denoiser_kwargs, function_y_cond_drop_prob=1., organism_y_cond_drop_prob=1.)
         scaled_logits = null_logits + (logits - null_logits) * cond_scale
 
+        # https://arxiv.org/abs/2305.08891
         if rescaled_phi == 0.:
             return scaled_logits
 
