@@ -576,15 +576,6 @@ class FunctionOrganismDiffusion(L.LightningModule):
         )
         return loss
     
-    def on_train_epoch_start(self):
-        if isinstance(self.optimizer, AdamWScheduleFree):
-            self.optimizer.train()
-    
-    def on_val_epoch_start(self):
-        if isinstance(self.optimizer, AdamWScheduleFree):
-            self.optimizer.eval()
-
-
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, betas=self.adam_betas)
         scheduler = get_lr_scheduler(
@@ -616,3 +607,19 @@ class FunctionOrganismDiffusion(L.LightningModule):
             )
             scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
             return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
+    def on_train_start(self):
+        if isinstance(self.optimizer, AdamWScheduleFree):
+            self.optimizer.train()
+    
+    def on_val_start(self):
+        if isinstance(self.optimizer, AdamWScheduleFree):
+            self.optimizer.eval()
+
+    def on_test_start(self):
+        if isinstance(self.optimizer, AdamWScheduleFree):
+            self.optimizer.eval()
+
+    def on_predict_start(self):
+        if isinstance(self.optimizer, AdamWScheduleFree):
+            self.optimizer.eval()
