@@ -202,8 +202,8 @@ class FunctionOrganismDiT(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
 
         # class-dependent label embedders (does not include the unconditional class)
-        self.function_y_embedder = LabelEmbedder(NUM_FUNCTION_CLASSES, hidden_size, class_dropout_prob)
-        self.organism_y_embedder = LabelEmbedder(NUM_ORGANISM_CLASSES, hidden_size, class_dropout_prob)
+        self.function_y_embedder = LabelEmbedder(NUM_FUNCTION_CLASSES, hidden_size, add_cfg_embedding=True)
+        self.organism_y_embedder = LabelEmbedder(NUM_ORGANISM_CLASSES, hidden_size, add_cfg_embedding=True)
 
         # combine along the hidden dimension if using self-conditioning
         if self.use_self_conditioning:
