@@ -43,7 +43,7 @@ def resume_setup(cfg, project_name):
     return log_cfg, job_id, outdir, is_resumed
 
 
-@hydra.main(version_base=None, config_path="configs", config_name="train_diffusion")
+@hydra.main(version_base=None, config_path="configs", config_name="train_compositional")
 def train(cfg: DictConfig):
     import torch
     torch.set_float32_matmul_precision("medium")

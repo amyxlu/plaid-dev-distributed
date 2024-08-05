@@ -1,14 +1,14 @@
-resume_from_model_id: null
-compression_model_id: j1v1wv6w 
-
 defaults:
   - _self_
   - paths: pcluster 
   - trainer: default
-  - datamodule: compositional/${compression_model_id} 
-  - denoiser: ...
-  - diffusion: ...
-  - callbacks/checkpoint: ...
+  - datamodule: compositional/j1v1wv6w 
+  - denoiser: compositional_base 
+  - diffusion: compositional 
+  - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
-  - logger: ... 
+  - logger: compositional
   - experiment: null
+
+resume_from_model_id: null
+compression_model_id: j1v1wv6w 

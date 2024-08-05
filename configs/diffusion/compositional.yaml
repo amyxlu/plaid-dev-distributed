@@ -1,4 +1,4 @@
-_target_: plaid.diffusion.GaussianDiffusion
+_target_: plaid.diffusion.FunctionOrganismDiffusion
 
 # beta scheduler
 beta_scheduler_name: "sigmoid"
@@ -24,7 +24,7 @@ ddim_sampling_eta: 0.
 
 # optimization
 lr: 1e-4
-adam_betas: [0.9, 0.999]
+lr_adam_betas: [0.9, 0.999]
 lr_sched_type: "schedule_free"
 lr_num_warmup_steps: 5_000 
 lr_num_training_steps: 10_000_000
