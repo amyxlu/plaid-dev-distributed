@@ -32,7 +32,7 @@ def _decode_header(header):
 
 def _decode_numpy(npy, max_length):
     x = np.load(io.BytesIO(npy)).astype(np.float32)
-    original_length = max(max_length, x.shape[0])
+    original_length = min(max_length, x.shape[0])
     mask = np.ones(original_length)
     x = pad_or_trim(x, max_length)
     mask = np.pad(mask, ((0, max_length - original_length))).astype(bool)
