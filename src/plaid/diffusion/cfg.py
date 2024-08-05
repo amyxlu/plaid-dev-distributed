@@ -43,34 +43,16 @@ def identity(t, *args, **kwargs):
     return t
 
 
-def extract(arr, timesteps, broadcast_shape):
-    """
-    Extract values from a 1-D numpy array for a batch of indices.
-
-    :param arr: the 1-D numpy array.
-    :param timesteps: a tensor of indices into the array to extract.
-    :param broadcast_shape: a larger shape of K dimensions with the batch
-                            dimension equal to the length of timesteps.
-    :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
-    """
-    res = torch.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
-    while len(res.shape) < len(broadcast_shape):
-        res = res[..., None]
-    return res.expand(broadcast_shape)
-
-
-def maybe_pad(tensor, length):
-    if tensor.shape[1] != length:
-        return trim_or_pad_batch_first(tensor, length, pad_idx=0)
-    else:
-        return tensor
-
+def extract(a, t, x_shape):
+    b, *_ = t.shape
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
 
 class FunctionOrganismDiffusion(L.LightningModule):
     def __init__(
         self,
-        model: torch.nn.Module,  # denoiser
+        model: T.Optional[torch.nn.Module] = None,  # denoiser
         *,
         # beta scheduler
         beta_scheduler_name="adm_cosine",
@@ -85,8 +67,8 @@ class FunctionOrganismDiffusion(L.LightningModule):
         min_snr_gamma=5,
         x_clip_val: T.Optional[float] = 1.0, 
         # classifier free guidance dropout probabilities
-        function_y_cond_drop_prob: float = 0.0,
-        organism_y_cond_drop_prob: float = 0.0,
+        function_y_cond_drop_prob: float = 0.3,
+        organism_y_cond_drop_prob: float = 0.3,
         # sampling
         sampling_timesteps=500,  # None,
         ddim_sampling_eta = 0.,
@@ -128,6 +110,9 @@ class FunctionOrganismDiffusion(L.LightningModule):
             beta_scheduler_name, beta_scheduler_start, beta_scheduler_end, beta_scheduler_tau
         )
         betas = self.beta_scheduler(timesteps)
+        betas = torch.tensor(betas, dtype=torch.float64)
+        assert (betas >= 0).all() and (betas <= 1).all()
+        assert len(betas.shape) == 1
 
         alphas = 1. - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
@@ -176,21 +161,22 @@ class FunctionOrganismDiffusion(L.LightningModule):
 
         # loss weight
 
-        self.snr = alphas_cumprod / (1 - alphas_cumprod)
+        snr = alphas_cumprod / (1 - alphas_cumprod)
 
-        maybe_clipped_snr = self.snr.clone()
+        maybe_clipped_snr = snr.clone()
         if min_snr_loss_weight:
             maybe_clipped_snr.clamp_(max = min_snr_gamma)
 
         if objective == 'pred_noise':
-            loss_weight = maybe_clipped_snr / self.snr
+            loss_weight = maybe_clipped_snr / snr
         elif objective == 'pred_x0':
             loss_weight = maybe_clipped_snr
         elif objective == 'pred_v':
-            loss_weight = maybe_clipped_snr / (self.snr + 1)
+            loss_weight = maybe_clipped_snr / (snr + 1)
 
         register_buffer('loss_weight', loss_weight)
-        self.save_hyperparameters(ignored_hparams = ignored_hparams)
+        register_buffer('snr', snr)
+        self.save_hyperparameters(ignore = ignored_hparams)
 
     @property
     def device(self):
