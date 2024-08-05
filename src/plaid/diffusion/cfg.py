@@ -9,13 +9,14 @@ from random import random
 from functools import partial
 from collections import namedtuple
 
+from tqdm.auto import tqdm
 import torch
 import torch.nn.functional as F
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 from torch.cuda.amp import autocast
-from schedulefree import AdamWScheduleFree
-
-from tqdm.auto import tqdm
 import lightning as L
+from lightning.pytorch.utilities import rank_zero_only, rank_zero_info
+from schedulefree import AdamWScheduleFree
 
 from .beta_schedulers import make_beta_scheduler 
 from ..utils import get_lr_scheduler
@@ -70,9 +71,10 @@ class FunctionOrganismDiffusion(L.LightningModule):
         function_y_cond_drop_prob: float = 0.3,
         organism_y_cond_drop_prob: float = 0.3,
         # sampling
-        sampling_timesteps=00,  # None,
+        sampling_timesteps=1000,  # None,
         ddim_sampling_eta = 0.,
         # optimization
+        ema_decay: T.Optional[float] = 0.9999,
         lr=1e-4,
         lr_adam_betas=(0.9, 0.999),
         lr_sched_type: str = "schedule_free",
@@ -81,8 +83,6 @@ class FunctionOrganismDiffusion(L.LightningModule):
         lr_num_cycles: int = 1,
     ):
         super().__init__()
-
-        ignored_hparams = [model]
 
         self.model = model
         self.self_condition = self.model.use_self_conditioning
@@ -99,6 +99,13 @@ class FunctionOrganismDiffusion(L.LightningModule):
         self.lr_num_warmup_steps = lr_num_warmup_steps
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
+
+        if (ema_decay is not None) and (rank_zero_only.rank == 0):
+            self.ema_model = AveragedModel(self.model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
+            self.ema_model.eval()
+            self.ema_model.requires_grad_(False)
+        else:
+            self.ema_model = None
 
         ###########################################################
         # Diffusion helper functions 
@@ -176,11 +183,18 @@ class FunctionOrganismDiffusion(L.LightningModule):
 
         register_buffer('loss_weight', loss_weight)
         register_buffer('snr', snr)
-        self.save_hyperparameters(ignore = ignored_hparams)
+        self.save_hyperparameters(ignore=["model"])
 
-    @property
-    def device(self):
-        return self.betas.device
+    def swap_to_ema(self):
+        original_weights = self.model.state_dict()
+        ema_weights = self.ema_model.module.state_dict()
+        for k, v in self.model.state_dict():
+            v.copy_(ema_weights[k])
+        return original_weights
+        
+    def swap_from_ema(self, original_weights):
+        for k, v in self.model.state_dict():
+            v.copy_(original_weights[k])
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
@@ -423,7 +437,6 @@ class FunctionOrganismDiffusion(L.LightningModule):
         :param clip_denoised: whether to clip the denoised image to the range [-1, 1] (or other specified self.x_clip_val).
         :return: the generated samples.
         """
-
         for idxs in (function_idx, organism_idx):
             if isinstance(idxs, torch.Tensor):
                 assert len(idxs) == n_samples, f"Received array of class labels with {len(idxs)} samples but n_samples is set to {n_samples}."
@@ -584,6 +597,26 @@ class FunctionOrganismDiffusion(L.LightningModule):
             )
             scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
             return {"optimizer": optimizer, "lr_scheduler": scheduler}
+    
+    def state_dict(self):
+        # save only the denoiser state dict
+        return self.model.state_dict()
+
+    # To handle EMA
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if (rank_zero_only.rank == 0) and (self.ema_model is not None):
+            self.ema_model.update_parameters(self.model)
+
+    def on_load_checkpoint(self, checkpoint):
+        if (rank_zero_only.rank == 0) and ("ema_state_dict" in checkpoint.keys()):
+            self.ema_model.load_state_dict(checkpoint["ema_state_dict"])
+
+    def on_save_checkpoint(self, checkpoint):
+        if (rank_zero_only.rank == 0) and (self.ema_model is not None):
+            checkpoint['ema_state_dict'] = self.ema_model.state_dict()
+    
+    # To handle schedule-free AdamW
 
     def on_train_start(self):
         optimizer = self.optimizers().optimizer
