@@ -47,3 +47,15 @@ class MetadataParser:
             return self.dummy_organism_idx
 
 
+if __name__ == "__main__":
+    metadata_parser = MetadataParser(
+        go_metadata_fpath = "/data/lux70/data/pfam/pfam2go.csv",
+        organism_metadata_fpath = "/data/lux70/data/pfam/organism_counts.csv"
+    ) 
+
+    sample_headers = [
+        'A0A418XQZ6_9BURK/10-72 A0A418XQZ6.1 PF00392.25;GntR;',
+        'A0A1E7JVW7_9ACTN/15-77 A0A1E7JVW7.1 PF00392.25;GntR;',
+        'A0A4Y9SLN2_9BURK/19-82 A0A4Y9SLN2.1 PF00392.25;GntR;',
+    ]
+    import IPython;IPython.embed()
