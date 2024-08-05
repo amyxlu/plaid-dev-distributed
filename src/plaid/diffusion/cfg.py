@@ -511,7 +511,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
                 x_self_cond = self.model_predictions(denoiser_kwargs, cond_scale=0., rescaled_phi=0.).pred_x_start
                 x_self_cond.detach_()
 
-            denoiser_kwargs.x_self_cond = x_self_cond
+            denoiser_kwargs = denoiser_kwargs._replace(x_self_cond=x_self_cond)
 
         # Denoise with random label dropout for classifier free guidance
         model_out = self.model.forward_with_cond_drop(
@@ -531,18 +531,21 @@ class FunctionOrganismDiffusion(L.LightningModule):
             raise ValueError(f'unknown objective {self.objective}')
 
         # Used masked MSE loss to get per-batch result
-        diffusion_loss = masked_mse_loss(model_out, target, mask, reduce="batch")
+        loss = masked_mse_loss(model_out, target, mask, reduce="batch")
 
         # apply min-SNR weighting
-        diffusion_loss = diffusion_loss * extract(self.loss_weight, t, diffusion_loss.shape)
+        loss = loss * extract(self.loss_weight, t, loss.shape)
+        loss = loss.mean()
+        
+        log_dict = {"loss": loss}
 
-        return diffusion_loss.mean()
+        return loss, log_dict
    
     ###########################################################
     # Lightning boiler plate 
     ########################################################### 
 
-    def training_step(self, batch):
+    def training_step(self, batch, batch_idx):
         loss, log_dict = self.run_step(batch)
         N = batch[0].shape[0]
         self.log_dict(
@@ -550,7 +553,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
         )
         return loss
 
-    def validation_step(self, batch):
+    def validation_step(self, batch, batch_idx):
         loss, log_dict = self.run_step(batch)
         N = batch[0].shape[0]
         self.log_dict(
@@ -562,18 +565,6 @@ class FunctionOrganismDiffusion(L.LightningModule):
         )
         return loss
     
-    def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, betas=self.adam_betas)
-        scheduler = get_lr_scheduler(
-            optimizer=optimizer,
-            sched_type=self.lr_sched_type,
-            num_warmup_steps=self.lr_num_warmup_steps,
-            num_training_steps=self.lr_num_training_steps,
-            num_cycles=self.lr_num_cycles,
-        )
-        scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
-        return {"optimizer": optimizer, "lr_scheduler": scheduler}
-
     def configure_optimizers(self):
         parameters = self.model.parameters()
 
