@@ -70,7 +70,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
         function_y_cond_drop_prob: float = 0.3,
         organism_y_cond_drop_prob: float = 0.3,
         # sampling
-        sampling_timesteps=1000,  # None,
+        sampling_timesteps=00,  # None,
         ddim_sampling_eta = 0.,
         # optimization
         lr=1e-4,
@@ -586,17 +586,21 @@ class FunctionOrganismDiffusion(L.LightningModule):
             return {"optimizer": optimizer, "lr_scheduler": scheduler}
 
     def on_train_start(self):
-        if isinstance(self.optimizer, AdamWScheduleFree):
-            self.optimizer.train()
+        optimizer = self.optimizers().optimizer
+        if isinstance(optimizer, AdamWScheduleFree):
+            optimizer.train()
     
     def on_val_start(self):
-        if isinstance(self.optimizer, AdamWScheduleFree):
-            self.optimizer.eval()
+        optimizer = self.optimizers().optimizer
+        if isinstance(self.optimizer(), AdamWScheduleFree):
+            optimizer.eval()
 
     def on_test_start(self):
-        if isinstance(self.optimizer, AdamWScheduleFree):
-            self.optimizer.eval()
+        optimizer = self.optimizers().optimizer
+        if isinstance(self.optimizers(), AdamWScheduleFree):
+            optimizer.eval()
 
     def on_predict_start(self):
-        if isinstance(self.optimizer, AdamWScheduleFree):
-            self.optimizer.eval()
+        optimizer = self.optimizers().optimizer
+        if isinstance(self.optimizers(), AdamWScheduleFree):
+            optimizer.eval()
