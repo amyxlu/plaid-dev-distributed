@@ -7,7 +7,6 @@ import os
 
 from typing import Optional, Callable
 
-from .losses.functions import masked_token_cross_entropy_loss, masked_token_accuracy
 from .esmfold.misc import batch_encode_sequences
 from .transforms import get_random_sequence_crop_batch
 from .constants import DECODER_CKPT_PATH
@@ -87,6 +86,7 @@ class FullyConnectedNetwork(L.LightningModule):
         return self.net(x)
 
     def loss(self, logits, targets, mask=None):
+        from .losses.functions import masked_token_cross_entropy_loss
         return masked_token_cross_entropy_loss(logits, targets, mask=mask)
 
     def forward_pass_from_sequence(self, sequence):

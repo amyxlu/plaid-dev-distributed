@@ -16,7 +16,7 @@ import re
 from openfold.np import residue_constants
 from lightning.pytorch.utilities import rank_zero_info
 
-from .utils._misc import npy, to_tensor, get_model_device, outputs_to_avg_metric
+from .utils._misc import npy, to_tensor, get_model_device
 from .decoder import FullyConnectedNetwork
 from .esmfold import ESMFOLD_Z_DIM, esmfold_v1, output_to_pdb, batch_encode_sequences
 from .transforms import trim_or_pad_batch_first
