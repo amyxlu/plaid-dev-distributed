@@ -6,6 +6,7 @@ import typing as T
 import torch
 import webdataset as wds
 import numpy as np
+import lightning as L
 
 from ._metadata_helpers import MetadataParser
 from ..typed import PathLike
@@ -38,9 +39,7 @@ def _decode_numpy(npy, max_length):
     return x, mask 
 
 
-# TODO: after data is parsed
-
-class FunctionOrganismDataModule:
+class FunctionOrganismDataModule(L.LightningDataModule):
     def __init__(
             self,
             train_shards: str,  # should follow brace expansion format
