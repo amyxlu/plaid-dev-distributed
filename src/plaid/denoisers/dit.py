@@ -319,3 +319,8 @@ class FunctionOrganismDiT(nn.Module):
 
         return rescaled_logits * rescaled_phi + scaled_logits * (1. - rescaled_phi) 
 
+    def forward(self, denoiser_kwargs: DenoiserKwargs, use_cond_dropout: bool = False, **kwargs: T.Any):
+        if use_cond_dropout:
+            return self.forward_with_cond_drop(denoiser_kwargs, **kwargs)
+        else:
+            return self.forward_with_cond_scale(denoiser_kwargs, **kwargs)
