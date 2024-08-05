@@ -70,7 +70,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
         function_y_cond_drop_prob: float = 0.3,
         organism_y_cond_drop_prob: float = 0.3,
         # sampling
-        sampling_timesteps=500,  # None,
+        sampling_timesteps=1000,  # None,
         ddim_sampling_eta = 0.,
         # optimization
         lr=1e-4,

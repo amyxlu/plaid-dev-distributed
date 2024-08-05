@@ -1,5 +1,4 @@
 import typing as T
-import os
 from pathlib import Path
 
 import wandb
@@ -16,7 +15,10 @@ from plaid import constants
 from plaid.utils import count_parameters, find_latest_checkpoint
 
 
-def resume_setup(cfg):
+_PROJECT_NAME = "plaid_compositional_conditioning"
+
+
+def resume_setup(cfg, project_name):
     # maybe use prior job id, else generate new ID
     if cfg.resume_from_model_id is not None:
         job_id = cfg.resume_from_model_id
@@ -26,7 +28,7 @@ def resume_setup(cfg):
         is_resumed = False
 
     # set up checkpoint and config yaml paths
-    outdir = Path(cfg.paths.checkpoint_dir) / "diffusion" / job_id
+    outdir = Path(cfg.paths.checkpoint_dir) / project_name / job_id
     config_path = outdir / "config.yaml"
     if config_path.exists():
         cfg = OmegaConf.load(config_path)
@@ -47,13 +49,14 @@ def train(cfg: DictConfig):
     torch.set_float32_matmul_precision("medium")
 
     if rank_zero_only.rank == 0:
-        log_cfg, job_id, outdir, is_resumed = resume_setup(cfg)
+        log_cfg, job_id, outdir, is_resumed = resume_setup(cfg, _PROJECT_NAME)
 
     ####################################################################################################
     # Data and model setup  
     ####################################################################################################
 
     # WebDataset loader over sharded pre-computed embeddings
+    print("Creating datamodule...")
     datamodule = hydra.utils.instantiate(cfg.datamodule)
 
     # dimensions
@@ -61,6 +64,7 @@ def train(cfg: DictConfig):
     shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
 
     # model
+    print("Creating model...")
     denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
     diffusion = hydra.utils.instantiate(cfg.diffusion, model=denoiser)
 
@@ -80,10 +84,11 @@ def train(cfg: DictConfig):
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=outdir)
     callbacks = [lr_monitor, checkpoint_callback]
 
-
     ####################################################################################################
     # Trainer
     ####################################################################################################
+
+    print("Initializing training...")
 
     trainer = hydra.utils.instantiate(
         cfg.trainer,

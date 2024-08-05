@@ -1,6 +1,6 @@
 _target_: plaid.denoisers.FunctionOrganismDiT
 
-hidden_size: 1024
+hidden_size: 512 
 max_seq_len: 512
 depth: 4 
 num_heads: 16
