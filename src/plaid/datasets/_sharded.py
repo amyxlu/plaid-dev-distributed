@@ -129,7 +129,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
             .shuffle(shuffle_buffer)
             .batched(self.batch_size)
             .with_epoch(num_epoch_batches)
-            .with_length(num_epoch_batches * self.batch_size)
+            .with_length(num_epoch_batches)
         )
         
         return dataset, dataloader
