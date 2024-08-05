@@ -2,6 +2,7 @@ project_dir: /homefs/home/lux70/code/plaid
 root_dir: /data/lux70/plaid
 data_dir: /data/lux70/data
 bucket_dir: /data/bucket/lux70/data
+home_dir: /homefs/home/lux70
 
 log_dir: ${paths.root_dir}/logs
 checkpoint_dir: ${paths.root_dir}/checkpoints

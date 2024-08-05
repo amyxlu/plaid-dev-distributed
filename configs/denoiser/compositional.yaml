@@ -6,4 +6,3 @@ depth: 4
 num_heads: 16
 mlp_ratio: 4.0
 use_self_conditioning: True
-class_dropout_prob: 0.1
