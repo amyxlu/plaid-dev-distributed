@@ -50,8 +50,8 @@ class CompressionReconstructionCallback(Callback):
         shard_dir="/data/lux70/data/cath/shards/",
         pdb_dir="/data/bucket/lux70/data/cath/dompdb",
         out_dir="/homefs/home/lux70/cache/",
-        num_samples: int = 32,
-        max_seq_len: int = 256,
+        max_samples: int = 32,
+        max_seq_len: int = 128,
         num_recycles: int = 4,
         run_every_n_steps: int = 10000,
     ):
@@ -61,7 +61,7 @@ class CompressionReconstructionCallback(Callback):
         self.batch_size = batch_size
         self.shard_dir = shard_dir
         self.pdb_dir = pdb_dir
-        self.num_samples = num_samples
+        self.max_samples = max_samples
         self.max_seq_len = max_seq_len
         self.num_recycles = num_recycles
         self.base_pdb_dir = Path(out_dir)
@@ -71,24 +71,24 @@ class CompressionReconstructionCallback(Callback):
 
     def _get_validation_data(self):
         start = time.time()
-        print(f"Creating reference validation data of {self.num_samples} points...")
+        print(f"Creating reference validation data of {self.max_samples} points...")
 
-        # only preprocess num_samples data points and load all in one batch
+        # only preprocess max_samples data points and load all in one batch
         dm = CATHStructureDataModule(
             self.shard_dir,
             self.pdb_dir,
             seq_len=self.max_seq_len,
-            batch_size=self.num_samples,
-            max_num_samples=self.num_samples,
+            batch_size=self.max_samples,  # hack
+            max_num_samples=self.max_samples,
             shuffle_val_dataset=False,
         )
         dm.setup()
         val_dataloader = dm.val_dataloader()
         batch = next(iter(val_dataloader))
 
-        x = batch[0]
-        sequences = batch[1]
-        gt_structures = batch[-1]
+        x = batch[0][:self.max_samples]
+        sequences = batch[1][:self.max_samples]
+        gt_structures = {k: v[:self.max_samples] for k, v in batch[-1].items()}
 
         # make mask
         _, mask, _, _, _ = batch_encode_sequences(sequences)
@@ -105,6 +105,8 @@ class CompressionReconstructionCallback(Callback):
 
         x_norm = self.latent_scaler.scale(self.x).to(device)
         mask = self.mask.bool().to(device)
+
+        max_samples = min(max_samples, self.max_samples)
 
         if max_samples is not None:
             x_norm = x_norm[:max_samples, ...]
@@ -127,10 +129,8 @@ class CompressionReconstructionCallback(Callback):
         return filenames
 
     def _structure_features_from_latent(self, latent_recons, max_samples=None):
-        if max_samples is None:
-            max_samples = latent_recons.shape[0]
-        else:
-            assert max_samples <= latent_recons.shape[0]
+        max_samples = min(max_samples, self.max_samples)
+        assert max_samples <= latent_recons.shape[0]
 
         shared_args = {
             "return_raw_features": True,
@@ -143,8 +143,7 @@ class CompressionReconstructionCallback(Callback):
         orig_pred_struct = self.structure_constructor.to_structure(
             self.x[:max_samples, ...], self.sequences[:max_samples], **shared_args
         )
-        # only the first of the tuple is the structure feature
-        return recons_struct[0], orig_pred_struct[0]
+        return recons_struct, orig_pred_struct
 
     def _run_tmalign(self, orig_pdbs, recons_pdbs):
         all_scores = []
@@ -158,6 +157,8 @@ class CompressionReconstructionCallback(Callback):
     def validate(self, model, max_samples=None):
         # compress latent and reconstruct
         # assumes that model is already on the desired device
+        max_samples = min(max_samples, self.max_samples)
+
         start = time.time()
         torch.cuda.empty_cache()
         device = model.device
@@ -168,6 +169,8 @@ class CompressionReconstructionCallback(Callback):
         )
         compressed_representation = npy(compressed_representation)
         log_dict["compressed_rep_hist"] = wandb.Histogram(compressed_representation.flatten(), num_bins=50)
+
+        log_dict['global_step'] = model.global_step
 
         # coerce latent back into structure features for both reconstruction and the original prediction
         # TODO: also compare to the ground truth structure?
@@ -232,7 +235,7 @@ class CompressionReconstructionCallback(Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if (trainer.global_step % self.run_every_n_steps == 0) and not (trainer.global_step == 0):
             device = pl_module.device
-            max_samples = min(trainer.datamodule.batch_size, self.num_samples)
+            max_samples = min(trainer.datamodule.batch_size, self.max_samples)
 
             # move the structure decoder onto GPU only when using validation
             self.structure_constructor.to(device)
@@ -261,17 +264,32 @@ class CompressionReconstructionCallback(Callback):
         self.structure_constructor.to(torch.device("cpu"))
         torch.cuda.empty_cache()
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_id", type=str, required=True, help="The model id to load")
+    parser.add_argument("--max_samples", type=int, default=32, help="The maximum number of samples to run through the model")
+    return parser.parse_args()
+
 
 def main():
     """For use as a standalone script"""
-    import sys
-
-    model_id = sys.argv[1]
+    args = parse_args()
+    model_id = args.model_id
 
     model = load_compression_model(model_id)
     device = torch.device("cuda")
     model.to(device)
 
-    callback = CompressionReconstructionCallback(batch_size=4)
-    log_dict = callback.validate(model)
+    wandb.init(project="plaid-hourglass-2", entity="lu-amy-al1", id=str(model_id), resume="must")
+
+    callback = CompressionReconstructionCallback(
+        batch_size=4,
+        max_samples=args.max_samples
+    )
+    log_dict = callback.validate(model, max_samples=args.max_samples)
     print(log_dict)
+
+    log_dict = {f"structure_reconstruction/{k}": v for k, v in log_dict.items()}
+    wandb.log(log_dict)
+
