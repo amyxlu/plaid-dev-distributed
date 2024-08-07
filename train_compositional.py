@@ -76,8 +76,7 @@ def train(cfg: DictConfig):
     log_cfg["shorten_factor"] = shorten_factor
     log_cfg["input_dim"] = input_dim
 
-    run_name = None
-    logger = hydra.utils.instantiate(cfg.logger, id=job_id, name=run_name)
+    logger = hydra.utils.instantiate(cfg.logger, id=job_id)
 
     # checkpoint and LR callbacks
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
