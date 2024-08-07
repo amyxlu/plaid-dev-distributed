@@ -17,7 +17,7 @@ defaults = f"""#!/usr/bin/env bash
 #SBATCH -p gpu2
 #SBATCH -c 64
 #SBATCH --gpus {args.n_gpus}
-#SBATCH --mem 100G
+#SBATCH --mem {args.n_gpus * 100}G
 #SBATCH --time=10-00:00:00
 #SBATCH --job-name train 
 
@@ -30,7 +30,7 @@ export NCCL_DEBUG=INFO
 cd /homefs/home/lux70/code/plaid/
 
 nvidia-smi
-srun python train_diffusion.py {flags}
+srun python train_compositional.py {flags}
 """
 
 hashid = uuid.uuid4().hex[:7]
