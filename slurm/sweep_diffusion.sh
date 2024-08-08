@@ -8,7 +8,7 @@
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=C__B+sigmoid ++denoiser.use_self_conditioning=False"
 
 # # D = C + self_conditioning
-python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=D__C+self_cond"
+# python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=D__C+self_cond"
 
 # # E = D + downscale
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=E__D+downscale_0.5 ++diffusion.x_downscale_factor=0.5"
@@ -24,3 +24,5 @@ python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=D__C+self_cond"
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.5 ++diffusion.x_downscale_factor=0.5 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.3 ++diffusion.x_downscale_factor=0.3 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.1 ++diffusion.x_downscale_factor=0.1 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
+
+python run_diffusion_slrm.py --n_gpus 16 --n_nodes 2 --n_cpus 4 --flags "++logger.name=XL"

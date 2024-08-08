@@ -1,1 +1,0 @@
-sbatch train_diffusion.slrm experiment=rocklin/default ++trainer.precision=32
