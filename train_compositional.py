@@ -56,7 +56,7 @@ def train(cfg: DictConfig):
     ####################################################################################################
 
     # WebDataset loader over sharded pre-computed embeddings
-    print("Creating datamodule...")
+    rank_zero_info("Creating datamodule...")
     datamodule = hydra.utils.instantiate(cfg.datamodule)
 
     # dimensions
@@ -64,30 +64,31 @@ def train(cfg: DictConfig):
     shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
 
     # model
-    print("Creating model...")
+    rank_zero_info("Creating model...")
     denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
     diffusion = hydra.utils.instantiate(cfg.diffusion, model=denoiser)
 
     # logging details
-    trainable_parameters = count_parameters(diffusion, require_grad_only=True)
-    total_parameters = count_parameters(diffusion, require_grad_only=False)
-    log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
-    log_cfg["total_params_millions"] = total_parameters / 1_000_000
-    log_cfg["shorten_factor"] = shorten_factor
-    log_cfg["input_dim"] = input_dim
-
-    logger = hydra.utils.instantiate(cfg.logger, id=job_id)
+    if rank_zero_only.rank == 0:
+        trainable_parameters = count_parameters(diffusion, require_grad_only=True)
+        total_parameters = count_parameters(diffusion, require_grad_only=False)
+        log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
+        log_cfg["total_params_millions"] = total_parameters / 1_000_000
+        log_cfg["shorten_factor"] = shorten_factor
+        log_cfg["input_dim"] = input_dim
+        logger = hydra.utils.instantiate(cfg.logger, id=job_id)
 
     # checkpoint and LR callbacks
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=outdir)
+
     callbacks = [lr_monitor, checkpoint_callback]
 
     ####################################################################################################
     # Trainer
     ####################################################################################################
 
-    print("Initializing training...")
+    rank_zero_info("Initializing training...")
 
     trainer = hydra.utils.instantiate(
         cfg.trainer,
