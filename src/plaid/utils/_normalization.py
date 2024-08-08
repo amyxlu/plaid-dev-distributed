@@ -4,7 +4,7 @@ import typing as T
 import torch
 import os
 from ._misc import npy
-from ..constants import CACHED_TENSORS_DIR
+from ..constants import TENSOR_STATS_DIR 
 
 
 ArrayLike = T.Union[np.ndarray, T.List[float], torch.Tensor]
@@ -192,7 +192,7 @@ class LatentScaler:
             self.lm_embedder_type = lm_embedder_type
 
             if "channel_" in mode:
-                stat_dict = load_channelwise_stats(CACHED_TENSORS_DIR, origin_dataset, lm_embedder_type)
+                stat_dict = load_channelwise_stats(TENSOR_STATS_DIR, origin_dataset, lm_embedder_type)
             else:
                 stat_dict = GLOBAL_SEQEMB_STATS[origin_dataset]
 

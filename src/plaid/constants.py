@@ -7,8 +7,21 @@ structure_module_c_z = 128
 c_s = 1024
 c_z = 128
 
-DECODER_CKPT_PATH = Path(os.environ["HOME"]) / "plaid_cached_tensors/decoder_mlp.ckpt"
-CACHED_TENSORS_DIR = Path(os.environ["HOME"]) / "plaid_cached_tensors"
+
+# DEFAULT_CACHE = Path(os.environ['HOME']) / f".cache/cheap"
+DEFAULT_CACHE = Path("/data/lux70/cheap")
+
+
+# Weights to trained latent-to-sequence decoder
+DECODER_CKPT_PATH = Path(DEFAULT_CACHE) / "sequence_decoder/mlp.ckpt"
+
+
+# Directory to where per-channel statistics are stored
+TENSOR_STATS_DIR = Path(DEFAULT_CACHE) / "statistics"
+
+
+# Directory to where pre-trained models are stored
+CHECKPOINT_DIR_PATH = Path(DEFAULT_CACHE) / "checkpoints"
 
 
 ACCEPTED_LM_EMBEDDER_TYPES = [
