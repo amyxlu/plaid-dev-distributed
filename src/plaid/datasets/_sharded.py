@@ -119,7 +119,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
         dataset = (
             wds.WebDataset(path, resampled=True, shardshuffle=(split == "train"), cache_dir=self.cache_dir)
             .shuffle(shuffle_buffer, initial=shuffle_initial)
-            .map(lambda x: self.make_sample(x)
+            .map(lambda x: self.make_sample(x))
             .batched(self.batch_size)
         )
 
