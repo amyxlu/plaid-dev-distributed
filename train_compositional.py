@@ -18,7 +18,7 @@ from plaid.utils import count_parameters, find_latest_checkpoint
 _PROJECT_NAME = "plaid_compositional_conditioning"
 
 
-def resume_setup(cfg, project_name):
+def maybe_resume(cfg, project_name):
     # maybe use prior job id, else generate new ID
     if cfg.resume_from_model_id is not None:
         job_id = cfg.resume_from_model_id
@@ -30,13 +30,16 @@ def resume_setup(cfg, project_name):
     # set up checkpoint and config yaml paths
     outdir = Path(cfg.paths.checkpoint_dir) / project_name / job_id
     config_path = outdir / "config.yaml"
+
+    # save config to disk
     if config_path.exists():
         cfg = OmegaConf.load(config_path)
         rank_zero_info(f"Overriding config from job ID {job_id}!")
     else:
-        outdir.mkdir(parents=True)
-        if not config_path.exists():
-            OmegaConf.save(cfg, config_path)
+        if rank_zero_only.rank == 0:
+            outdir.mkdir(parents=True)
+            if not config_path.exists():
+                OmegaConf.save(cfg, config_path)
 
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     rank_zero_info(OmegaConf.to_yaml(log_cfg))
@@ -48,8 +51,7 @@ def train(cfg: DictConfig):
     import torch
     torch.set_float32_matmul_precision("medium")
 
-    if rank_zero_only.rank == 0:
-        log_cfg, job_id, outdir, is_resumed = resume_setup(cfg, _PROJECT_NAME)
+    log_cfg, job_id, outdir, is_resumed = maybe_resume(cfg, _PROJECT_NAME)
 
     ####################################################################################################
     # Data and model setup  
@@ -69,14 +71,13 @@ def train(cfg: DictConfig):
     diffusion = hydra.utils.instantiate(cfg.diffusion, model=denoiser)
 
     # logging details
-    if rank_zero_only.rank == 0:
-        trainable_parameters = count_parameters(diffusion, require_grad_only=True)
-        total_parameters = count_parameters(diffusion, require_grad_only=False)
-        log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
-        log_cfg["total_params_millions"] = total_parameters / 1_000_000
-        log_cfg["shorten_factor"] = shorten_factor
-        log_cfg["input_dim"] = input_dim
-        logger = hydra.utils.instantiate(cfg.logger, id=job_id)
+    trainable_parameters = count_parameters(diffusion, require_grad_only=True)
+    total_parameters = count_parameters(diffusion, require_grad_only=False)
+    log_cfg["trainable_params_millions"] = trainable_parameters / 1_000_000
+    log_cfg["total_params_millions"] = total_parameters / 1_000_000
+    log_cfg["shorten_factor"] = shorten_factor
+    log_cfg["input_dim"] = input_dim
+    logger = hydra.utils.instantiate(cfg.logger, id=job_id)
 
     # checkpoint and LR callbacks
     lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)

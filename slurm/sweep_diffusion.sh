@@ -25,4 +25,5 @@
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.3 ++diffusion.x_downscale_factor=0.3 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.1 ++diffusion.x_downscale_factor=0.1 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
 
-python run_diffusion_slrm.py --n_gpus 16 --n_nodes 2 --n_cpus 4 --flags "++logger.name=XL"
+# python run_diffusion_slrm.py --n_gpus 16 --n_nodes 2 --n_cpus 4 --flags "++logger.name=XL"
+python run_diffusion_slrm.py --n_gpus 8 --n_nodes 1 --n_cpus 8 --flags "++logger.name=XL"

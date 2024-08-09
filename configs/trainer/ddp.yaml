@@ -2,7 +2,7 @@ _target_: lightning.pytorch.Trainer
 accelerator: gpu 
 strategy: ddp
 devices: -1
-num_nodes: 2 
+num_nodes: 1 
 
 gradient_clip_val: 0.5
 log_every_n_steps: 50 

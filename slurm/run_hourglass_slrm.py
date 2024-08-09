@@ -28,6 +28,7 @@ conda activate plaid
 export HYDRA_FULL_ERROR=1
 export TOKENIZERS_PARALLELISM=false
 export NCCL_DEBUG=INFO
+export PYTHONFAULTHANDLER=1
 cd /homefs/home/lux70/code/plaid/
 
 nvidia-smi
