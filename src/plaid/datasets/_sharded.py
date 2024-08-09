@@ -26,17 +26,30 @@ def pad_or_trim(arr, max_L):
     return arr
 
 
-def _decode_header(header):
+def decode_header(header):
     return header.decode()
 
 
-def _decode_numpy(npy, max_length):
+def decode_numpy(npy, max_length):
     x = np.load(io.BytesIO(npy)).astype(np.float32)
     original_length = min(max_length, x.shape[0])
     mask = np.ones(original_length)
     x = pad_or_trim(x, max_length)
     mask = np.pad(mask, ((0, max_length - original_length))).astype(bool)
     return x, mask 
+
+
+def make_sample(sample, max_length, metadata_parser):
+    """From a loaded sample from a webdataset, extract the relevant conditioning fields."""
+    embedding, mask = decode_numpy(sample["embedding.npy"], max_length)
+    header = decode_header(sample["header.txt"])
+    sample_id = sample["__key__"]
+    local_path = sample["__local_path__"]
+
+    pfam_id = metadata_parser.header_to_pfam_id(header)
+    go_idx = int(metadata_parser.header_to_go_idx(header))
+    organism_idx = int(metadata_parser.header_to_organism_idx(header))
+    return embedding, mask, go_idx, organism_idx, pfam_id, sample_id, local_path
 
 
 class FunctionOrganismDataModule(L.LightningDataModule):
@@ -54,7 +67,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
             shuffle_initial: int = 1000,
             max_length: int = 512,
             batch_size: int = 64,
-            num_workers: int = 1,
+            num_workers: int = 4,
         ):
         super().__init__()
         self.train_shards = train_shards
@@ -86,19 +99,8 @@ class FunctionOrganismDataModule(L.LightningDataModule):
             organism_metadata_fpath=organism_metadata_fpath
         )
     
-    def make_sample(self, sample, max_length):
-        """From a loaded sample from a webdataset, extract the relevant conditioning fields."""
-        embedding, mask = _decode_numpy(sample["embedding.npy"], max_length)
-        header = _decode_header(sample["header.txt"])
-        sample_id = sample["__key__"]
-        local_path = sample["__local_path__"]
-
-        pfam_id = self.metadata_parser.header_to_pfam_id(header)
-        # go_idx = torch.tensor([self.metadata_parser.header_to_go_idx(header)])
-        # organism_idx = torch.tensor([self.metadata_parser.header_to_organism_idx(header)])
-        go_idx = int(self.metadata_parser.header_to_go_idx(header))
-        organism_idx = int(self.metadata_parser.header_to_organism_idx(header))
-        return embedding, mask, go_idx, organism_idx, pfam_id, sample_id, local_path
+    def make_sample(self, sample):
+        return make_sample(sample, self.max_length, self.metadata_parser)
     
     def make_dataloader(self, split):
         assert split in ["train", "val"]
@@ -117,7 +119,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
         dataset = (
             wds.WebDataset(path, resampled=True, shardshuffle=(split == "train"), cache_dir=self.cache_dir)
             .shuffle(shuffle_buffer, initial=shuffle_initial)
-            .map(lambda x: self.make_sample(x, self.max_length))
+            .map(lambda x: self.make_sample(x)
             .batched(self.batch_size)
         )
 
