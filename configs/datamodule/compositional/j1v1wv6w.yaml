@@ -17,3 +17,4 @@ shuffle_initial: 20_000
 max_length: 128
 batch_size: 1024
 num_workers: 8
+prefetch_factor: 4

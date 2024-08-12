@@ -68,6 +68,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
             max_length: int = 512,
             batch_size: int = 64,
             num_workers: int = 4,
+            prefetch_factor: int = 2,
         ):
         super().__init__()
         self.train_shards = train_shards
@@ -78,6 +79,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
         self.num_workers = num_workers
         self.shuffle_buffer = shuffle_buffer
         self.shuffle_initial = shuffle_initial
+        self.prefetch_factor = prefetch_factor
 
         # actual dataset size as stored on disk
         with open(config_file, "r") as f:
@@ -124,7 +126,13 @@ class FunctionOrganismDataModule(L.LightningDataModule):
         )
 
         # unbatch, shuffle, and form final batch for SGD (if training)
-        dataloader_kwargs = {"num_workers": self.num_workers, "batch_size": None, "pin_memory": True}
+        dataloader_kwargs = {
+            "num_workers": self.num_workers,
+            "batch_size": None,
+            "pin_memory": True,
+            "prefetch_factor": self.prefetch_factor
+        }
+
         dataloader = (
             wds.WebLoader(dataset, **dataloader_kwargs) 
             .unbatched()
