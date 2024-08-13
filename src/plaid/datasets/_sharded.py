@@ -119,10 +119,18 @@ class FunctionOrganismDataModule(L.LightningDataModule):
 
         # batching for improving worker-to-loader speed
         dataset = (
-            wds.WebDataset(path, resampled=True, shardshuffle=(split == "train"), cache_dir=self.cache_dir)
+            wds.WebDataset(
+                path,
+                resampled=True,
+                shardshuffle=(split == "train"),
+                cache_dir=self.cache_dir,
+                nodesplitter=wds.split_by_node,
+                workersplitter=wds.split_by_worker,
+            )
             .shuffle(shuffle_buffer, initial=shuffle_initial)
             .map(lambda x: self.make_sample(x))
             .batched(self.batch_size)
+            .with_epoch(self.batch_size * self.train_epoch_num_batches)
         )
 
         # unbatch, shuffle, and form final batch for SGD (if training)
@@ -138,7 +146,6 @@ class FunctionOrganismDataModule(L.LightningDataModule):
             .unbatched()
             .shuffle(shuffle_buffer)
             .batched(self.batch_size)
-            .with_epoch(num_epoch_batches)
             .with_length(num_epoch_batches)
         )
         
