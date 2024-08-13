@@ -6,6 +6,7 @@ import hydra
 import lightning as L
 from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.utilities import rank_zero_only, rank_zero_info
+from lightning.pytorch.callbacks import LearningRateMonitor
 
 from omegaconf import DictConfig, OmegaConf
 import torch
@@ -80,7 +81,7 @@ def train(cfg: DictConfig):
     logger = hydra.utils.instantiate(cfg.logger, id=job_id)
 
     # checkpoint and LR callbacks
-    lr_monitor = hydra.utils.instantiate(cfg.callbacks.lr_monitor)
+    lr_monitor = LearningRateMonitor()
     checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=outdir)
 
     callbacks = [lr_monitor, checkpoint_callback]

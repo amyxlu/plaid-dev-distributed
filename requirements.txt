@@ -4,7 +4,7 @@ hydra-core >= 1.3
 seaborn
 pandas
 transformers
-lightning
+lightning == 1.9.5
 einops
 tqdm
 numba
