@@ -14,6 +14,19 @@ max_epochs: 20000
 default_root_dir: ${paths.log_dir}
 check_val_every_n_epoch: 1000
 
+benchmark: True
+detect_anomaly: True
+
+# benchmark=None
+# inference_mode=True
+# use_distributed_sampler=True
+# profiler=None
+# detect_anomaly=False
+# barebones=False
+# plugins=None
+# sync_batchnorm=False
+# reload_dataloaders_every_n_epochs=0
+# default_root_dir=None
 # accelerator='auto'
 # strategy='auto'
 # devices='auto'

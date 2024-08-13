@@ -33,8 +33,9 @@ class DistributedInferenceConfig:
     compression_ckpt_dir: str = (
         "/data/lux70/cheap/checkpoints/"
     )
-    fasta_file: str = "/data/lux70/data/pfam/Pfam-A.fasta"
-    output_dir: str = "/data/lux70/data/pfam/compressed"
+    fasta_file: str = "/data/lux70/data/pfam/val.fasta"
+    output_dir: str = "/data/lux70/data/pfam/compressed/reshard_val"
+    # output_dir: str = "/data/lux70/data/pfam/compressed"
     # fasta_file: str = "/data/lux70/data/uniref90/partial.fasta"
     # output_dir: str = "/data/lux70/data/uniref90/compressed/partial/"
 
@@ -47,7 +48,7 @@ class DistributedInferenceConfig:
     batch_size: int = 128 
     max_seq_len: int = 512
     max_dataset_size: int = -1
-    maxcount: int = 1e6
+    maxcount: int = 1e4
     # train_split_frac: float = 0.9
 
 

@@ -23,10 +23,8 @@ defaults = f"""#!/usr/bin/env bash
 #SBATCH --time=10-00:00:00
 #SBATCH --job-name train 
 
-set -ex
-
 source ~/.bashrc
-micromamba activate plaid 
+micromamba activate plaid
 
 export HYDRA_FULL_ERROR=1
 export NCCL_DEBUG=TRACE

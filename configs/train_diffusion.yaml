@@ -3,7 +3,7 @@ defaults:
   - paths: pcluster 
   - trainer: default
   - datamodule: /compressed/pfam_h5
-  - denoiser: dit
+  - denoiser: DiT_B 
   - diffusion: diffusion
   - callbacks/checkpoint: diffusion
   - callbacks/lr_monitor: default
