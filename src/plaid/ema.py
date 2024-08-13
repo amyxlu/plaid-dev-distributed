@@ -1,202 +1,275 @@
-# import torch
-# import os
-# import os.path
-# import warnings
-# import glob
+from typing import Set, Tuple
 
-# import pytorch_lightning as pl
+from copy import deepcopy
+from functools import partial
 
-# from pathlib import Path
-# from lightning import Callback
-# from lightning.pytorch.callbacks import ModelCheckpoint
-# from lightning.pytorch.utilities import rank_zero_warn, rank_zero_info
-# from lightning.pytorch.utilities.exceptions import MisconfigurationException
-# from lightning.pytorch.utilities.types import STEP_OUTPUT
+import torch
+from torch import nn, Tensor
+from torch.nn import Module
 
-# from typing import Any, Dict, List, Optional
+def exists(val):
+    return val is not None
 
+def inplace_copy(tgt: Tensor, src: Tensor, *, auto_move_device = False):
+    if auto_move_device:
+        src = src.to(tgt.device)
 
-# class EMA(Callback):
-#     """
-#     Implements Exponential Moving Averaging (EMA).
-#     When training a model, this callback will maintain moving averages of the trained parameters.
-#     When evaluating, we use the moving averages copy of the trained parameters.
-#     When saving, we save an additional set of parameters with the prefix `ema`.
-#     Args:
-#         decay: The exponential decay used when calculating the moving average. Has to be between 0-1.
-#         apply_ema_every_n_steps: Apply EMA every n global steps.
-#         start_step: Start applying EMA from ``start_step`` global step onwards.
-#         save_ema_weights_in_callback_state: Enable saving EMA weights in callback state.
-#         evaluate_ema_weights_instead: Validate the EMA weights instead of the original weights.
-#             Note this means that when saving the model, the validation metrics are calculated with the EMA weights.
+    tgt.copy_(src)
 
-#     Adapted from: https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/common/callbacks/ema.py
-#     """
+def inplace_lerp(tgt: Tensor, src: Tensor, weight, *, auto_move_device = False):
+    if auto_move_device:
+        src = src.to(tgt.device)
 
-#     def __init__(
-#         self,
-#         decay: float,
-#         apply_ema_every_n_steps: int = 1,
-#         start_step: int = 0,
-#         save_ema_weights_in_callback_state: bool = False,
-#         evaluate_ema_weights_instead: bool = False,
-#     ):
-#         super().__init__()
-#         if not (0 <= decay <= 1):
-#             raise MisconfigurationException("EMA decay value must be between 0 and 1")
-#         self._ema_model_weights: Optional[List[torch.Tensor]] = None
-#         self._overflow_buf: Optional[torch.Tensor] = None
-#         self._cur_step: Optional[int] = None
-#         self._weights_buffer: Optional[List[torch.Tensor]] = None
-#         self.apply_ema_every_n_steps = apply_ema_every_n_steps
-#         self.start_step = start_step
-#         self.save_ema_weights_in_callback_state = save_ema_weights_in_callback_state
-#         self.evaluate_ema_weights_instead = evaluate_ema_weights_instead
-#         self.decay = decay
+    tgt.lerp_(src, weight)
 
-#     def on_train_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-#         rank_zero_info("Creating EMA weights copy.")
-#         if self._ema_model_weights is None:
-#             self._ema_model_weights = [p.detach().clone() for p in pl_module.state_dict().values()]
-#         # ensure that all the weights are on the correct device
-#         self._ema_model_weights = [p.to(pl_module.device) for p in self._ema_model_weights]
-#         self._overflow_buf = torch.IntTensor([0]).to(pl_module.device)
+class EMA(Module):
+    """
+    Implements exponential moving average shadowing for your model.
 
-#     def ema(self, pl_module: "pl.LightningModule") -> None:
-#         return self.apply_ema(pl_module)
+    Utilizes an inverse decay schedule to manage longer term training runs.
+    By adjusting the power, you can control how fast EMA will ramp up to your specified beta.
 
-#     def apply_ema(self, pl_module: "pl.LightningModule") -> None:
-#         for orig_weight, ema_weight in zip(list(pl_module.state_dict().values()), self._ema_model_weights):
-#             if ema_weight.data.dtype != torch.long and orig_weight.data.dtype != torch.long:
-#                 # ensure that non-trainable parameters (e.g., feature distributions) are not included in EMA weight averaging
-#                 diff = ema_weight.data - orig_weight.data
-#                 diff.mul_(1.0 - self.decay)
-#                 ema_weight.sub_(diff)
+    @crowsonkb's notes on EMA Warmup:
 
-#     def should_apply_ema(self, step: int) -> bool:
-#         return step != self._cur_step and step >= self.start_step and step % self.apply_ema_every_n_steps == 0
+    If gamma=1 and power=1, implements a simple average. gamma=1, power=2/3 are
+    good values for models you plan to train for a million or more steps (reaches decay
+    factor 0.999 at 31.6K steps, 0.9999 at 1M steps), gamma=1, power=3/4 for models
+    you plan to train for less (reaches decay factor 0.999 at 10K steps, 0.9999 at
+    215.4k steps).
 
-#     def on_train_batch_end(
-#         self,
-#         trainer: "pl.Trainer",
-#         pl_module: "pl.LightningModule",
-#         outputs: STEP_OUTPUT,
-#         batch: Any,
-#         batch_idx: int,
-#     ) -> None:
-#         if self.should_apply_ema(trainer.global_step):
-#             self._cur_step = trainer.global_step
-#             self.ema(pl_module)
+    Args:
+        inv_gamma (float): Inverse multiplicative factor of EMA warmup. Default: 1.
+        power (float): Exponential factor of EMA warmup. Default: 2/3.
+        min_value (float): The minimum EMA decay rate. Default: 0.
+    """
 
-#     def state_dict(self) -> Dict[str, Any]:
-#         if self.save_ema_weights_in_callback_state:
-#             return dict(cur_step=self._cur_step, ema_weights=self._ema_model_weights)
-#         return dict(cur_step=self._cur_step)
+    def __init__(
+        self,
+        model: Module,
+        ema_model: Module | None = None,             # if your model has lazylinears or other types of non-deepcopyable modules, you can pass in your own ema model
+        beta = 0.9999,
+        update_after_step = 100,
+        update_every = 10,
+        inv_gamma = 1.0,
+        power = 2 / 3,
+        min_value = 0.0,
+        param_or_buffer_names_no_ema: Set[str] = set(),
+        ignore_names: Set[str] = set(),
+        ignore_startswith_names: Set[str] = set(),
+        include_online_model = False,                  # set this to False if you do not wish for the online model to be saved along with the ema model (managed externally)
+        allow_different_devices = False,              # if the EMA model is on a different device (say CPU), automatically move the tensor
+        use_foreach = False,
+        forward_method_names: Tuple[str, ...] = ()
+    ):
+        super().__init__()
+        self.beta = beta
 
-#     def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-#         self._cur_step = state_dict["cur_step"]
-#         # when loading within apps such as NeMo, EMA weights will be loaded by the experiment manager separately
-#         if self._ema_model_weights is None:
-#             self._ema_model_weights = state_dict.get("ema_weights")
+        self.is_frozen = beta == 1.
 
-#     def on_load_checkpoint(
-#         self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", checkpoint: Dict[str, Any]
-#     ) -> None:
-#         checkpoint_callback = trainer.checkpoint_callback
+        # whether to include the online model within the module tree, so that state_dict also saves it
 
-#         if trainer.ckpt_path and checkpoint_callback is not None:
-#             ext = checkpoint_callback.FILE_EXTENSION
-#             if str(trainer.ckpt_path).endswith(f"-EMA{ext}"):
-#                 rank_zero_info(
-#                     "loading EMA based weights. "
-#                     "The callback will treat the loaded EMA weights as the main weights"
-#                     " and create a new EMA copy when training."
-#                 )
-#                 return
-#             ema_path = str(trainer.ckpt_path).replace(ext, f"-EMA{ext}")
-#             if os.path.exists(ema_path):
-#                 ema_state_dict = torch.load(ema_path, map_location=torch.device("cpu"))
-#                 self._ema_model_weights = ema_state_dict["state_dict"].values()
-#                 del ema_state_dict
-#                 rank_zero_info(
-#                     "EMA weights have been loaded successfully. Continuing training with saved EMA weights."
-#                 )
-#             else:
-#                 warnings.warn(
-#                     "we were unable to find the associated EMA weights when re-loading, "
-#                     "training will start with new EMA weights.",
-#                     UserWarning,
-#                 )
+        self.include_online_model = include_online_model
 
-#     def replace_model_weights(self, pl_module: "pl.LightningModule") -> None:
-#         self._weights_buffer = [p.detach().clone().to("cpu") for p in pl_module.state_dict().values()]
-#         new_state_dict = {k: v for k, v in zip(pl_module.state_dict().keys(), self._ema_model_weights)}
-#         pl_module.load_state_dict(new_state_dict)
+        if include_online_model:
+            self.online_model = model
+        else:
+            self.online_model = [model] # hack
 
-#     def restore_original_weights(self, pl_module: "pl.LightningModule") -> None:
-#         state_dict = pl_module.state_dict()
-#         new_state_dict = {k: v for k, v in zip(state_dict.keys(), self._weights_buffer)}
-#         pl_module.load_state_dict(new_state_dict)
-#         del self._weights_buffer
+        # ema model
 
-#     @property
-#     def ema_initialized(self) -> bool:
-#         return self._ema_model_weights is not None
+        self.ema_model = ema_model
 
-#     def on_validation_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-#         if self.ema_initialized and self.evaluate_ema_weights_instead:
-#             self.replace_model_weights(pl_module)
+        if not exists(self.ema_model):
+            try:
+                self.ema_model = deepcopy(model)
+            except Exception as e:
+                print(f'Error: While trying to deepcopy model: {e}')
+                print('Your model was not copyable. Please make sure you are not using any LazyLinear')
+                exit()
 
-#     def on_validation_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-#         if self.ema_initialized and self.evaluate_ema_weights_instead:
-#             self.restore_original_weights(pl_module)
+        for p in self.ema_model.parameters():
+            p.detach_()
 
-#     def on_test_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-#         if self.ema_initialized and self.evaluate_ema_weights_instead:
-#             self.replace_model_weights(pl_module)
+        # forwarding methods
 
-#     def on_test_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-#         if self.ema_initialized and self.evaluate_ema_weights_instead:
-#             self.restore_original_weights(pl_module)
+        for forward_method_name in forward_method_names:
+            fn = getattr(self.ema_model, forward_method_name)
+            setattr(self, forward_method_name, fn)
 
+        # parameter and buffer names
 
-# class EMAModelCheckpoint(ModelCheckpoint):
-#     """
-#     Light wrapper around Lightning's `ModelCheckpoint` to, upon request, save an EMA copy of the model as well.
+        self.parameter_names = {name for name, param in self.ema_model.named_parameters() if torch.is_floating_point(param) or torch.is_complex(param)}
+        self.buffer_names = {name for name, buffer in self.ema_model.named_buffers() if torch.is_floating_point(buffer) or torch.is_complex(buffer)}
 
-#     Adapted from: https://github.com/NVIDIA/NeMo/blob/be0804f61e82dd0f63da7f9fe8a4d8388e330b18/nemo/utils/exp_manager.py#L744
-#     """
+        # tensor update functions
 
-#     def __init__(self, **kwargs):
-#         # call the parent class constructor with the provided kwargs
-#         super().__init__(**kwargs)
+        self.inplace_copy = partial(inplace_copy, auto_move_device = allow_different_devices)
+        self.inplace_lerp = partial(inplace_lerp, auto_move_device = allow_different_devices)
 
-#     def _get_ema_callback(self, trainer: "pl.Trainer") -> Optional[EMA]:
-#         ema_callback = None
-#         for callback in trainer.callbacks:
-#             if isinstance(callback, EMA):
-#                 ema_callback = callback
-#         return ema_callback
+        # updating hyperparameters
 
-#     def _save_checkpoint(self, trainer: "pl.Trainer", filepath: str) -> None:
-#         super()._save_checkpoint(trainer, filepath)
-#         ema_callback = self._get_ema_callback(trainer)
-#         if ema_callback is not None:
-#             # save EMA copy of the model as well
-#             ema_callback.replace_model_weights(trainer.lightning_module)
-#             filepath = self._ema_format_filepath(filepath)
-#             if self.verbose:
-#                 rank_zero_info(f"Saving EMA weights to separate checkpoint {filepath}")
-#             super()._save_checkpoint(trainer, filepath)
-#             self._delete_prev_emas(filepath)
-#             ema_callback.restore_original_weights(trainer.lightning_module)
+        self.update_every = update_every
+        self.update_after_step = update_after_step
 
-#     def _ema_format_filepath(self, filepath: str) -> str:
-#         return filepath.replace(self.FILE_EXTENSION, f"-EMA{self.FILE_EXTENSION}")
+        self.inv_gamma = inv_gamma
+        self.power = power
+        self.min_value = min_value
 
-#     def _delete_prev_emas(self, filepath) -> None:
-#         ckpt_dir = Path(filepath).parent
-#         ema_paths = glob.glob(str(ckpt_dir / f"*-EMA{self.FILE_EXTENSION}"))
-#         for path in ema_paths:
-#             if path != filepath:
-#                 os.remove(path)
+        assert isinstance(param_or_buffer_names_no_ema, (set, list))
+        self.param_or_buffer_names_no_ema = param_or_buffer_names_no_ema # parameter or buffer
+
+        self.ignore_names = ignore_names
+        self.ignore_startswith_names = ignore_startswith_names
+
+        # whether to manage if EMA model is kept on a different device
+
+        self.allow_different_devices = allow_different_devices
+
+        # whether to use foreach
+
+        if use_foreach:
+            assert hasattr(torch, '_foreach_lerp_') and hasattr(torch, '_foreach_copy_'), 'your version of torch does not have the prerequisite foreach functions'
+
+        self.use_foreach = use_foreach
+
+        # init and step states
+
+        self.register_buffer('initted', torch.tensor(False))
+        self.register_buffer('step', torch.tensor(0))
+
+    @property
+    def model(self):
+        return self.online_model if self.include_online_model else self.online_model[0]
+
+    def eval(self):
+        return self.ema_model.eval()
+    
+    def restore_ema_model_device(self):
+        device = self.initted.device
+        self.ema_model.to(device)
+
+    def get_params_iter(self, model):
+        for name, param in model.named_parameters():
+            if name not in self.parameter_names:
+                continue
+            yield name, param
+
+    def get_buffers_iter(self, model):
+        for name, buffer in model.named_buffers():
+            if name not in self.buffer_names:
+                continue
+            yield name, buffer
+
+    def copy_params_from_model_to_ema(self):
+        copy = self.inplace_copy
+
+        for (_, ma_params), (_, current_params) in zip(self.get_params_iter(self.ema_model), self.get_params_iter(self.model)):
+            copy(ma_params.data, current_params.data)
+
+        for (_, ma_buffers), (_, current_buffers) in zip(self.get_buffers_iter(self.ema_model), self.get_buffers_iter(self.model)):
+            copy(ma_buffers.data, current_buffers.data)
+
+    def copy_params_from_ema_to_model(self):
+        copy = self.inplace_copy
+
+        for (_, ma_params), (_, current_params) in zip(self.get_params_iter(self.ema_model), self.get_params_iter(self.model)):
+            copy(current_params.data, ma_params.data)
+
+        for (_, ma_buffers), (_, current_buffers) in zip(self.get_buffers_iter(self.ema_model), self.get_buffers_iter(self.model)):
+            copy(current_buffers.data, ma_buffers.data)
+
+    def get_current_decay(self):
+        epoch = (self.step - self.update_after_step - 1).clamp(min = 0.)
+        value = 1 - (1 + epoch / self.inv_gamma) ** - self.power
+
+        if epoch.item() <= 0:
+            return 0.
+
+        return value.clamp(min = self.min_value, max = self.beta).item()
+
+    def update(self):
+        step = self.step.item()
+        self.step += 1
+
+        if (step % self.update_every) != 0:
+            return
+
+        if step <= self.update_after_step:
+            self.copy_params_from_model_to_ema()
+            return
+
+        if not self.initted.item():
+            self.copy_params_from_model_to_ema()
+            self.initted.data.copy_(torch.tensor(True))
+
+        self.update_moving_average(self.ema_model, self.model)
+
+    @torch.no_grad()
+    def update_moving_average(self, ma_model, current_model):
+        if self.is_frozen:
+            return
+
+        current_decay = self.get_current_decay()
+
+        # store all source and target tensors to copy or lerp
+
+        tensors_to_copy = []
+        tensors_to_lerp = []
+
+        # loop through parameters
+
+        for (name, current_params), (_, ma_params) in zip(self.get_params_iter(current_model), self.get_params_iter(ma_model)):
+            if name in self.ignore_names:
+                continue
+
+            if any([name.startswith(prefix) for prefix in self.ignore_startswith_names]):
+                continue
+
+            if name in self.param_or_buffer_names_no_ema:
+                tensors_to_copy.append((ma_params.data, current_params.data))
+                continue
+
+            tensors_to_lerp.append((ma_params.data, current_params.data))
+
+        # loop through buffers
+
+        for (name, current_buffer), (_, ma_buffer) in zip(self.get_buffers_iter(current_model), self.get_buffers_iter(ma_model)):
+            if name in self.ignore_names:
+                continue
+
+            if any([name.startswith(prefix) for prefix in self.ignore_startswith_names]):
+                continue
+
+            if name in self.param_or_buffer_names_no_ema:
+                tensors_to_copy.append((ma_buffer.data, current_buffer.data))
+                continue
+
+            tensors_to_lerp.append((ma_buffer.data, current_buffer.data))
+
+        # execute inplace copy or lerp
+
+        if not self.use_foreach:
+
+            for tgt, src in tensors_to_copy:
+                self.inplace_copy(tgt, src)
+
+            for tgt, src in tensors_to_lerp:
+                self.inplace_lerp(tgt, src, 1. - current_decay)
+
+        else:
+            # use foreach if available and specified
+
+            if self.allow_different_devices:
+                tensors_to_copy = [(tgt, src.to(tgt.device)) for tgt, src in tensors_to_copy]
+                tensors_to_lerp = [(tgt, src.to(tgt.device)) for tgt, src in tensors_to_lerp]
+
+            if len(tensors_to_copy) > 0:
+                tgt_copy, src_copy = zip(*tensors_to_copy)
+                torch._foreach_copy_(tgt_copy, src_copy)
+
+            if len(tensors_to_lerp) > 0:
+                tgt_lerp, src_lerp = zip(*tensors_to_lerp)
+                torch._foreach_lerp_(tgt_lerp, src_lerp, 1. - current_decay)
+
+    def __call__(self, *args, **kwargs):
+        return self.ema_model(*args, **kwargs)

@@ -14,12 +14,19 @@ import re
 
 from plaid import constants
 from plaid.utils import count_parameters, find_latest_checkpoint
-
+from plaid.datasets import FunctionOrganismDataModule
+from plaid.denoisers import FunctionOrganismDiT
+from plaid.diffusion import FunctionOrganismDiffusion
 
 _PROJECT_NAME = "plaid_compositional_conditioning"
 
 
-def maybe_resume(cfg, project_name):
+def delete_key(cfg: OmegaConf, key: str = "_target_"):
+    cfg = cfg.__delattr__(key)
+    return cfg
+
+
+def maybe_resume(cfg: OmegaConf, project_name: str) -> T.Tuple[dict, str, Path, bool]:
     # maybe use prior job id, else generate new ID
     if cfg.resume_from_model_id is not None:
         job_id = cfg.resume_from_model_id
@@ -58,18 +65,19 @@ def train(cfg: DictConfig):
     # Data and model setup  
     ####################################################################################################
 
-    # WebDataset loader over sharded pre-computed embeddings
-    rank_zero_info("Creating datamodule...")
-    datamodule = hydra.utils.instantiate(cfg.datamodule)
-
     # dimensions
     input_dim = constants.COMPRESSION_INPUT_DIMENSIONS[cfg.compression_model_id]
     shorten_factor = constants.COMPRESSION_SHORTEN_FACTORS[cfg.compression_model_id]
 
-    # model
-    rank_zero_info("Creating model...")
-    denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
-    diffusion = hydra.utils.instantiate(cfg.diffusion, model=denoiser)
+    if not is_resumed:
+        datamodule = hydra.utils.instantiate(cfg.datamodule)
+        denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)
+        diffusion = hydra.utils.instantiate(cfg.diffusion, model=denoiser)
+    else:
+        import IPython;IPython.embed()
+        datamodule = FunctionOrganismDataModule(**delete_key(cfg.datamodule)) 
+        denoiser = FunctionOrganismDiT(**delete_key(cfg.denoiser), input_dim=input_dim)
+        diffusion = FunctionOrganismDiffusion(**delete_key(cfg.diffusion), model=denoiser)
 
     # logging details
     trainable_parameters = count_parameters(diffusion, require_grad_only=True)
@@ -102,10 +110,10 @@ def train(cfg: DictConfig):
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if is_resumed:
-        assert ckpt_fname.exists()
-        rank_zero_info("Resuming from ", ckpt_fname)
-        ckpt_fname = outdir / find_latest_checkpoint(outdir)
-        trainer.fit(diffusion, datamodule=datamodule, ckpt_path=outdir / ckpt_fname)
+        ckpt_fpath = outdir / find_latest_checkpoint(outdir)
+        assert ckpt_fpath.exists(), f"Checkpoint {ckpt_fpath} not found!"
+        rank_zero_info(f"Resuming from checkpoint {ckpt_fpath}")
+        trainer.fit(diffusion, datamodule=datamodule, ckpt_path=ckpt_fpath)
 
     else:
         trainer.fit(diffusion, datamodule=datamodule)

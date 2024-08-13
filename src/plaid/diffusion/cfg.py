@@ -19,6 +19,7 @@ from lightning.pytorch.utilities import rank_zero_only, rank_zero_info
 from schedulefree import AdamWScheduleFree
 
 from .beta_schedulers import make_beta_scheduler 
+from ..ema import EMA
 from ..utils import get_lr_scheduler
 from ..losses import masked_mse_loss
 from ..transforms import trim_or_pad_batch_first
@@ -100,10 +101,8 @@ class FunctionOrganismDiffusion(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        if (ema_decay is not None) and (rank_zero_only.rank == 0):
-            self.ema_model = AveragedModel(self.model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
-            self.ema_model.eval()
-            self.ema_model.requires_grad_(False)
+        if (ema_decay is not None):
+            self.ema_model = EMA(self.model, beta=ema_decay, include_online_model=False)
         else:
             self.ema_model = None
 
@@ -606,11 +605,15 @@ class FunctionOrganismDiffusion(L.LightningModule):
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         if (rank_zero_only.rank == 0) and (self.ema_model is not None):
-            self.ema_model.update_parameters(self.model)
+            self.ema_model.update()
 
     def on_load_checkpoint(self, checkpoint):
         if (rank_zero_only.rank == 0) and ("ema_state_dict" in checkpoint.keys()):
-            self.ema_model.load_state_dict(checkpoint["ema_state_dict"])
+            try:
+                self.ema_model.load_state_dict(checkpoint["ema_state_dict"])
+            except Exception as e:
+                print(checkpoint['ema_state_dict'].keys())
+                import pdb;pdb.set_trace()
 
     def on_save_checkpoint(self, checkpoint):
         if (rank_zero_only.rank == 0) and (self.ema_model is not None):

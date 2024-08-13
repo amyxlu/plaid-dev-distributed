@@ -19,3 +19,4 @@ artifacts
 *wandb*
 sampled/*
 log_dir/*
+*.hydra
