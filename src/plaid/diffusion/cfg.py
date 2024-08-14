@@ -82,6 +82,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
         lr_num_warmup_steps: int = 0,
         lr_num_training_steps: int = 10_000_000,
         lr_num_cycles: int = 1,
+        use_old_ema_module: bool = False,
     ):
         super().__init__()
 
@@ -102,7 +103,12 @@ class FunctionOrganismDiffusion(L.LightningModule):
         self.lr_num_cycles = lr_num_cycles
 
         if (ema_decay is not None):
-            self.ema_model = EMA(self.model, beta=ema_decay, include_online_model=False)
+            if use_old_ema_module:
+                self.ema_model = AveragedModel(self.model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
+                self.ema_model.eval()
+                self.ema_model.requires_grad_(False)
+            else:
+                self.ema_model = EMA(self.model, beta=ema_decay, include_online_model=False)
         else:
             self.ema_model = None
 
@@ -187,7 +193,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
     def swap_to_ema(self):
         original_weights = self.model.state_dict()
         ema_weights = self.ema_model.module.state_dict()
-        for k, v in self.model.state_dict():
+        for k, v in self.model.state_dict().items():
             v.copy_(ema_weights[k])
         return original_weights
         
@@ -582,7 +588,12 @@ class FunctionOrganismDiffusion(L.LightningModule):
 
         if self.lr_sched_type == "schedule_free":
             # https://arxiv.org/abs/2405.15682
-            optimizer = AdamWScheduleFree(parameters, lr=self.lr)
+            optimizer = AdamWScheduleFree(
+                parameters,
+                lr=self.lr,
+                warmup_steps=self.lr_num_warmup_steps,
+                betas=self.lr_adam_betas,
+            )
             return optimizer
         
         else:
@@ -597,26 +608,35 @@ class FunctionOrganismDiffusion(L.LightningModule):
             scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
             return {"optimizer": optimizer, "lr_scheduler": scheduler}
     
-    def state_dict(self):
-        # save only the denoiser state dict
-        return self.model.state_dict()
+    def on_load_checkpoint(self, checkpoint: T.Mapping[str, T.Any]) -> None:
+        # https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/pytorch/trainer/connectors/checkpoint_connector.py#L272
+        self.model.load_state_dict(checkpoint["state_dict"])
 
-    # To handle EMA
+        # load EMA model state dict
+        if "ema_state_dict" in checkpoint.keys():
+            ema_state_dict = checkpoint['ema_state_dict'] 
+            self.ema_model.load_state_dict(ema_state_dict)
+
+            # try:
+            #     self.ema_model.load_state_dict(ema_state_dict)
+            # except:
+            #     # for backwards compatibility
+            #     new_state_dict = {}
+            #     new_state_dict['initted'] = torch.tensor(True)
+            #     new_state_dict['step'] = torch.tensor(checkpoint['global_step'])
+
+            #     for k, v in ema_state_dict.items():
+            #         if k[:7] == "module.":
+            #             new_state_dict[k.replace("module.", "ema_model.")] = v
+
+            #     self.ema_model.load_state_dict(new_state_dict)
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
-        if (rank_zero_only.rank == 0) and (self.ema_model is not None):
+        if self.ema_model is not None:
             self.ema_model.update()
 
-    def on_load_checkpoint(self, checkpoint):
-        if (rank_zero_only.rank == 0) and ("ema_state_dict" in checkpoint.keys()):
-            try:
-                self.ema_model.load_state_dict(checkpoint["ema_state_dict"])
-            except Exception as e:
-                print(checkpoint['ema_state_dict'].keys())
-                import pdb;pdb.set_trace()
-
     def on_save_checkpoint(self, checkpoint):
-        if (rank_zero_only.rank == 0) and (self.ema_model is not None):
+        if self.ema_model is not None:
             checkpoint['ema_state_dict'] = self.ema_model.state_dict()
     
     # To handle schedule-free AdamW
