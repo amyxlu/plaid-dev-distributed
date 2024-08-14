@@ -14,6 +14,14 @@ flags = ""
 
 flags += args.flags
 
+if args.n_nodes > 1:
+    multi_node_flags = """
+    export LD_LIBRARY_PATH=/opt/amazon/efa/lib64:/opt/aws-ofi-nccl/lib:$LD_LIBRARY_PATH
+    export NCCL_SOCKET_IFNAME="^lo,docker,veth"
+    """
+else:
+    multi_node_flags = ""
+
 defaults = f"""#!/usr/bin/env bash
 #SBATCH --partition gpu2
 #SBATCH --nodes {args.n_nodes} 
@@ -25,6 +33,8 @@ defaults = f"""#!/usr/bin/env bash
 
 source ~/.bashrc
 micromamba activate plaid
+
+{multi_node_flags}
 
 export HYDRA_FULL_ERROR=1
 export NCCL_DEBUG=TRACE

@@ -25,7 +25,9 @@
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.3 ++diffusion.x_downscale_factor=0.3 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
 # python run_diffusion_slrm.py --n_gpus 1 --flags "++logger.name=G__A+sigmoid+downscale_0.1 ++diffusion.x_downscale_factor=0.1 ++diffusion.objective=pred_noise ++denoiser.use_self_conditioning=False"
 
-# python run_diffusion_slrm.py --n_gpus 16 --n_nodes 2 --n_cpus 4 --flags "++logger.name=XL"
-# python run_diffusion_slrm.py -g 2 -n 1 -c 12 --flags "experiment=compositional/XL ++logger.name=XL"
+# python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "experiment=compositional/XL ++logger.name=XL"
+# python run_diffusion_slrm.py -g 8 -n 1 -c 8 --flags "experiment=compositional/XXL ++logger.name=XXL"
+# python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "experiment=compositional/XXL ++logger.name=XXL"
+
 python run_diffusion_slrm.py -g 1 -n 1 -c 8 --flags "resume_from_model_id=o2cgf3eq"
 python run_diffusion_slrm.py -g 1 -n 1 -c 8 --flags "resume_from_model_id=jgxkivbq"
