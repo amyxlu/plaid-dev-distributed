@@ -1,9 +1,9 @@
 _target_: plaid.datasets.FunctionOrganismDataModule
 
-train_shards: "${paths.data_dir}/pfam/compressed/reshard/j1v1wv6w/train/shard{0000..4423}.tar"
-val_shards: "${paths.data_dir}/pfam/compressed/reshard/j1v1wv6w/val/shard{0000..0863}.tar"
+train_shards: "${paths.data_dir}/pfam/compressed/j1v1wv6w/train/shard{0000..4423}.tar"
+val_shards: "${paths.data_dir}/pfam/compressed/j1v1wv6w/val/shard{0000..0863}.tar"
 
-config_file: "${paths.data_dir}/pfam/compressed/reshard/j1v1wv6w/config.json"
+config_file: "${paths.data_dir}/pfam/compressed/j1v1wv6w/config.json"
 go_metadata_fpath: "${paths.data_dir}/pfam/pfam2go.csv"
 organism_metadata_fpath: "${paths.data_dir}/pfam/organism_counts.csv"
 cache_dir: "${paths.home_dir}/.cache/plaid_data/j1v1wv6w"
