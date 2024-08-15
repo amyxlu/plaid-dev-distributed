@@ -7,6 +7,7 @@ num_sanity_val_steps: 0
 gradient_clip_algorithm: norm
 max_epochs: 20000
 default_root_dir: ${paths.log_dir}
+precision: "bf16-mixed"
 
 # accelerator='auto'
 # strategy='auto'

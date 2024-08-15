@@ -27,31 +27,23 @@ def delete_key(d: dict, key: str = "_target_") -> dict:
     return d
 
 
-def maybe_resume(cfg: OmegaConf, project_name: str) -> T.Tuple[dict, str, Path, bool]:
+def maybe_resume_job_from_config(cfg: OmegaConf) -> T.Tuple[dict, str, bool]:
     # maybe use prior job id, else generate new ID
     is_resumed = cfg.resume_from_model_id is not None
     job_id = cfg.resume_from_model_id if is_resumed else wandb.util.generate_id()
 
-    # set up checkpoint and config yaml paths
-    outdir = Path(cfg.paths.checkpoint_dir) / project_name / job_id
-    config_path = outdir / "config.yaml"
-
     # save config to disk
+    config_path = Path(cfg.paths.checkpoint_dir) / job_id / "config.yaml"
     if config_path.exists():
         cfg = OmegaConf.load(config_path)
         rank_zero_info(f"Overriding config from job ID {job_id}!")
-    else:
-        if rank_zero_only.rank == 0:
-            outdir.mkdir(parents=True)
-            if not config_path.exists():
-                OmegaConf.save(cfg, config_path)
 
     # backwards compatibility:
     if hasattr(cfg.trainer, "precision"):
         if cfg.trainer.precision == "bf16-mixed":
             cfg.trainer.update({"precision": "32"})
 
-    return cfg, job_id, outdir, is_resumed
+    return cfg, job_id, is_resumed
 
 
 @hydra.main(version_base=None, config_path="configs", config_name="train_compositional")
@@ -59,7 +51,7 @@ def train(cfg: DictConfig) -> None:
     import torch
     torch.set_float32_matmul_precision("medium")
 
-    cfg, job_id, outdir, is_resumed = maybe_resume(cfg, _PROJECT_NAME)
+    cfg, job_id, is_resumed = maybe_resume_job_from_config(cfg)
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     rank_zero_info(OmegaConf.to_yaml(log_cfg))
 
@@ -97,11 +89,28 @@ def train(cfg: DictConfig) -> None:
     log_cfg["input_dim"] = input_dim
     logger = hydra.utils.instantiate(cfg.logger, id=job_id)
 
-    # checkpoint and LR callbacks
-    lr_monitor = LearningRateMonitor()
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=outdir)
+    ####################################################################################################
+    # Callbacks and model saving set-up
+    ####################################################################################################
 
-    callbacks = [lr_monitor, checkpoint_callback]
+    # lr logging callbacks
+    lr_monitor = LearningRateMonitor()
+
+    # exponential moving average calculations callback
+    ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
+
+    # checkpoint callback (also handles EMA logic, if used)
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
+
+    # callbacks
+    callbacks = [lr_monitor, ema_callback, checkpoint_callback]
+
+    # save configs
+    config_path = Path(cfg.paths.checkpoint_dir) / job_id / "config.yaml"
+    if not config_path.parent.exists():
+        config_path.parent.mkdir(parents=True)
+        if rank_zero_only.rank == 0:
+            OmegaConf.save(cfg, config_path)
 
     ####################################################################################################
     # Trainer
@@ -119,7 +128,7 @@ def train(cfg: DictConfig) -> None:
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if is_resumed:
-        ckpt_fpath = outdir / find_latest_checkpoint(outdir)
+        ckpt_fpath = Path(cfg.checkpoint_dir) / job_id / find_latest_checkpoint(str(cfg.checkpoint_dir))
         assert ckpt_fpath.exists(), f"Checkpoint {ckpt_fpath} not found!"
         rank_zero_info(f"Resuming from checkpoint {ckpt_fpath}")
         trainer.fit(diffusion, datamodule=datamodule, ckpt_path=ckpt_fpath)

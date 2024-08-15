@@ -1,4 +1,4 @@
-_target_: plaid.ema.EMAModelCheckpoint
+_target_: plaid.callbacks.EMAModelCheckpoint
 save_last: link
 filename: "{epoch}-{step}"
 verbose: true

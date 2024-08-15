@@ -2,11 +2,11 @@
 
 defaults:
   - _self_
-  - override /denoiser: DiT_L.yaml
-  - override /trainer: ddp.yaml
+  - override /denoiser: DiT_B.yaml
+  - override /trainer: default.yaml
 
 datamodule:
   batch_size: 64 
 
 callbacks/checkpoint:
-  every_n_train_steps: 100
+  every_n_train_steps: 10
