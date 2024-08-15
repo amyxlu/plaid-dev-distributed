@@ -2,8 +2,8 @@
 
 defaults:
   - _self_
-  - override /denoiser: DiT_XXL.yaml
+  - override /denoiser: DiT_L.yaml
   - override /trainer: ddp.yaml
 
 datamodule:
-  batch_size: 64
+  batch_size: 128

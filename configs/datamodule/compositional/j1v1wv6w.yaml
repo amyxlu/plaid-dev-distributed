@@ -14,7 +14,7 @@ val_epoch_num_batches: 1_000
 shuffle_buffer: 20_000
 shuffle_initial: 20_000
 
-max_length: 128
+max_length: 256
 batch_size: 1024
 num_workers: 8
 prefetch_factor: 4

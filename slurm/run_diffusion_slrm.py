@@ -38,12 +38,13 @@ micromamba activate plaid
 
 export HYDRA_FULL_ERROR=1
 export NCCL_DEBUG=TRACE
+export PYTHONUNBUFFERED=1
 cd /homefs/home/lux70/code/plaid/
 
 nvidia-smi
 
-srun python train_compositional.py {flags} \
-    ++trainer.devices=$SLURM_GPUS_PER_NODE \
+srun -u --cpu-bind=cores,verbose \
+    python train_compositional.py {flags} \
     ++trainer.num_nodes=$SLURM_JOB_NUM_NODES
 """
 

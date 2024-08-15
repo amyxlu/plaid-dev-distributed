@@ -18,15 +18,11 @@ x_clip_val: 1.0
 function_y_cond_drop_prob: 0.1
 organism_y_cond_drop_prob: 0.1
 
-# sampling - unnecessary unless running sampling during training
-sampling_timesteps: 100
-ddim_sampling_eta: 0.
-
 # optimization
-ema_decay: 0.999
+ema_decay: 0.9999
 lr: 1e-4
 lr_adam_betas: [0.9, 0.999]
-lr_sched_type: "schedule_free"
+lr_sched_type: "cosine_with_restarts"
 lr_num_warmup_steps: 10_000 
 lr_num_training_steps: 10_000_000
 lr_num_cycles: 1

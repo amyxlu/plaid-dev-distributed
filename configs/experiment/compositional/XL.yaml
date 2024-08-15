@@ -6,4 +6,4 @@ defaults:
   - override /trainer: ddp.yaml
 
 datamodule:
-  batch_size: 128 
+  batch_size: 64

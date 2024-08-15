@@ -1,11 +1,10 @@
 _target_: plaid.denoisers.FunctionOrganismDiT
 
-hidden_size: 1248
-max_seq_len: 512
+hidden_size: 1280
+max_seq_len: 256
 depth: 30
 num_heads: 16
 mlp_ratio: 4.0
 use_self_conditioning: True
 
 # 680M parameters
-# max batch size (sequence length 512): 32 
