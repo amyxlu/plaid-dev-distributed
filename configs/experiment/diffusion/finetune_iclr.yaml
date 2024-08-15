@@ -1,6 +1,0 @@
-# @package global
-defaults:
-  - override /denoiser: iclr_checkpoint
-
-diffusion:
-  - add_secondary_structure_conditioning: True
