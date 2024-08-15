@@ -18,7 +18,6 @@ from plaid.datasets import FunctionOrganismDataModule
 from plaid.denoisers import FunctionOrganismDiT
 from plaid.diffusion import FunctionOrganismDiffusion
 
-_PROJECT_NAME = "plaid_compositional_conditioning"
 
 
 def delete_key(d: dict, key: str = "_target_") -> dict:
@@ -93,16 +92,15 @@ def train(cfg: DictConfig) -> None:
     # Callbacks and model saving set-up
     ####################################################################################################
 
-    # lr logging callbacks
+    outdir = Path(cfg.paths.checkpoint_dir) / job_id 
     lr_monitor = LearningRateMonitor()
 
     # exponential moving average calculations callback
     ema_callback = hydra.utils.instantiate(cfg.callbacks.ema)
 
     # checkpoint callback (also handles EMA logic, if used)
-    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint)
+    checkpoint_callback = hydra.utils.instantiate(cfg.callbacks.checkpoint, dirpath=outdir)
 
-    # callbacks
     callbacks = [lr_monitor, ema_callback, checkpoint_callback]
 
     # save configs

@@ -180,7 +180,6 @@ class EMAModelCheckpoint(ModelCheckpoint):
 
     def _save_checkpoint(self, trainer: "pl.Trainer", filepath: str) -> None:
         super()._save_checkpoint(trainer, filepath)
-        import pdb;pdb.set_trace()
         ema_callback = self._get_ema_callback(trainer)
         if ema_callback is not None:
             # save EMA copy of the model as well

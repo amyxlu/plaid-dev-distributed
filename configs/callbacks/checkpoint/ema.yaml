@@ -2,7 +2,7 @@ _target_: plaid.callbacks.EMAModelCheckpoint
 save_last: link
 filename: "epoch{epoch}-step{step}"
 verbose: true
-every_n_train_steps: 100
+every_n_train_steps: 5000
 monitor: "step"
 save_top_k: 1
 mode: "max"

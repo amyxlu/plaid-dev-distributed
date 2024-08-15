@@ -1,5 +1,6 @@
 project_dir: /homefs/home/lux70/code/plaid
-bucket_dir: /mp/lux70/plaid
+# bucket_dir: /mp/lux70/plaid
+bucket_dir: /data/lux70/plaid
 data_dir: /data/lux70/data
 home_dir: /homefs/home/lux70
 
