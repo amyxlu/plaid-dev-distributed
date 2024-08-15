@@ -1,6 +1,0 @@
-_target_: lightning.pytorch.callbacks.ModelCheckpoint
-filename: "{epoch}-{step}"
-verbose: true
-every_n_train_steps: 5000
-save_last: "link" 
-save_top_k: 3

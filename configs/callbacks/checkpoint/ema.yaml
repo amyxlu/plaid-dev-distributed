@@ -1,9 +1,10 @@
 _target_: plaid.callbacks.EMAModelCheckpoint
 save_last: link
-filename: "{epoch}-{step}"
+filename: "epoch{epoch}-step{step}"
 verbose: true
-every_n_train_steps: 5000
+every_n_train_steps: 100
 monitor: "step"
 save_top_k: 1
 mode: "max"
 auto_insert_metric_name: false
+dirpath: "${paths.checkpoint_dir}"
