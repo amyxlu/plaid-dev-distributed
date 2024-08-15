@@ -67,7 +67,7 @@ class EMA(Callback):
 
     def apply_ema(self, pl_module: "pl.LightningModule") -> None:
         for orig_weight, ema_weight in zip(list(pl_module.state_dict().values()), self._ema_model_weights):
-            if ema_weight.data.dtype != torch.long and orig_weight.data.dtype != torch.long:
+            if torch.is_floating_point(ema_weight.data) and torch.is_floating_point(orig_weight.data):
                 # ensure that non-trainable parameters (e.g., feature distributions) are not included in EMA weight averaging
                 diff = ema_weight.data - orig_weight.data
                 diff.mul_(1.0 - self.decay)
@@ -180,6 +180,7 @@ class EMAModelCheckpoint(ModelCheckpoint):
 
     def _save_checkpoint(self, trainer: "pl.Trainer", filepath: str) -> None:
         super()._save_checkpoint(trainer, filepath)
+        import pdb;pdb.set_trace()
         ema_callback = self._get_ema_callback(trainer)
         if ema_callback is not None:
             # save EMA copy of the model as well
