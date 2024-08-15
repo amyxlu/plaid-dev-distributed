@@ -152,6 +152,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
         return dataset, dataloader
 
     def setup(self, stage=None):
+        super().__init__()
         self.train_ds, self.train_dl = self.make_dataloader("train")
         self.val_ds, self.val_dl = self.make_dataloader("val")
         

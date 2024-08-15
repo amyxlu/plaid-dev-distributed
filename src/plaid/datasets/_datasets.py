@@ -415,6 +415,7 @@ class CATHShardedDataModule(L.LightningDataModule):
             self.dataset_fn = H5ShardDataset
 
     def setup(self, stage: str = "fit"):
+        super().__init__()
         kwargs = {}
         if self.storage_type == "safetensors":
             kwargs["header_to_sequence_file"] = self.header_to_sequence_file
@@ -508,6 +509,7 @@ class CATHStructureDataModule(L.LightningDataModule):
         self.shuffle_val_dataset = shuffle_val_dataset
 
     def setup(self, stage: str = "fit"):
+        super().__init__()
         if stage == "fit":
             self.train_dataset = CATHStructureDataset(
                 split="train",
@@ -744,6 +746,7 @@ class CompressedLMDBDataModule(L.LightningDataModule):
         self.val_lmdb_path = base_dir / "val.lmdb"
 
     def setup(self, stage: str = "fit"):
+        super().__init__()
         if stage == "fit":
             self.train_dataset = CompressedLMDBDataset(self.train_lmdb_path)
             self.val_dataset = CompressedLMDBDataset(self.val_lmdb_path)
@@ -847,6 +850,7 @@ class CompressedH5DataModule(L.LightningDataModule):
         self.val_h5_path = base_dir / "val.h5"
 
     def setup(self, stage: str = "fit"):
+        super().__init__()
         if stage == "fit":
             self.train_dataset = self.dataset_fn(self.train_h5_path)
             self.val_dataset = self.dataset_fn(self.val_h5_path)
