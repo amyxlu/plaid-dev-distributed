@@ -32,3 +32,13 @@ for f in files:
     print("---")
 
     # os.rename(f, new_name)
+
+
+
+
+import os, shutil
+folders = os.listdir("/data/lux70/plaid/checkpoints/plaid_compositional_conditioning")
+for folder in folders:
+    if len(os.listdir(folder)) == 1:
+        print(f"remove {folder} with files", os.listdir(folder))
+        shutil.rmtree(folder)
