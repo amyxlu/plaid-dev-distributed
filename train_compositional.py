@@ -81,8 +81,7 @@ def train(cfg: DictConfig) -> None:
         denoiser = torch.compile(denoiser)
 
         # backwards compatibility:
-        outdated = hasattr(cfg, "use_old_ema_module")
-        diffusion = FunctionOrganismDiffusion(**diffusion_cfg, model=denoiser, use_old_ema_module=outdated)
+        diffusion = FunctionOrganismDiffusion(**diffusion_cfg, model=denoiser)
     
     else:
         denoiser = hydra.utils.instantiate(cfg.denoiser, input_dim=input_dim)

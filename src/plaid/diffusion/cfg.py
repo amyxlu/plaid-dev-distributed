@@ -608,28 +608,32 @@ class FunctionOrganismDiffusion(L.LightningModule):
             scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
             return {"optimizer": optimizer, "lr_scheduler": scheduler}
     
-    def on_load_checkpoint(self, checkpoint: T.Mapping[str, T.Any]) -> None:
-        # https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/pytorch/trainer/connectors/checkpoint_connector.py#L272
-        self.model.load_state_dict(checkpoint["state_dict"])
+    # def on_load_checkpoint(self, checkpoint: T.Mapping[str, T.Any]) -> None:
+    #     # https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/pytorch/trainer/connectors/checkpoint_connector.py#L272
+    #     is_compiled = "_orig_mod" in list(self.model.state_dict().keys())[0]
 
-        # load EMA model state dict
-        if "ema_state_dict" in checkpoint.keys():
-            ema_state_dict = checkpoint['ema_state_dict'] 
-            self.ema_model.load_state_dict(ema_state_dict)
+    #     # for backwards compatibility ##############################
 
-            # try:
-            #     self.ema_model.load_state_dict(ema_state_dict)
-            # except:
-            #     # for backwards compatibility
-            #     new_state_dict = {}
-            #     new_state_dict['initted'] = torch.tensor(True)
-            #     new_state_dict['step'] = torch.tensor(checkpoint['global_step'])
+    #     if is_compiled:
+    #         modified_state_dict = {}
+    #         for k, v in checkpoint['state_dict'].items():
+    #             modified_state_dict[f"_orig_mod.{k}"] = v
+    #         self.model.load_state_dict(modified_state_dict)
 
-            #     for k, v in ema_state_dict.items():
-            #         if k[:7] == "module.":
-            #             new_state_dict[k.replace("module.", "ema_model.")] = v
-
-            #     self.ema_model.load_state_dict(new_state_dict)
+    #         if "ema_state_dict" in checkpoint.keys() and self.ema_model is not None:
+    #             ema_state_dict = checkpoint['ema_state_dict'] 
+    #             modified_ema_state_dict = {}
+    #             for k, v in ema_state_dict.items():
+    #                 # modified_ema_state_dict[f"module._orig_mod.{k[7:]}"] = v
+    #                 key = f"module._orig_mod.{k[7:]}" if k.startswith("module.") 
+    #                     modified_ema_state_dict[] = v
+    #                 modified_ema_state_dict[re.sub(r'\bmodule\.', 'module._orig_mod.', k)] = v
+    #             self.ema_model.load_state_dict(modified_ema_state_dict)
+        
+    #     else:
+    #         self.model.load_state_dict(checkpoint["state_dict"])
+    #         if "ema_state_dict" in checkpoint.keys() and self.ema_model is not None:
+    #             self.ema_model.load_state_dict(checkpoint["ema_state_dict"])
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         if self.ema_model is not None:
