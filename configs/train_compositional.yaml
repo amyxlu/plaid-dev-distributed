@@ -12,3 +12,4 @@ defaults:
 
 resume_from_model_id: null
 compression_model_id: j1v1wv6w 
+use_old_ema_module: false

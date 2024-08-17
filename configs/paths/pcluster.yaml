@@ -5,7 +5,7 @@ data_dir: /data/lux70/data
 home_dir: /homefs/home/lux70
 
 log_dir: ${paths.bucket_dir}/logs
-checkpoint_dir: ${paths.bucket_dir}/checkpoints
+checkpoint_dir: ${paths.bucket_dir}/checkpoints/plaid-compositional
 artifacts_dir: ${paths.bucket_dir}/artifacts
 
 entity: lu-amy-al1

@@ -37,8 +37,11 @@ for f in files:
 
 
 import os, shutil
-folders = os.listdir("/data/lux70/plaid/checkpoints/plaid_compositional_conditioning")
+directory = "/data/lux70/plaid/checkpoints/plaid-compositional"
+folders = os.listdir(directory)
+
 for folder in folders:
-    if len(os.listdir(folder)) == 1:
-        print(f"remove {folder} with files", os.listdir(folder))
-        shutil.rmtree(folder)
+    subfolder = os.path.join(directory, folder)
+    if len(os.listdir(subfolder)) <= 1:
+        print(f"remove {subfolder} with files", os.listdir(subfolder))
+        # shutil.rmtree(subfolder)
