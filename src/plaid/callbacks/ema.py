@@ -9,7 +9,7 @@ import pytorch_lightning as pl
 from pathlib import Path
 from lightning import Callback
 from lightning.pytorch.callbacks import ModelCheckpoint
-from lightning.pytorch.utilities import rank_zero_warn, rank_zero_info
+from lightning.pytorch.utilities import rank_zero_warn, rank_zero_info, rank_zero_only
 from lightning.pytorch.utilities.exceptions import MisconfigurationException
 from lightning.pytorch.utilities.types import STEP_OUTPUT
 
@@ -188,7 +188,11 @@ class EMAModelCheckpoint(ModelCheckpoint):
             if self.verbose:
                 rank_zero_info(f"Saving EMA weights to separate checkpoint {filepath}")
             super()._save_checkpoint(trainer, filepath)
-            self._delete_prev_emas(filepath)
+            if rank_zero_only.rank == 0:
+                try:
+                    self._delete_prev_emas(filepath)
+                except:
+                    pass
             ema_callback.restore_original_weights(trainer.lightning_module)
 
     def _ema_format_filepath(self, filepath: str) -> str:
