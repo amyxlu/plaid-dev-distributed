@@ -19,7 +19,6 @@ from lightning.pytorch.utilities import rank_zero_only, rank_zero_info
 from schedulefree import AdamWScheduleFree
 
 from .beta_schedulers import make_beta_scheduler 
-from ..ema import EMA
 from ..utils import get_lr_scheduler
 from ..losses import masked_mse_loss
 from ..transforms import trim_or_pad_batch_first
@@ -102,13 +101,10 @@ class FunctionOrganismDiffusion(L.LightningModule):
         self.lr_num_training_steps = lr_num_training_steps
         self.lr_num_cycles = lr_num_cycles
 
-        if (ema_decay is not None):
-            if use_old_ema_module:
-                self.ema_model = AveragedModel(self.model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
-                self.ema_model.eval()
-                self.ema_model.requires_grad_(False)
-            else:
-                self.ema_model = EMA(self.model, beta=ema_decay, include_online_model=False)
+        if (ema_decay is not None) and use_old_ema_module:
+            self.ema_model = AveragedModel(self.model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
+            self.ema_model.eval()
+            self.ema_model.requires_grad_(False)
         else:
             self.ema_model = None
 
@@ -189,17 +185,6 @@ class FunctionOrganismDiffusion(L.LightningModule):
         register_buffer('loss_weight', loss_weight)
         register_buffer('snr', snr)
         self.save_hyperparameters(ignore=["model"])
-
-    def swap_to_ema(self):
-        original_weights = self.model.state_dict()
-        ema_weights = self.ema_model.module.state_dict()
-        for k, v in self.model.state_dict().items():
-            v.copy_(ema_weights[k])
-        return original_weights
-        
-    def swap_from_ema(self, original_weights):
-        for k, v in self.model.state_dict():
-            v.copy_(original_weights[k])
 
     def predict_start_from_noise(self, x_t, t, noise):
         return (
@@ -607,41 +592,6 @@ class FunctionOrganismDiffusion(L.LightningModule):
             )
             scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
             return {"optimizer": optimizer, "lr_scheduler": scheduler}
-    
-    # def on_load_checkpoint(self, checkpoint: T.Mapping[str, T.Any]) -> None:
-    #     # https://github.com/Lightning-AI/pytorch-lightning/blob/master/src/lightning/pytorch/trainer/connectors/checkpoint_connector.py#L272
-    #     is_compiled = "_orig_mod" in list(self.model.state_dict().keys())[0]
-
-    #     # for backwards compatibility ##############################
-
-    #     if is_compiled:
-    #         modified_state_dict = {}
-    #         for k, v in checkpoint['state_dict'].items():
-    #             modified_state_dict[f"_orig_mod.{k}"] = v
-    #         self.model.load_state_dict(modified_state_dict)
-
-    #         if "ema_state_dict" in checkpoint.keys() and self.ema_model is not None:
-    #             ema_state_dict = checkpoint['ema_state_dict'] 
-    #             modified_ema_state_dict = {}
-    #             for k, v in ema_state_dict.items():
-    #                 # modified_ema_state_dict[f"module._orig_mod.{k[7:]}"] = v
-    #                 key = f"module._orig_mod.{k[7:]}" if k.startswith("module.") 
-    #                     modified_ema_state_dict[] = v
-    #                 modified_ema_state_dict[re.sub(r'\bmodule\.', 'module._orig_mod.', k)] = v
-    #             self.ema_model.load_state_dict(modified_ema_state_dict)
-        
-    #     else:
-    #         self.model.load_state_dict(checkpoint["state_dict"])
-    #         if "ema_state_dict" in checkpoint.keys() and self.ema_model is not None:
-    #             self.ema_model.load_state_dict(checkpoint["ema_state_dict"])
-
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        if self.ema_model is not None:
-            self.ema_model.update()
-
-    def on_save_checkpoint(self, checkpoint):
-        if self.ema_model is not None:
-            checkpoint['ema_state_dict'] = self.ema_model.state_dict()
     
     # To handle schedule-free AdamW
 
