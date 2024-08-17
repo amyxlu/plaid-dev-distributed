@@ -135,5 +135,7 @@ def make_beta_scheduler(sched_name, start=None, end=None, tau=None):
         return ADMCosineBetaScheduler()
     elif sched_name == "sigmoid":
         return SigmoidBetaScheduler(start=start, end=end, tau=tau)
+    elif sched_name == "linear":
+        return LinearBetaScheduler(start=start, end=end)
     else:
         raise
