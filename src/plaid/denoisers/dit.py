@@ -8,6 +8,8 @@
 import typing as T
 from functools import partial
 from collections import namedtuple
+from itertools import repeat
+import collections.abc
 
 import torch
 from torch import nn, einsum
@@ -15,9 +17,20 @@ import torch.nn.functional as F
 import numpy as np
 from einops import rearrange
 
-from .modules.helpers import to_2tuple
 from .modules.embedders import TimestepEmbedder, LabelEmbedder, get_1d_sincos_pos_embed
 from ..datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
+
+
+# From PyTorch internals
+def _ntuple(n):
+    def parse(x):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
+            return tuple(x)
+        return tuple(repeat(x, n))
+    return parse
+
+to_1tuple = _ntuple(1)
+to_2tuple = _ntuple(2)
 
 
 DenoiserKwargs = namedtuple("DenoiserKwargs", ['x', 't', 'function_y', 'organism_y', 'mask', 'x_self_cond'])
