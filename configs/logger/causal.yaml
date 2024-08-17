@@ -1,7 +1,0 @@
-_target_: lightning.pytorch.loggers.WandbLogger
-
-project: plaid-causal-tokens
-entity: ${paths.entity}
-name: null
-tags: null
-group: null

@@ -1,7 +1,0 @@
-_target_: plaid.datasets.CompressedH5DataModule
-compression_model_id: jzlv54wl
-h5_root_dir: /data/lux70/data/pfam/compressed/subset_5000_redo
-max_seq_len: 512
-batch_size: 128
-num_workers: 8
-shuffle_val_dataset: False
