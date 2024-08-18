@@ -1,15 +1,12 @@
 # References:
 # GLIDE: https://github.com/openai/glide-text2im
 # MAE: https://github.com/facebookresearch/mae/blob/main/models_mae.py
-# DiT: https://github.com/facebookresearch/DiT/blob/main/models.py 
+# DiT: https://github.com/facebookresearch/DiT/blob/main/models.py
 # CFG: https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py
 # --------------------------------------------------------
 
 import typing as T
 from functools import partial
-from collections import namedtuple
-from itertools import repeat
-import collections.abc
 
 import torch
 from torch import nn, einsum
@@ -17,23 +14,16 @@ import torch.nn.functional as F
 import numpy as np
 from einops import rearrange
 
-from .modules.embedders import TimestepEmbedder, LabelEmbedder, get_1d_sincos_pos_embed
+from . import DenoiserKwargs
+from .modules import (
+    TimestepEmbedder,
+    LabelEmbedder,
+    get_1d_sincos_pos_embed,
+    Mlp,
+)
 from ..datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
 
 
-# From PyTorch internals
-def _ntuple(n):
-    def parse(x):
-        if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
-            return tuple(x)
-        return tuple(repeat(x, n))
-    return parse
-
-to_1tuple = _ntuple(1)
-to_2tuple = _ntuple(2)
-
-
-DenoiserKwargs = namedtuple("DenoiserKwargs", ['x', 't', 'function_y', 'organism_y', 'mask', 'x_self_cond'])
 
 
 def exists(val):
@@ -87,46 +77,6 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 
-class Mlp(nn.Module):
-    """MLP as used in Vision Transformer, MLP-Mixer and related networks
-    https://github.com/huggingface/pytorch-image-models/blob/main/timm/layers/mlp.py
-    """
-
-    def __init__(
-        self,
-        in_features,
-        hidden_features=None,
-        out_features=None,
-        act_layer=nn.GELU,
-        norm_layer=None,
-        bias=True,
-        drop=0.0,
-        use_conv=False,
-    ):
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-        bias = to_2tuple(bias)
-        drop_probs = to_2tuple(drop)
-        linear_layer = partial(nn.Conv2d, kernel_size=1) if use_conv else nn.Linear
-
-        self.fc1 = linear_layer(in_features, hidden_features, bias=bias[0])
-        self.act = act_layer()
-        self.drop1 = nn.Dropout(drop_probs[0])
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
-        self.fc2 = linear_layer(hidden_features, out_features, bias=bias[1])
-        self.drop2 = nn.Dropout(drop_probs[1])
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop1(x)
-        x = self.norm(x)
-        x = self.fc2(x)
-        x = self.drop2(x)
-        return x
-
-
 class DiTBlock(nn.Module):
     """
     A DiT block with adaptive layer norm zero (adaLN-Zero) conditioning.
@@ -139,16 +89,27 @@ class DiTBlock(nn.Module):
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
-        self.mlp = Mlp(in_features=hidden_size, hidden_features=mlp_hidden_dim, act_layer=approx_gelu, drop=0)
-        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True))
+        self.mlp = Mlp(
+            in_features=hidden_size,
+            hidden_features=mlp_hidden_dim,
+            act_layer=approx_gelu,
+            drop=0,
+        )
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True)
+        )
 
     def forward(self, x, c, mask):
         """Apply multi-head attention (with mask) and adaLN conditioning (mask agnostic)."""
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(
-            6, dim=1
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
+            self.adaLN_modulation(c).chunk(6, dim=1)
         )
-        x = x + gate_msa.unsqueeze(1) * self.attn(modulate(self.norm1(x), shift_msa, scale_msa), mask)
-        x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        x = x + gate_msa.unsqueeze(1) * self.attn(
+            modulate(self.norm1(x), shift_msa, scale_msa), mask
+        )
+        x = x + gate_mlp.unsqueeze(1) * self.mlp(
+            modulate(self.norm2(x), shift_mlp, scale_mlp)
+        )
         return x
 
 
@@ -164,7 +125,9 @@ class FinalLayer(nn.Module):
         self.hidden_size = hidden_size
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.linear = nn.Linear(hidden_size, out_channels, bias=True)
-        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True))
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True)
+        )
 
     def forward(self, x, c):
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
@@ -208,14 +171,20 @@ class FunctionOrganismDiT(nn.Module):
         self.x_proj = InputProj(input_dim, hidden_size, bias=True)
 
         # timestep embedder
-        self.t_embedder = TimestepEmbedder(hidden_size)
+        self.t_embedder = TimestepEmbedder(hidden_size, frequency_embedding_size=256)
 
         # trainable position embedder
-        self.pos_embed = nn.Parameter(torch.zeros(1, max_seq_len, hidden_size), requires_grad=False)
+        self.pos_embed = nn.Parameter(
+            torch.zeros(1, max_seq_len, hidden_size), requires_grad=False
+        )
 
         # class-dependent label embedders (does not include the unconditional class)
-        self.function_y_embedder = LabelEmbedder(NUM_FUNCTION_CLASSES, hidden_size, add_cfg_embedding=True)
-        self.organism_y_embedder = LabelEmbedder(NUM_ORGANISM_CLASSES, hidden_size, add_cfg_embedding=True)
+        self.function_y_embedder = LabelEmbedder(
+            NUM_FUNCTION_CLASSES, hidden_size, add_cfg_embedding=True
+        )
+        self.organism_y_embedder = LabelEmbedder(
+            NUM_ORGANISM_CLASSES, hidden_size, add_cfg_embedding=True
+        )
 
         # combine along the hidden dimension if using self-conditioning
         if self.use_self_conditioning:
@@ -223,12 +192,15 @@ class FunctionOrganismDiT(nn.Module):
             self.self_conditioning_mlp = Mlp(
                 in_features=input_dim * 2,
                 hidden_features=input_dim * 2,
-                out_features=input_dim
+                out_features=input_dim,
             )
 
-        self.blocks = nn.ModuleList([
-            DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio) for _ in range(depth)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                DiTBlock(hidden_size, num_heads, mlp_ratio=mlp_ratio)
+                for _ in range(depth)
+            ]
+        )
         self.final_layer = FinalLayer(hidden_size, max_seq_len, input_dim)
         self.initialize_weights()
 
@@ -243,7 +215,9 @@ class FunctionOrganismDiT(nn.Module):
         self.apply(_basic_init)
 
         # Initialize (and freeze) pos_embed by sin-cos embedding:
-        pos_embed = get_1d_sincos_pos_embed(self.pos_embed.shape[-1], np.arange(self.max_seq_len))
+        pos_embed = get_1d_sincos_pos_embed(
+            self.pos_embed.shape[-1], np.arange(self.max_seq_len)
+        )
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
         # Initialize label embedding table:
@@ -265,8 +239,13 @@ class FunctionOrganismDiT(nn.Module):
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
 
-    def forward_with_cond_drop(self, denoiser_kwargs: DenoiserKwargs, function_y_cond_drop_prob: float, organism_y_cond_drop_prob: float):
-        """ Forward pass for diffusion training, with label dropout."""
+    def forward_with_cond_drop(
+        self,
+        denoiser_kwargs: DenoiserKwargs,
+        function_y_cond_drop_prob: float,
+        organism_y_cond_drop_prob: float,
+    ):
+        """Forward pass for diffusion training, with label dropout."""
 
         # unpack named tuple
         x = denoiser_kwargs.x
@@ -279,7 +258,7 @@ class FunctionOrganismDiT(nn.Module):
         # project along the channel dimension if using self-conditioning
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
-        
+
         # project back out to the hidden size to be used by the blocks
         x = self.x_proj(x)
 
@@ -290,8 +269,12 @@ class FunctionOrganismDiT(nn.Module):
         t = self.t_embedder(t)  # (N, D)
 
         # get function and organism label embeddings, potentially dropping out the label for classifier-free guidance training
-        function_y = self.function_y_embedder(function_y, self.training, function_y_cond_drop_prob)
-        organism_y = self.organism_y_embedder(organism_y, self.training, organism_y_cond_drop_prob)
+        function_y = self.function_y_embedder(
+            function_y, self.training, function_y_cond_drop_prob
+        )
+        organism_y = self.organism_y_embedder(
+            organism_y, self.training, organism_y_cond_drop_prob
+        )
 
         # combine timestep and label conditioning labels
         c = t + function_y + organism_y
@@ -303,36 +286,53 @@ class FunctionOrganismDiT(nn.Module):
         # pass through blocks and final layer
         for block in self.blocks:
             x = block(x, c, mask)  # (N, L, D)
-        
+
         return self.final_layer(x, c)  # (N, L, out_channels)
 
-    def forward_with_cond_scale(self, denoiser_kwargs: DenoiserKwargs, cond_scale: float, rescaled_phi: float):
-        """ Forward pass for sampling model predictions, with a conditioning scale.
+    def forward_with_cond_scale(
+        self, denoiser_kwargs: DenoiserKwargs, cond_scale: float, rescaled_phi: float
+    ):
+        """Forward pass for sampling model predictions, with a conditioning scale.
         Adapted from https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py#L355
         """
 
         # force conditioning: no label drop
-        logits = self.forward_with_cond_drop(denoiser_kwargs, function_y_cond_drop_prob=0., organism_y_cond_drop_prob=0.)
+        logits = self.forward_with_cond_drop(
+            denoiser_kwargs,
+            function_y_cond_drop_prob=0.0,
+            organism_y_cond_drop_prob=0.0,
+        )
 
         if cond_scale == 1:
             return logits
 
         # force unconditional: always no label drop
-        null_logits = self.forward_with_cond_drop(denoiser_kwargs, function_y_cond_drop_prob=1., organism_y_cond_drop_prob=1.)
+        null_logits = self.forward_with_cond_drop(
+            denoiser_kwargs,
+            function_y_cond_drop_prob=1.0,
+            organism_y_cond_drop_prob=1.0,
+        )
 
         # apply cond scaling factor
         scaled_logits = null_logits + (logits - null_logits) * cond_scale
 
         # use rescaling technique proposed in https://arxiv.org/abs/2305.08891
-        if rescaled_phi == 0.:
+        if rescaled_phi == 0.0:
             return scaled_logits
 
-        std_fn = partial(torch.std, dim = tuple(range(1, scaled_logits.ndim)), keepdim = True)
+        std_fn = partial(
+            torch.std, dim=tuple(range(1, scaled_logits.ndim)), keepdim=True
+        )
         rescaled_logits = scaled_logits * (std_fn(logits) / std_fn(scaled_logits))
 
-        return rescaled_logits * rescaled_phi + scaled_logits * (1. - rescaled_phi) 
+        return rescaled_logits * rescaled_phi + scaled_logits * (1.0 - rescaled_phi)
 
-    def forward(self, denoiser_kwargs: DenoiserKwargs, use_cond_dropout: bool = False, **kwargs: T.Any):
+    def forward(
+        self,
+        denoiser_kwargs: DenoiserKwargs,
+        use_cond_dropout: bool = False,
+        **kwargs: T.Any
+    ):
         if use_cond_dropout:
             return self.forward_with_cond_drop(denoiser_kwargs, **kwargs)
         else:
