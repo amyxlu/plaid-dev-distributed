@@ -29,14 +29,13 @@ class BaseDenoiser(nn.Module):
         self,
         input_dim=32,
         hidden_size=768,
-        max_seq_len=256,
         depth=6,
         num_heads=8,
         mlp_ratio=4.0,
         use_self_conditioning=True,
         timestep_embedding_strategy: str = "fourier",
         pos_embedding_strategy: str = "rotary",
-        cfg_dropout: float = 0.0,
+        max_seq_len: T.Optional[int] = 256,
         *args,
         **kwargs
     ):
@@ -50,7 +49,7 @@ class BaseDenoiser(nn.Module):
         self.use_self_conditioning = use_self_conditioning
 
         # cast input dimension to hidden dimension
-        self.input_projection = self.make_input_projection(*args, **kwargs)
+        self.x_proj = self.make_input_projection(*args, **kwargs)
 
         # cast output dimension to hidden dimension
         self.output_layer = self.make_output_projection(*args, **kwargs)
@@ -62,10 +61,10 @@ class BaseDenoiser(nn.Module):
             self.self_conditioning_mlp = None
 
         # abstract methods for timesteps and positional encodings
-        self.timestep_embedder = self.make_timestep_embedding(
+        self.t_embedder = self.make_timestep_embedding(
             timestep_embedding_strategy, hidden_size, *args, **kwargs
         )
-        self.pos_embedder = self.make_positional_embedding(
+        self.pos_embed = self.make_positional_embedding(
             pos_embedding_strategy, hidden_size, *args, **kwargs
         )
 
@@ -76,8 +75,14 @@ class BaseDenoiser(nn.Module):
         self.organism_y_embedder = LabelEmbedder(
             NUM_ORGANISM_CLASSES, hidden_size, add_cfg_embedding=True
         )
-        
+
+        ############################################# 
+        ############################################# 
+        # must be implemented in subclasses  
         self.blocks = self.make_denoising_blocks()
+        self.initialize_weights()
+        ############################################# 
+        ############################################# 
 
     """
     Denoising block initialization must be implemented in subclasses.
@@ -85,6 +90,10 @@ class BaseDenoiser(nn.Module):
 
     @abc.abstractmethod
     def make_denoising_blocks(self, *args, **kwargs):
+        raise NotImplementedError
+    
+    @abc.abstractmethod
+    def initialize_weights(self):
         raise NotImplementedError
 
     """
@@ -101,21 +110,23 @@ class BaseDenoiser(nn.Module):
         return Mlp(self.hidden_size * 2, self.hidden_size)
 
     def make_positional_embedding(self, strategy: str, hidden_size: int):
-        assert strategy in ["rotary", "learned", "sinusoidal"]
+        assert strategy in ["rotary", "learned", "sinusoidal", None]
         if strategy == "rotary":
             return RotaryEmbedding(dim=hidden_size)
         elif strategy == "learned":
             return nn.Parameter(torch.zeros(1, hidden_size))
-        elif strategy == "sinusoidal":
-            return SinusoidalPosEmb(hidden_size)
         else:
-            raise NotImplementedError
+            # default: sinusoidal, as is done with the original DiT paper
+            assert not self.max_seq_len is None
+
 
     def make_timestep_embedding(self, strategy: str, hidden_size: int):
-        assert strategy in ["fourier", "sinusoidal", "default"]
+        """ By default, we use a frequency transform and then an MLP projection."""
+        assert strategy in ["fourier", "sinusoidal", "default", None]
         if strategy == "fourier":
             return FourierTimestepEmbedder(embed_dim=hidden_size)
         else:
+            # default: sinusoidal transform
             return TimestepEmbedder(hidden_size=hidden_size, frequency_embedding_size=256) 
 
     """

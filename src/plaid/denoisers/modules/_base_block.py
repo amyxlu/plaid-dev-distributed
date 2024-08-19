@@ -1,3 +1,7 @@
+"""
+For backwards compatibility with U-Evoformer based denoiser experiments.
+"""
+
 import typing as T
 import torch
 import torch.nn as nn
