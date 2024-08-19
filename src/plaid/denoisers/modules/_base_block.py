@@ -78,4 +78,3 @@ class BaseBlock(nn.Module):
     @abc.abstractmethod
     def forward(self, x, c, mask=None, z=None, *args, **kwargs):
         raise NotImplementedError
-
