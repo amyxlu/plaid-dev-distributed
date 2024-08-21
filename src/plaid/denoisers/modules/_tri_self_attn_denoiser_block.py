@@ -22,7 +22,7 @@ from ...esmfold.misc import (
     SequenceToPair,
 )
 
-from . import BaseBlock
+from ._base_block import BaseBlock
 
 
 class TriangularSelfAttentionBlock(BaseBlock):

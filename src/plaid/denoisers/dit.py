@@ -16,7 +16,7 @@ import numpy as np
 from einops import rearrange
 
 from .modules import to_2tuple, LabelEmbedder, get_1d_sincos_pos_embed
-from .modules._embedders import DiTTimestepEmbedder as TimestepEmbedder
+from .modules._embedders import SinusoidalTimestepEmbedder as TimestepEmbedder
 from ..datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
 
 

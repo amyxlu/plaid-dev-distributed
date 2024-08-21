@@ -2,26 +2,29 @@ import typing as T
 import torch
 import torch.nn as nn
 import abc
-import einops
 from functools import partial
+import numpy as np
 
-from . import (
-    # timesteps
-    TimestepEmbedder,
-    FourierTimestepEmbedder,
-    # positional embeddings
-    RotaryEmbedding,
-    SinusoidalPosEmb,
-    # auxiliary
-    LabelEmbedder,
-    Mlp,
-)
+from . import DenoiserKwargs
+from ._embedders import SinusoidalTimestepEmbedder, FourierTimestepEmbedder, LabelEmbedder, get_1d_sincos_pos_embed
+from ._rope import RotaryEmbedding
+from ._timm import Mlp
 
-# named input tuple
-from .. import DenoiserKwargs
-
-# label embedding sizes
 from ...datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
+
+
+class InputProj(nn.Module):
+    """
+    Initial x projection, serves a similar purpose as the patch embed
+    """
+
+    def __init__(self, input_dim, hidden_size, bias=True):
+        super().__init__()
+        self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
+        self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+
+    def forward(self, x):
+        return self.norm(self.proj(x))
 
 
 class BaseDenoiser(nn.Module):
@@ -34,7 +37,7 @@ class BaseDenoiser(nn.Module):
         mlp_ratio=4.0,
         use_self_conditioning=True,
         timestep_embedding_strategy: str = "fourier",
-        pos_embedding_strategy: str = "rotary",
+        pos_embedding_strategy: str = "learned_sinusoidal",
         max_seq_len: T.Optional[int] = 256,
         *args,
         **kwargs
@@ -52,7 +55,7 @@ class BaseDenoiser(nn.Module):
         self.x_proj = self.make_input_projection(*args, **kwargs)
 
         # cast output dimension to hidden dimension
-        self.output_layer = self.make_output_projection(*args, **kwargs)
+        self.final_layer = self.make_output_projection(*args, **kwargs)
 
         # self conditioning
         if use_self_conditioning:
@@ -101,33 +104,33 @@ class BaseDenoiser(nn.Module):
     """
 
     def make_input_projection(self, *args, **kwargs):
-        return Mlp(self.input_dim, self.hidden_size)
+        return InputProj(input_dim=self.input_dim, hidden_size=self.hidden_size, bias=True)
 
     def make_output_projection(self, *args, **kwargs):
-        return Mlp(self.hidden_size, self.input_dim)
+        return Mlp(in_features=self.hidden_size, out_features=self.input_dim, norm_layer=nn.LayerNorm)
 
     def make_self_conditioning_projection(self, *args, **kwargs):
-        return Mlp(self.hidden_size * 2, self.hidden_size)
+        return Mlp(in_features=self.input_dim * 2, out_features=self.input_dim, norm_layer=nn.LayerNorm)
 
     def make_positional_embedding(self, strategy: str, hidden_size: int):
-        assert strategy in ["rotary", "learned", "sinusoidal", None]
+        assert strategy in ["rotary", "learned_sinusoidal", None]
         if strategy == "rotary":
             return RotaryEmbedding(dim=hidden_size)
-        elif strategy == "learned":
-            return nn.Parameter(torch.zeros(1, hidden_size))
         else:
             # default: sinusoidal, as is done with the original DiT paper
             assert not self.max_seq_len is None
-
+            pos_embed = nn.Parameter(torch.zeros(1, self.max_seq_len, hidden_size), requires_grad=False)
+            pos = get_1d_sincos_pos_embed(pos_embed.shape[-1], np.arange(self.max_seq_len))
+            pos_embed.data.copy_(torch.from_numpy(pos).float().unsqueeze(0))
 
     def make_timestep_embedding(self, strategy: str, hidden_size: int):
         """ By default, we use a frequency transform and then an MLP projection."""
         assert strategy in ["fourier", "sinusoidal", "default", None]
         if strategy == "fourier":
-            return FourierTimestepEmbedder(embed_dim=hidden_size)
+            return FourierTimestepEmbedder(hidden_size=hidden_size, frequency_embedding_size=256)
         else:
             # default: sinusoidal transform
-            return TimestepEmbedder(hidden_size=hidden_size, frequency_embedding_size=256) 
+            return SinusoidalTimestepEmbedder(hidden_size=hidden_size, frequency_embedding_size=256) 
 
     """
     Default forward and utility functions; subclasses can override as needed.
@@ -163,10 +166,10 @@ class BaseDenoiser(nn.Module):
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
 
         # project back out to the hidden size to be used by the blocks
-        x = self.input_projection(x)
+        x = self.x_proj(x)
 
         # add positional embedding
-        x = self.pos_embedder(x)
+        x = self.pos_embed(x)
 
         # add trainable timestep embedding
         t = self.t_embedder(t)  # (N, D)

@@ -5,11 +5,6 @@ import torch
 import numpy as np
 
 
-#################################################################################
-# Frequency Embeddings
-#################################################################################
-
-
 class GaussianFourierProjection(nn.Module):
     """
     https://arxiv.org/abs/2006.10739
@@ -33,95 +28,12 @@ class GaussianFourierProjection(nn.Module):
         return embed
 
 
-class Base2FourierFeatures(nn.Module):
-    # jax to torch adaptation of VDM code
-    # https://github.com/google-research/vdm/blob/main/model_vdm.py#L618
-    def __init__(self, start=4, stop=8, step=1):
-        self.start = start
-        self.stop = stop
-        self.step = step
-
-    def forward(self, inputs):
-        freqs = torch.arange(self.start, self.stop, self.step).to(dtype=inputs.dtype)
-
-        # Create Base 2 Fourier features
-        w = 2. ** freqs * 2 * math.pi
-        w = torch.tile(w[None, :], (1, inputs.shape[-1]))
-
-        # Compute features
-        h = torch.repeat(inputs, len(freqs), axis=-1)
-        h = w * h
-        h = torch.concatenate([torch.sin(h), torch.cos(h)], axis=-1)
-        return h
-
-
-class SinusoidalPosEmb(nn.Module):
-    def __init__(self, dim):
-        """fixed trig projection"""
-        # https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/guided_diffusion.py#L115
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x):
-        device = x.device
-        half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x[:, None] * emb[None, :]
-        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
-        return emb
-
-
-class RandomOrLearnedSinusoidalPosEmb(nn.Module):
-    """ following @crowsonkb 's lead with random (learned optional) sinusoidal pos emb """
-    """ https://github.com/crowsonkb/v-diffusion-jax/blob/master/diffusion/models/danbooru_128.py#L8 """
-
-    def __init__(self, dim, is_random = False):
-        super().__init__()
-        assert (dim % 2) == 0
-        half_dim = dim // 2
-        self.weights = nn.Parameter(torch.randn(half_dim), requires_grad = not is_random)
-
-    def forward(self, x):
-        x = rearrange(x, 'b -> b 1')
-        freqs = x * rearrange(self.weights, 'd -> 1 d') * 2 * math.pi
-        fouriered = torch.cat((freqs.sin(), freqs.cos()), dim = -1)
-        fouriered = torch.cat((x, fouriered), dim = -1)
-        return fouriered
-
-
-#################################################################################
-# Positional Embeddings
-#################################################################################
-
-
-def get_1d_sincos_pos_embed(embed_dim, pos):
-    """
-    Get fixed embedding for 1d sincons
-    embed_dim: output dimension for each position
-    pos: a list of positions to be encoded: size (M,)
-    out: (M, D)
-    """
-    assert embed_dim % 2 == 0
-    omega = np.arange(embed_dim // 2, dtype=np.float64)
-    omega /= embed_dim / 2.
-    omega = 1. / 10000**omega  # (D/2,)
-
-    pos = pos.reshape(-1)  # (M,)
-    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
-
-    emb_sin = np.sin(out) # (M, D/2)
-    emb_cos = np.cos(out) # (M, D/2)
-
-    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
-    return emb
-
-
 #################################################################################
 # Timestep and Label Embeddings
 #################################################################################
 
-class DiTTimestepEmbedder(nn.Module):
+
+class SinusoidalTimestepEmbedder(nn.Module):
     """
     Embeds scalar timesteps into vector representations.
     """
@@ -161,36 +73,24 @@ class DiTTimestepEmbedder(nn.Module):
         return t_emb
 
 
-class TimestepEmbedder(nn.Module):
-    """
-    Embeds scalar timesteps into vector representations.
-    """
+class FourierTimestepEmbedder(nn.Module):
     def __init__(self, hidden_size, frequency_embedding_size=256):
         super().__init__()
+        self.frequency_embedding_size = frequency_embedding_size
+        self.fourier_projection = GaussianFourierProjection(embed_dim=frequency_embedding_size)
         self.mlp = nn.Sequential(
             nn.Linear(frequency_embedding_size, hidden_size, bias=True),
             nn.SiLU(),
             nn.Linear(hidden_size, hidden_size, bias=True),
         )
-        self.frequency_embedding_size = frequency_embedding_size
 
-    def timestep_embedding(self, t):
-        return NotImplementedError
-
-    def forward(self, t, **kwargs):
-        t_freq = self.timestep_embedding(t, **kwargs)
-        t_emb = self.mlp(t_freq)
-        return t_emb
-
-
-class FourierTimestepEmbedder(TimestepEmbedder):
-    def __init__(self, hidden_size, frequency_embedding_size=256):
-        super().__init__(hidden_size, frequency_embedding_size)
-        self.fourier_projection = GaussianFourierProjection(embed_dim=frequency_embedding_size)
-
-    @staticmethod
     def timestep_embedding(self, t, *args, **kwargs):
         return self.fourier_projection(t)
+
+    def forward(self, t):
+        t_freq = self.timestep_embedding(t)
+        t_emb = self.mlp(t_freq)
+        return t_emb
     
 
 class LabelEmbedder(nn.Module):
@@ -219,3 +119,32 @@ class LabelEmbedder(nn.Module):
             labels = self.token_drop(labels, dropout_prob, force_drop_ids)
         embeddings = self.embedding_table(labels)
         return embeddings
+
+
+#################################################################################
+# Positional Embeddings
+#################################################################################
+
+# For consistency with DiT model, though this is a less preferable interface
+
+
+def get_1d_sincos_pos_embed(embed_dim, pos):
+    """
+    Get fixed embedding for 1d sincons
+    embed_dim: output dimension for each position
+    pos: a list of positions to be encoded: size (M,)
+    out: (M, D)
+    """
+    assert embed_dim % 2 == 0
+    omega = np.arange(embed_dim // 2, dtype=np.float64)
+    omega /= embed_dim / 2.
+    omega = 1. / 10000**omega  # (D/2,)
+
+    pos = pos.reshape(-1)  # (M,)
+    out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
+
+    emb_sin = np.sin(out) # (M, D/2)
+    emb_cos = np.cos(out) # (M, D/2)
+
+    emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
+    return emb

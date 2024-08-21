@@ -11,15 +11,14 @@ import abc
 import numpy as np
 import torch
 from torch import nn
-from torch import Tensor
 
-from plaid.esmfold import (
+from ..esmfold import (
     RelativePosition,
     FoldingTrunkConfig,
 )
-from plaid.denoisers import BaseDenoiser
-from plaid.denoisers.modules import TriangularSelfAttentionBlock
-from plaid.esmfold.misc import get_esmfold_model_state
+from ..esmfold.misc import get_esmfold_model_state 
+from .modules._base_denoiser import BaseDenoiser
+from .modules._tri_self_attn_denoiser_block import TriangularSelfAttentionBlock
 
 
 PathLike = T.Union[str, Path]

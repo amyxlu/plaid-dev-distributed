@@ -82,18 +82,38 @@ class Block(nn.Module):
         return x
 
 
+class FinalLayer(nn.Module):
+    """
+    The final layer of DiT.
+    """
+
+    def __init__(self, hidden_size, out_channels):
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.out_channels = out_channels
+        self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(hidden_size, out_channels, bias=True)
+        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True))
+
+    def forward(self, x, c):
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
+        x = modulate(self.norm_final(x), shift, scale)
+        x = self.linear(x)
+        return x
+
+
 class FunctionOrganismDiT(BaseDenoiser):
     def __init__(
         self,
-        input_dim=8,
-        hidden_size=512,
-        max_seq_len=512,
+        input_dim=32,
+        hidden_size=768,
+        max_seq_len=256,
         depth=6,
-        num_heads=8,
-        mlp_ratio=2.0,
+        num_heads=16,
+        mlp_ratio=4.0,
         use_self_conditioning=True,
         timestep_embedding_strategy: T.Optional[str] = "fourier", 
-        pos_embedding_strategy: T.Optional[str] = "rotary",
+        pos_embedding_strategy: T.Optional[str] = "sinusoidal",
         use_skip_connections: bool = True,
     ):
         kwargs = dict(
@@ -117,6 +137,9 @@ class FunctionOrganismDiT(BaseDenoiser):
                 for _ in range(self.depth)
             ]
         )
+    
+    def make_output_projection(self):
+        return FinalLayer(self.hidden_size, self.input_dim)
     
     def initialize_weights(self):
         # Initialize transformer layers:

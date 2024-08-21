@@ -1,7 +1,12 @@
+from collections import namedtuple
+
+DenoiserKwargs = namedtuple(
+    "DenoiserKwargs", ["x", "t", "function_y", "organism_y", "mask", "x_self_cond"]
+)
+
 from ._embedders import (
-    DiTTimestepEmbedder,
+    SinusoidalTimestepEmbedder,
     FourierTimestepEmbedder,
-    SinusoidalPosEmb,
     LabelEmbedder,
     get_1d_sincos_pos_embed
 )
