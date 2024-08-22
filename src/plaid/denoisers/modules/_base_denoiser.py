@@ -6,8 +6,7 @@ from functools import partial
 import numpy as np
 
 from . import DenoiserKwargs
-from ._embedders import SinusoidalTimestepEmbedder, FourierTimestepEmbedder, LabelEmbedder, get_1d_sincos_pos_embed
-from ._rope import RotaryEmbedding
+from ._embedders import SinusoidalTimestepEmbedder, FourierTimestepEmbedder, LabelEmbedder, SinePositionalEmbedding
 from ._timm import Mlp
 
 from ...datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
@@ -33,7 +32,6 @@ class BaseDenoiser(nn.Module):
         mlp_ratio=4.0,
         use_self_conditioning=True,
         timestep_embedding_strategy: str = "fourier",
-        pos_embedding_strategy: str = "learned_sinusoidal",
         max_seq_len: T.Optional[int] = 256,
         *args,
         **kwargs
@@ -63,9 +61,7 @@ class BaseDenoiser(nn.Module):
         self.t_embedder = self.make_timestep_embedding(
             timestep_embedding_strategy, hidden_size, *args, **kwargs
         )
-        self.pos_embed = self.make_positional_embedding(
-            pos_embedding_strategy, hidden_size, *args, **kwargs
-        )
+        self.pos_embed = self.make_positional_embedding(hidden_size, *args, **kwargs)
 
         # label embedder
         self.function_y_embedder = LabelEmbedder(
@@ -76,12 +72,11 @@ class BaseDenoiser(nn.Module):
         )
 
         ############################################# 
-        ############################################# 
         # must be implemented in subclasses  
         self.blocks = self.make_denoising_blocks()
+        ############################################# 
+
         self.initialize_weights()
-        ############################################# 
-        ############################################# 
 
     """
     Denoising block initialization must be implemented in subclasses.
@@ -91,10 +86,6 @@ class BaseDenoiser(nn.Module):
     def make_denoising_blocks(self, *args, **kwargs):
         raise NotImplementedError
     
-    @abc.abstractmethod
-    def initialize_weights(self):
-        raise NotImplementedError
-
     """
     Default projections and embedders, which can be overridden in subclasses.
     """
@@ -108,16 +99,9 @@ class BaseDenoiser(nn.Module):
     def make_self_conditioning_projection(self, *args, **kwargs):
         return Mlp(in_features=self.input_dim * 2, out_features=self.input_dim, norm_layer=nn.LayerNorm)
 
-    def make_positional_embedding(self, strategy: str, hidden_size: int):
-        assert strategy in ["rotary", "learned_sinusoidal", None]
-        if strategy == "rotary":
-            return RotaryEmbedding(dim=hidden_size)
-        else:
-            # default: sinusoidal, as is done with the original DiT paper
-            assert not self.max_seq_len is None
-            pos_embed = nn.Parameter(torch.zeros(1, self.max_seq_len, hidden_size), requires_grad=False)
-            pos = get_1d_sincos_pos_embed(pos_embed.shape[-1], np.arange(self.max_seq_len))
-            pos_embed.data.copy_(torch.from_numpy(pos).float().unsqueeze(0))
+    def make_positional_embedding(self, hidden_size: int):
+        # default: sinusoidal, as is done with the original DiT paper
+        return SinePositionalEmbedding(hidden_size)
 
     def make_timestep_embedding(self, strategy: str, hidden_size: int):
         """ By default, we use a frequency transform and then an MLP projection."""
