@@ -14,10 +14,6 @@ from ...datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
 
 
 class InputProj(nn.Module):
-    """
-    Initial x projection, serves a similar purpose as the patch embed
-    """
-
     def __init__(self, input_dim, hidden_size, bias=True):
         super().__init__()
         self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
@@ -136,14 +132,23 @@ class BaseDenoiser(nn.Module):
     Default forward and utility functions; subclasses can override as needed.
     """
 
-    def xavier_init_module(self, m):
-        for p in m.parameters():
-            if isinstance(m, nn.Linear):
-                nn.init.constant_(m.bias, 0)
-                nn.init.constant_(m.weight, 1.0)
-            else:
-                if p.dim() > 1:
-                    torch.nn.init.xavier_normal_(p)
+    def initialize_weights(self):
+        # Initialize transformer layers:
+        def _basic_init(module):
+            if isinstance(module, nn.Linear):
+                torch.nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.constant_(module.bias, 0)
+
+        self.apply(_basic_init)
+
+        # Initialize label embedding table:
+        nn.init.normal_(self.organism_y_embedder.embedding_table.weight, std=0.02)
+        nn.init.normal_(self.function_y_embedder.embedding_table.weight, std=0.02)
+
+        # Initialize timestep embedding MLP:
+        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02)
+        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
 
     def forward_with_cond_drop(
         self,
