@@ -17,6 +17,7 @@ from ._timm import (
     trunc_normal_,
     to_2tuple,
 )  # Importing Mlp and utility functions from timm module
+
+from ._base_denoiser import BaseDenoiser
 # from ._base_block import BaseBlock
 # from ._tri_self_attn_denoiser_block import TriangularSelfAttentionBlock
-# from ._base_denoiser import BaseDenoiser

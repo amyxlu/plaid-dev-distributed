@@ -1,10 +1,10 @@
-from plaid.denoisers.dit import FunctionOrganismDiT, DenoiserKwargs
+from plaid.denoisers.flash_attn_dit import FunctionOrganismDiT, DenoiserKwargs
 import torch
 
 N, L, C = 4, 128, 32 
 
 denoiser = FunctionOrganismDiT(
-    input_dim=C
+    input_dim=C,
 )
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 denoiser.to(device)
@@ -27,6 +27,7 @@ denoiser_kwargs = DenoiserKwargs(
 )
 optimizer = torch.optim.Adam(denoiser.parameters(), lr=1e-3)
 
+
 for _ in range(20):
     denoised1 = denoiser.forward_with_cond_drop(denoiser_kwargs, 0.3, 0.3)
     print(denoised1)
@@ -39,5 +40,5 @@ for _ in range(20):
 
 denoised2 = denoiser.forward_with_cond_scale(denoiser_kwargs, cond_scale=6, rescaled_phi=0.7) 
 
-import IPython;IPython.embed();exit(1)
 
+import IPython;IPython.embed();exit(1)
