@@ -115,3 +115,13 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop2(x)
         return x
+
+
+class InputProj(nn.Module):
+    def __init__(self, input_dim, hidden_size, bias=True):
+        super().__init__()
+        self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
+        self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+
+    def forward(self, x):
+        return self.norm(self.proj(x))

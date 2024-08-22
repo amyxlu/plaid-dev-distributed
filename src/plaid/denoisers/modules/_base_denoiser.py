@@ -7,19 +7,9 @@ import numpy as np
 
 from . import DenoiserKwargs
 from ._embedders import SinusoidalTimestepEmbedder, FourierTimestepEmbedder, LabelEmbedder, SinePositionalEmbedding
-from ._timm import Mlp
+from ._timm import Mlp, InputProj
 
 from ...datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
-
-
-class InputProj(nn.Module):
-    def __init__(self, input_dim, hidden_size, bias=True):
-        super().__init__()
-        self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
-        self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-
-    def forward(self, x):
-        return self.norm(self.proj(x))
 
 
 class BaseDenoiser(nn.Module):
@@ -84,6 +74,10 @@ class BaseDenoiser(nn.Module):
 
     @abc.abstractmethod
     def make_denoising_blocks(self, *args, **kwargs):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def blocks_forward_pass(self, x, c, mask, *args, **kwargs):
         raise NotImplementedError
     
     """
@@ -178,9 +172,13 @@ class BaseDenoiser(nn.Module):
         if mask is None:
             mask = torch.ones(x.shape[:2], device=x.device).bool()
 
-        # pass through blocks and final layer
-        for block in self.blocks:
-            x = block(x, c, mask)  # (N, L, D)
+        ###########################################################################
+        ###########################################################################
+        # pass through blocks 
+        # must be defined in subclasses!
+        x = self.blocks_forward_pass(x, c, mask)
+        ###########################################################################
+        ###########################################################################
 
         return self.final_layer(x, c)  # (N, L, out_channels)
 

@@ -31,16 +31,6 @@ def modulate(x, shift, scale):
     return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 
-class InputProj(nn.Module):
-    def __init__(self, input_dim, hidden_size, bias=True):
-        super().__init__()
-        self.proj = nn.Linear(input_dim, hidden_size, bias=bias)
-        self.norm = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-
-    def forward(self, x):
-        return self.norm(self.proj(x))
-
-
 class FinalLayer(nn.Module):
     """
     The final layer of DiT.
@@ -80,7 +70,9 @@ class DiTBlock(nn.Module):
         **block_kwargs
     ):
         super().__init__()
-        self.use_skip_connect = use_skip_connect
+        mlp_hidden_dim = int(hidden_size * mlp_ratio)
+        approx_gelu = lambda: nn.GELU(approximate="tanh")
+
         self.attn = Attention(
             hidden_size,
             num_heads,
@@ -90,23 +82,25 @@ class DiTBlock(nn.Module):
         )
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        mlp_hidden_dim = int(hidden_size * mlp_ratio)
-        approx_gelu = lambda: nn.GELU(approximate="tanh")
         self.mlp = Mlp(
             in_features=hidden_size,
             hidden_features=mlp_hidden_dim,
             act_layer=approx_gelu,
             drop=0,
         )
+        self.skip_linear = (
+            Mlp(hidden_size * 2, hidden_size, act_layer=approx_gelu)
+            if use_skip_connect
+            else None
+        )
         self.adaLN_modulation = nn.Sequential(
             nn.SiLU(), nn.Linear(hidden_size, 6 * hidden_size, bias=True)
         )
 
-    def forward(self, x, c, mask, skip=False):
+    def forward(self, x, c, mask, skip=None):
         """Apply multi-head attention (with mask) and adaLN conditioning (mask agnostic)."""
-        if skip:
-            # TODO: implement skip connections
-            pass
+        if skip is not None and self.skip_linear is not None:
+            x = self.skip_linear(torch.cat([x, skip], dim=-1))
 
         shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (
             self.adaLN_modulation(c).chunk(6, dim=1)
@@ -118,7 +112,6 @@ class DiTBlock(nn.Module):
             modulate(self.norm2(x), shift_mlp, scale_mlp)
         )
         return x
-
 
 
 class FunctionOrganismDiT(BaseDenoiser):
@@ -155,8 +148,8 @@ class FunctionOrganismDiT(BaseDenoiser):
     def make_output_projection(self):
         return FinalLayer(self.hidden_size, self.input_dim)
 
-    def make_denoising_blocks(self):
-        return nn.ModuleList(
+    def _make_denoising_blocks(self):
+        self.blocks = nn.ModuleList(
             [
                 DiTBlock(
                     hidden_size=self.hidden_size,
@@ -168,6 +161,67 @@ class FunctionOrganismDiT(BaseDenoiser):
                 for _ in range(self.depth)
             ]
         )
+        return self.blocks
+    
+    def _make_denoising_blocks_with_skip(self):
+        self.in_blocks = nn.ModuleList(
+            [
+                DiTBlock(
+                    hidden_size=self.hidden_size,
+                    num_heads=self.num_heads,
+                    mlp_ratio=self.mlp_ratio,
+                    use_skip_connect=self.use_skip_connect,
+                    use_xformers=self.use_xformers,
+                )
+                for _ in range(self.depth // 2)
+            ]
+        )
+        self.mid_block = DiTBlock(
+            hidden_size=self.hidden_size,
+            num_heads=self.num_heads,
+            mlp_ratio=self.mlp_ratio,
+            use_skip_connect=self.use_skip_connect,
+            use_xformers=self.use_xformers,
+        )
+        self.out_blocks = nn.ModuleList(
+            [
+                DiTBlock(
+                    hidden_size=self.hidden_size,
+                    num_heads=self.num_heads,
+                    mlp_ratio=self.mlp_ratio,
+                    use_skip_connect=self.use_skip_connect,
+                    use_xformers=self.use_xformers,
+                )
+                for _ in range(self.depth // 2)
+            ]
+        )
+        return nn.ModuleList([self.in_blocks, self.mid_block, self.out_blocks])
+    
+    def make_denoising_blocks(self, *args, **kwargs):
+        if self.use_skip_connect:
+            return self._make_denoising_blocks_with_skip(*args, **kwargs)
+        else:
+            return self._make_denoising_blocks(*args, **kwargs)
+    
+    def blocks_forward_pass(self, x, c, mask, *args, **kwargs):
+        if self.use_skip_connect:
+            skips = []
+            in_blocks, mid_block, out_blocks = self.blocks
+
+            for block in in_blocks:
+                x = block(x, c, mask, skip=None)
+                skips.append(x)
+
+            x = mid_block(x, c, mask, skip=None)
+
+            for block in out_blocks:
+                x = block(x, c, mask, skip=skips.pop())
+
+        else:
+            for block in self.blocks:
+                x = block(x, c, mask)
+                
+        return x
 
     def initialize_adaln_weights(self):
         # Zero-out adaLN modulation layers in DiT blocks:

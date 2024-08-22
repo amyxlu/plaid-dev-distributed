@@ -5,6 +5,9 @@ N, L, C = 4, 128, 32
 
 denoiser = FunctionOrganismDiT(
     input_dim=C,
+    use_self_conditioning=True,
+    use_xformers=True,
+    use_skip_connect=True
 )
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 denoiser.to(device)

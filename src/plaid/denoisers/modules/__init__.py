@@ -16,6 +16,7 @@ from ._timm import (
     Mlp,
     trunc_normal_,
     to_2tuple,
+    InputProj
 )  # Importing Mlp and utility functions from timm module
 
 from ._base_denoiser import BaseDenoiser
