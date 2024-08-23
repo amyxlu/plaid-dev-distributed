@@ -1,0 +1,16 @@
+_target_: plaid.denoisers.FunctionOrganismUDiT
+
+hidden_size: 768 
+max_seq_len: 512
+depth: 12 
+num_heads: 12
+mlp_ratio: 4.0
+use_self_conditioning: True
+
+timestep_embedding_strategy: "fourier"
+use_skip_connect: True
+attention_mode: "xformers"
+
+# 134M parameters
+# max batch size (sequence length 512): 128
+# max batch size (sequence length 128): 1024

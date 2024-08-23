@@ -6,5 +6,3 @@ depth: 30
 num_heads: 16
 mlp_ratio: 4.0
 use_self_conditioning: True
-
-# 680M parameters
