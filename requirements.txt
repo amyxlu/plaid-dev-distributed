@@ -4,7 +4,7 @@ hydra-core >= 1.3
 seaborn
 pandas
 transformers
-lightning == 1.9.5
+lightning
 einops
 tqdm
 numba
@@ -26,6 +26,7 @@ jupyter
 ninja
 biotite
 git+https://github.com/webdataset/webdataset.git@5b12e0ba78bfb64741add2533c5d1e4cf088ffff
+schedulefree # for schedulefree optimizer
 
 # for openfold, use this hack to get around clunky imports while
 # making sure the custom CUDA kernels used are being created: 
