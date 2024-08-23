@@ -5,8 +5,8 @@ if __name__ == "__main__":
     import torch
 
     datamodule = FunctionOrganismDataModule(
-        train_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/train/shard{000..160}.tar",
-        val_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/val/shard{000..022}.tar",
+        train_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/train/shard{0000..4423}.tar",
+        val_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/val/shard{0000..0863}.tar",
         config_file="/data/lux70/data/pfam/compressed/j1v1wv6w/config.json",
         go_metadata_fpath="/data/lux70/data/pfam/pfam2go.csv",
         organism_metadata_fpath="/data/lux70/data/pfam/organism_counts.csv",

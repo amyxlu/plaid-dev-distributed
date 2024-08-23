@@ -161,3 +161,26 @@ class FunctionOrganismDataModule(L.LightningDataModule):
     def val_dataloader(self):
         return self.val_dl 
 
+
+def get_test_sharded_batch():
+    datamodule = FunctionOrganismDataModule(
+        train_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/train/shard{0000..4423}.tar",
+        val_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/val/shard{0000..0863}.tar",
+        config_file="/data/lux70/data/pfam/compressed/j1v1wv6w/config.json",
+        go_metadata_fpath="/data/lux70/data/pfam/pfam2go.csv",
+        organism_metadata_fpath="/data/lux70/data/pfam/organism_counts.csv",
+        cache_dir="/homefs/home/lux70/cache/plaid_data_cache/j1v1wv6w",
+        train_epoch_num_batches=100_000,
+        val_epoch_num_batches=1_000,
+        shuffle_buffer=10_000,
+        shuffle_initial=10_000,
+        num_workers=4,
+        batch_size=1024,
+    )
+
+    datamodule.setup()
+    val_dataloader = datamodule.val_dataloader()
+    batch = next(iter(val_dataloader))
+
+    print("embedding, mask, go_idx, organism_idx, pfam_id, sample_id, local_path = batch")
+    return batch
