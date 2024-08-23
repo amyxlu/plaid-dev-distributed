@@ -4,7 +4,7 @@ import os.path
 import warnings
 import glob
 
-import pytorch_lightning as pl
+import lightning.pytorch as pl
 
 from pathlib import Path
 from lightning import Callback
