@@ -162,7 +162,7 @@ class FunctionOrganismDataModule(L.LightningDataModule):
         return self.val_dl 
 
 
-def get_test_sharded_batch():
+def get_test_sharded_batch(batch_size=1024):
     datamodule = FunctionOrganismDataModule(
         train_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/train/shard{0000..4423}.tar",
         val_shards="/data/lux70/data/pfam/compressed/j1v1wv6w/val/shard{0000..0863}.tar",
@@ -175,7 +175,7 @@ def get_test_sharded_batch():
         shuffle_buffer=10_000,
         shuffle_initial=10_000,
         num_workers=4,
-        batch_size=1024,
+        batch_size=batch_size,
     )
 
     datamodule.setup()
