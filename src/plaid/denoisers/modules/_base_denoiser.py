@@ -63,7 +63,7 @@ class BaseDenoiser(nn.Module):
 
         ############################################# 
         # must be implemented in subclasses  
-        self.blocks = self.make_denoising_blocks()
+        self.make_denoising_blocks()
         ############################################# 
 
         self.initialize_weights()

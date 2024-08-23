@@ -66,18 +66,20 @@ class DiTBlock(nn.Module):
         num_heads,
         mlp_ratio=4.0,
         use_skip_connect=False,
-        use_xformers=False,
+        attention_mode="xformers_scaled_dot_product",
         **block_kwargs
     ):
         super().__init__()
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
         approx_gelu = lambda: nn.GELU(approximate="tanh")
 
+        assert attention_mode in ["standard", "xformers_scaled_dot_product", "xformers_memory_efficient", "flash"]
         self.attn = Attention(
             hidden_size,
             num_heads,
             qkv_bias=False,
-            use_xformers=use_xformers,
+            attention_mode=attention_mode,
+            dropout=0.0,
             **block_kwargs
         )
         self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -89,7 +91,12 @@ class DiTBlock(nn.Module):
             drop=0,
         )
         self.skip_linear = (
-            Mlp(hidden_size * 2, hidden_size, act_layer=approx_gelu)
+            Mlp(
+                in_features=hidden_size * 2,
+                hidden_features=hidden_size,
+                out_features=hidden_size,
+                norm_layer=nn.LayerNorm,
+                act_layer=approx_gelu)
             if use_skip_connect
             else None
         )
@@ -114,21 +121,21 @@ class DiTBlock(nn.Module):
         return x
 
 
-class FunctionOrganismDiT(BaseDenoiser):
+class FunctionOrganismUDiT(BaseDenoiser):
     def __init__(
         self,
-        input_dim=8,
-        hidden_size=512,
-        max_seq_len=512,
+        input_dim=32,
+        hidden_size=1024,
+        max_seq_len=256,
         depth=6,
-        num_heads=8,
-        mlp_ratio=2.0,
+        num_heads=16,
+        mlp_ratio=4.0,
         use_self_conditioning=True,
-        timestep_embedding_strategy="fourier",
+        timestep_embedding_strategy="sinusoidal",
         use_skip_connect=False,
-        use_xformers=False,
+        attention_mode="xformers_scaled_dot_product",
     ):
-        self.use_xformers = use_xformers
+        self.attention_mode = attention_mode
         self.use_skip_connect = use_skip_connect
 
         super().__init__(
@@ -155,79 +162,88 @@ class FunctionOrganismDiT(BaseDenoiser):
                     hidden_size=self.hidden_size,
                     num_heads=self.num_heads,
                     mlp_ratio=self.mlp_ratio,
-                    use_skip_connect=self.use_skip_connect,
-                    use_xformers=self.use_xformers,
+                    use_skip_connect=False,
+                    attention_mode=self.attention_mode,
                 )
                 for _ in range(self.depth)
             ]
         )
-        return self.blocks
     
     def _make_denoising_blocks_with_skip(self):
-        self.in_blocks = nn.ModuleList(
-            [
+        in_blocks = [
                 DiTBlock(
                     hidden_size=self.hidden_size,
                     num_heads=self.num_heads,
                     mlp_ratio=self.mlp_ratio,
                     use_skip_connect=self.use_skip_connect,
-                    use_xformers=self.use_xformers,
+                    attention_mode=self.attention_mode,
                 )
                 for _ in range(self.depth // 2)
             ]
-        )
-        self.mid_block = DiTBlock(
+        mid_block = DiTBlock(
             hidden_size=self.hidden_size,
             num_heads=self.num_heads,
             mlp_ratio=self.mlp_ratio,
             use_skip_connect=self.use_skip_connect,
-            use_xformers=self.use_xformers,
+            attention_mode=self.attention_mode,
         )
-        self.out_blocks = nn.ModuleList(
-            [
+        out_blocks = [
                 DiTBlock(
                     hidden_size=self.hidden_size,
                     num_heads=self.num_heads,
                     mlp_ratio=self.mlp_ratio,
                     use_skip_connect=self.use_skip_connect,
-                    use_xformers=self.use_xformers,
+                    attention_mode=self.attention_mode,
                 )
                 for _ in range(self.depth // 2)
             ]
-        )
-        return nn.ModuleList([self.in_blocks, self.mid_block, self.out_blocks])
+
+        # these will be used in the forward pass & weight initialization
+        self.in_blocks = nn.ModuleList(in_blocks)
+        self.mid_block = mid_block
+        self.out_blocks = nn.ModuleList(out_blocks)
     
     def make_denoising_blocks(self, *args, **kwargs):
         if self.use_skip_connect:
-            return self._make_denoising_blocks_with_skip(*args, **kwargs)
+            self._make_denoising_blocks_with_skip(*args, **kwargs)
         else:
-            return self._make_denoising_blocks(*args, **kwargs)
+            self._make_denoising_blocks(*args, **kwargs)
     
     def blocks_forward_pass(self, x, c, mask, *args, **kwargs):
         if self.use_skip_connect:
+            assert hasattr(self, "in_blocks") and hasattr(self, "mid_block") and hasattr(self, "out_blocks")
             skips = []
-            in_blocks, mid_block, out_blocks = self.blocks
 
-            for block in in_blocks:
+            for block in self.in_blocks:
                 x = block(x, c, mask, skip=None)
                 skips.append(x)
 
-            x = mid_block(x, c, mask, skip=None)
+            x = self.mid_block(x, c, mask, skip=None)
 
-            for block in out_blocks:
+            for block in self.out_blocks:
                 x = block(x, c, mask, skip=skips.pop())
 
         else:
             for block in self.blocks:
                 x = block(x, c, mask)
-                
+
         return x
 
     def initialize_adaln_weights(self):
         # Zero-out adaLN modulation layers in DiT blocks:
-        for block in self.blocks:
-            nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
-            nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+        if self.use_skip_connect:
+            for block in self.in_blocks:
+                nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+                nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+            nn.init.constant_(self.mid_block.adaLN_modulation[-1].weight, 0)
+            nn.init.constant_(self.mid_block.adaLN_modulation[-1].bias, 0)
+            for block in self.out_blocks:
+                nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+                nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
+        else:
+            for block in self.blocks:
+                nn.init.constant_(block.adaLN_modulation[-1].weight, 0)
+                nn.init.constant_(block.adaLN_modulation[-1].bias, 0)
 
         # Zero-out output layers:
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].weight, 0)

@@ -32,7 +32,7 @@ defaults = f"""#!/usr/bin/env bash
 #SBATCH --job-name train 
 
 source ~/.bashrc
-micromamba activate plaid
+micromamba activate flash_attn 
 
 {multi_node_flags}
 
