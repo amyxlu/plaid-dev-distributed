@@ -9,7 +9,7 @@ from plaid.datasets import get_test_sharded_batch
 C = 1024
 kwargs = dict(device="cuda", dtype=torch.bfloat16)
 
-batch = get_test_sharded_batch()
+batch = get_test_sharded_batch(batch_size=32)
 x, mask, go_idx, organism_idx, pfam_id, sample_id, local_path = batch
 B, L, _ = x.shape
 
@@ -21,24 +21,27 @@ linear = nn.Linear(x.shape[-1], C).to(**kwargs)
 torch.nn.init.xavier_uniform_(linear.weight)
 x = linear(x)
 x += torch.randn_like(x)
-print(x.shape)
+
+print('x shape', mask.shape)
+print('mask shape', mask.shape)
 
 attn = Attention(dim=C, heads=16, attention_mode="xformers_scaled_dot_product").to(**kwargs)
 
-# Test forward class
+# Test forward
 _ = attn(x, mask)
 
-# Check if outputs are similar
-xformers_memory_efficient_output = attn.xformers_memory_efficient_attention(x, mask).cpu()
-xformers_scaled_dot_product_output = attn.xformers_scaled_dot_product_attention(x, mask).cpu()
 standard_output = attn.standard_attention(x, mask).cpu()
-flash_output = attn.flash_attention_padded(x, mask).cpu()
-
-
 print("standard_output", standard_output[:2])
+
+xformers_memory_efficient_output = attn.xformers_memory_efficient_attention(x, mask).cpu()
 print("xformers_memory_efficient_output", xformers_memory_efficient_output[:2])
+
+xformers_scaled_dot_product_output = attn.xformers_scaled_dot_product_attention(x, mask).cpu()
 print("xformers_scaled_dot_product_output", xformers_scaled_dot_product_output[:2])
+
+flash_output = attn.flash_attention_padded(x, mask).cpu()
 print("flash_output", flash_output[:2])
+
 print("mask", mask[:2])
 
 

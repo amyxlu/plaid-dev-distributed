@@ -55,14 +55,19 @@ class Attention(nn.Module):
         if not xformers_installed:
             raise ImportError("xformers is not installed, cannot use xformer attention")
 
+        b, l, _, h = *x.shape, self.heads
         q, k, v = self.to_qkv(x).chunk(3, dim=-1)
+        # q, k, v = map(lambda t: rearrange(t, "b l (h d) -> b h l d", h=h), (q, k, v))
 
         # xformers scaled dot product attention fn applies the scaling by dim_head ** -0.5 here:
         # https://github.com/facebookresearch/xformers/blob/main/xformers/components/attention/core.py#L207
 
-        # key padding mask should have size (B, L)
-        # https://github.com/facebookresearch/xformers/blob/main/xformers/components/attention/scaled_dot_product.py#L81
-        out = self.xformers_scaled_dot_product_fn(q, k, v, att_mask=mask)  # (B, L, D)
+        if mask.ndim == 2:
+            # mask = repeat(mask, "b l -> b h l l_prime", h=h, l_prime=l)
+            mask = repeat(mask, "b l -> b l l_prime", l_prime=l)
+
+        out = self.xformers_scaled_dot_product_fn(q, k, v, att_mask=mask)
+        # out = rearrange(out, "b h l d -> b l (h d)", h=h)
         return self.to_out(out)
     
     def xformers_memory_efficient_attention(self, x, mask=None):
