@@ -20,6 +20,7 @@ class MetadataParser:
         self.go_metadata = pd.read_csv(go_metadata_fpath)
         self.organism_metadata = pd.read_csv(organism_metadata_fpath)
 
+        # the last index is reserved for dummy values, and number of class is 1-indexed, hence the dummy value should equal the number of classes
         assert self.go_metadata['GO_idx'].max() + 1 == NUM_FUNCTION_CLASSES, f"GO_idx max is {self.go_metadata['GO_idx'].max()}, expected {NUM_FUNCTION_CLASSES}"
         assert self.organism_metadata['organism_index'].max() + 1 == NUM_ORGANISM_CLASSES, f"organism_index max is {self.organism_metadata['organism_index'].max()}, expected {NUM_ORGANISM_CLASSES}"
 
