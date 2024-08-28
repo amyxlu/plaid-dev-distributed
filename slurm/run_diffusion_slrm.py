@@ -28,7 +28,7 @@ defaults = f"""#!/usr/bin/env bash
 #SBATCH --ntasks-per-node {args.n_gpus_per_node} 
 #SBATCH --gpus-per-node {args.n_gpus_per_node}
 #SBATCH --cpus-per-task {args.n_cpus_per_task}
-#SBATCH --time=10-00:00:00
+#SBATCH --time=100-00:00:00
 #SBATCH --job-name train 
 
 source ~/.bashrc
