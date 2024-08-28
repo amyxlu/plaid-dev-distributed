@@ -13,9 +13,8 @@ import torch
 import re
 
 from plaid import constants
-from plaid.utils import count_parameters, find_latest_checkpoint
-from plaid.datasets import FunctionOrganismDataModule
-from plaid.denoisers import FunctionOrganismDiT
+from plaid.utils import count_parameters
+from plaid.denoisers import FunctionOrganismUDiT
 from plaid.diffusion import FunctionOrganismDiffusion
 
 
@@ -50,6 +49,10 @@ def train(cfg: DictConfig) -> None:
     import torch
     torch.set_float32_matmul_precision("medium")
 
+    # current run config specifies checkpoint dir, not loaded config.
+    ckpt_dir = cfg.paths.checkpoint_dir
+
+    # override all else with what's specified in the config
     cfg, job_id, is_resumed = maybe_resume_job_from_config(cfg)
     log_cfg = OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True)
     rank_zero_info(OmegaConf.to_yaml(log_cfg))
@@ -68,7 +71,8 @@ def train(cfg: DictConfig) -> None:
         denoiser_cfg = delete_key(OmegaConf.to_container(cfg.denoiser), "_target_")
         diffusion_cfg = delete_key(OmegaConf.to_container(cfg.diffusion), "_target_")
 
-        denoiser = FunctionOrganismDiT(**denoiser_cfg, input_dim=input_dim)
+        # TODO: make class init based on the _target_ class
+        denoiser = FunctionOrganismUDiT(**denoiser_cfg, input_dim=input_dim)
         denoiser = torch.compile(denoiser)
 
         # backwards compatibility:
@@ -92,7 +96,7 @@ def train(cfg: DictConfig) -> None:
     # Callbacks and model saving set-up
     ####################################################################################################
 
-    outdir = Path(cfg.paths.checkpoint_dir) / job_id 
+    outdir = Path(ckpt_dir) / job_id 
     lr_monitor = LearningRateMonitor()
 
     # exponential moving average calculations callback
@@ -104,7 +108,7 @@ def train(cfg: DictConfig) -> None:
     callbacks = [lr_monitor, ema_callback, checkpoint_callback]
 
     # save configs
-    config_path = Path(cfg.paths.checkpoint_dir) / job_id / "config.yaml"
+    config_path = Path(ckpt_dir) / job_id / "config.yaml"
     if not config_path.parent.exists():
         config_path.parent.mkdir(parents=True)
         if rank_zero_only.rank == 0:
@@ -126,7 +130,7 @@ def train(cfg: DictConfig) -> None:
         trainer.logger.experiment.config.update({"cfg": log_cfg}, allow_val_change=True)
 
     if is_resumed:
-        ckpt_fpath = Path(cfg.checkpoint_dir) / job_id / find_latest_checkpoint(str(cfg.checkpoint_dir))
+        ckpt_fpath = Path(ckpt_dir) / job_id / "last.ckpt"
         assert ckpt_fpath.exists(), f"Checkpoint {ckpt_fpath} not found!"
         rank_zero_info(f"Resuming from checkpoint {ckpt_fpath}")
         trainer.fit(diffusion, datamodule=datamodule, ckpt_path=ckpt_fpath)
