@@ -19,7 +19,7 @@ from plaid.utils import get_lr_scheduler, LatentScaler, print_cuda_info
 from plaid.esmfold import esmfold_v1_embed_only 
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.esmfold.misc import batch_encode_sequences
-from cheap.proteins import LatentToSequence, LatentToStructure
+from plaid.proteins import LatentToSequence, LatentToStructure
 from plaid.losses.modules import SequenceAuxiliaryLoss, BackboneAuxiliaryLoss
 from plaid.losses.functions import masked_mse_loss
 

@@ -22,7 +22,7 @@ from plaid.utils import (
     npy,
     to_tensor,
 )
-from cheap.proteins import LatentToStructure
+from plaid.proteins import LatentToStructure
 from plaid.evaluation import run_tmalign
 from plaid.evaluation import lDDT
 from plaid.compression.hourglass_vq import HourglassVQLightningModule

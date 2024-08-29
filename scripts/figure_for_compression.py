@@ -90,7 +90,7 @@ def compress_and_save(model_id, x, x_norm, mask, latent_scaler, sequences):
     recons_norm, _, _, compressed = model(x_norm, mask.bool(), log_wandb=False)
     print(compressed.shape)
 
-    from cheap.proteins import LatentToStructure
+    from plaid.proteins import LatentToStructure
 
     del model  # save some GPU space
 
