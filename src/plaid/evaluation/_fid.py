@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 from scipy import linalg
 import torch
@@ -136,3 +138,36 @@ def calc_fid_fn(x, y, eps=1e-8):
     x_cov_sqrt = sqrtm_eig(x_cov)
     cov_term = torch.trace(x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt))
     return mean_term + cov_term
+
+
+
+
+class ConditionalFID:
+    def __init__(
+        self,
+        function_idx: int,
+        organism_idx: int,
+        use_cache: bool = True,
+    ):
+        self.function_idx = function_idx
+        self.organism_idx = organism_idx
+        self.use_cache = use_cache
+        self.real = self.make_reference_embedding() # tensor
+        
+    def obtain_embed_from_sequence(self, sequence):
+        # ...
+        return
+
+    def obtain_embed_from_shards(self):
+        # ...
+        return
+    
+    def make_reference_embedding(self, n_to_sample=1000):
+        # ...
+        if self.use_cache:
+            return self.obtain_embed_from_shards()
+        else:
+            return self.obtain_embed_from_sequence()
+
+    def run(self, sampled):
+        return calc_fid_fn(sampled, self.real)
