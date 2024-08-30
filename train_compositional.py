@@ -14,7 +14,7 @@ import re
 
 from plaid import constants
 from plaid.utils import count_parameters
-from plaid.denoisers import FunctionOrganismUDiT
+from plaid.denoisers import FunctionOrganismUDiT, FunctionOrganismDiT
 from plaid.diffusion import FunctionOrganismDiffusion
 
 
@@ -68,11 +68,17 @@ def train(cfg: DictConfig) -> None:
     datamodule = hydra.utils.instantiate(cfg.datamodule)
 
     if is_resumed:
+        denoiser_cls = cfg.denoiser._target_
         denoiser_cfg = delete_key(OmegaConf.to_container(cfg.denoiser), "_target_")
         diffusion_cfg = delete_key(OmegaConf.to_container(cfg.diffusion), "_target_")
 
         # TODO: make class init based on the _target_ class
-        denoiser = FunctionOrganismUDiT(**denoiser_cfg, input_dim=input_dim)
+        if denoiser_cls == "plaid.denoisers.FunctionOrganismUDiT":
+            denoiser = FunctionOrganismUDiT(**denoiser_cfg, input_dim=input_dim)
+        elif denoiser_cls == "plaid.denoisers.FunctionOrganismDiT":
+            denoiser = FunctionOrganismDiT(**denoiser_cfg, input_dim=input_dim)
+        else:    
+            raise ValueError(f"Unknown denoiser class: {denoiser_cls}")
         denoiser = torch.compile(denoiser)
 
         # backwards compatibility:
