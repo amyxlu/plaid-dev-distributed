@@ -69,7 +69,7 @@ class SampleLatent:
         # shorten_factor = COMPRESSION_SHORTEN_FACTORS[compression_model_id]
         input_dim = COMPRESSION_INPUT_DIMENSIONS[compression_model_id]
 
-        denoiser_kwargs = self.denoiser
+        denoiser_kwargs = cfg.denoiser
         denoiser_kwargs.pop("_target_")
         denoiser = FunctionOrganismDiT(**denoiser_kwargs, input_dim=input_dim)
 
@@ -82,7 +82,7 @@ class SampleLatent:
                 mod_state_dict[k[16:]] = v
 
         denoiser.load_state_dict(mod_state_dict)
-        diffusion_kwargs = self.diffusion
+        diffusion_kwargs = cfg.diffusion
         diffusion_kwargs.pop("_target_")
 
         diffusion_kwargs["sampling_timesteps"] = self.sampling_timesteps 

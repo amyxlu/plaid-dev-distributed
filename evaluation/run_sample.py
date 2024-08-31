@@ -22,7 +22,7 @@ def run(cfg: DictConfig):
     sample_latent.run()
 
 
-@hydra.main(config_path="configs/", config_name="sample_latent")
+@hydra.main(config_path="../configs/pipeline", config_name="sample_latent")
 def hydra_run(cfg: DictConfig):
     """Hydra configurable instantiation for running as standalone script."""
     run(cfg)
