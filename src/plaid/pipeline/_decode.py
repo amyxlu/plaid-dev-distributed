@@ -120,18 +120,18 @@ class DecodeLatent:
             pkl.dump(struct_log_dict, f)
 
         # write a dataframe summary
-        means = {k: v.mean() for k, v in struct_log_dict.items()}
-        stds = {k: v.std() for k, v in struct_log_dict.items()}
-
-        df = pd.DataFrame(means | stds)
-        df.to_csv(Path(self.output_root_dir) / "structure_metrics.csv", index=False)
+        means = {f"{k}_mean": v.mean() for k, v in struct_log_dict.items()}
+        stds = {f"{k}_std": v.std() for k, v in struct_log_dict.items()}
+        d = means | stds
+        with open(Path(self.output_root_dir) / "structure_metrics.txt", "w") as f:
+            for k, v in d.items():
+                f.write(f"{k}: {v:.4f}\n")
 
     def write_sequences_to_disk(self, sequences, fasta_name):
         ensure_exists(self.output_root_dir)
         write_to_fasta(sequences, Path(self.output_root_dir) / fasta_name)
 
     def run(self):
-        import pdb;pdb.set_trace()
         print("Loading latent samples from", self.npz_path)
         x = self.load_sampled(self.npz_path)
 
