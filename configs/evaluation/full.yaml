@@ -1,0 +1,25 @@
+# Full pipeline:
+# 1. Sample latent from conditioning
+# --> 1b. Calculate FID
+# 2a. Generate: latent to sequence
+# 2b. Generate: latent to structure
+# --> 2c. Log perplexity and pLDDT
+# 3a. Inverse reconstruct: generated sequence to reconstructed structure
+# 3b. Inverse reconstruct: generated structure to reconstructed sequence
+# --> 3c. Calculate ccSR and ccRMSD.
+# 4a. Phantom reconstruct: generated sequence to phantom structure
+# 4b. Phantom reconstruct: generated structure to phantom sequence
+# --> 4c. Calculate scSR and scRMSD. 
+
+
+sample_latent: True
+calculate_fid: True
+generate_latent_to_sequence: True
+generate_latent_to_structure: True
+log_perplexity_and_plddt: True
+inverse_reconstruct_generated_sequence_to_reconstructed_structure: True
+inverse_reconstruct_generated_structure_to_reconstructed_sequence: True
+calculate_ccsr_and_ccrmsd: True
+phantom_reconstruct_generated_sequence_to_phantom_structure: True
+phantom_reconstruct_generated_structure_to_phantom_sequence: True
+calculate_scsr_and_scrmsd: True
