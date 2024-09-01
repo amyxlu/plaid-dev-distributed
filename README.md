@@ -29,3 +29,7 @@ The diffusion model further employs a few tricks beyond the standard diffusion f
 * SchedulerFree AdamW
 * Classifier-free guidance (with GO term and organism)
 * Self-Conditioning
+
+
+## Usage
+* If using `torch.compile`, please make sure to use `float32` rather than mix precision or `bfloat16` due to [this issue](https://github.com/facebookresearch/xformers/issues/920) in the `xFormers` library.

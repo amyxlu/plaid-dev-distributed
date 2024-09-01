@@ -36,7 +36,8 @@ def maybe_resume_job_from_config(cfg: OmegaConf) -> T.Tuple[dict, str, bool]:
         cfg = OmegaConf.load(config_path)
         rank_zero_info(f"Overriding config from job ID {job_id}!")
 
-    # backwards compatibility:
+    # torch.compile does not yet work for memory-efficient attention: 
+    # https://github.com/facebookresearch/xformers/issues/920
     if hasattr(cfg.trainer, "precision"):
         if cfg.trainer.precision == "bf16-mixed":
             cfg.trainer.update({"precision": "32"})
