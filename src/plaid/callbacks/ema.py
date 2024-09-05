@@ -106,13 +106,17 @@ class EMA(Callback):
 
         if trainer.ckpt_path and checkpoint_callback is not None:
             ext = checkpoint_callback.FILE_EXTENSION
-            if str(trainer.ckpt_path).endswith(f"-EMA{ext}"):
+
+            # if the resuming checkpoint is the EMA weights, use them for the EMA copy as well.
+            if (str(trainer.ckpt_path).endswith(f"-EMA{ext}")) or (str(trainer.ckpt_path).endswith(f"last.ckpt")):
                 rank_zero_info(
                     "loading EMA based weights. "
                     "The callback will treat the loaded EMA weights as the main weights"
                     " and create a new EMA copy when training."
                 )
                 return
+            
+            # otherwise, look to see if there are EMA weights saved in the checkpoint directory
             ema_path = str(trainer.ckpt_path).replace(ext, f"-EMA{ext}")
             if os.path.exists(ema_path):
                 ema_state_dict = torch.load(ema_path, map_location=torch.device("cpu"))
