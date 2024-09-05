@@ -1,4 +1,5 @@
 import typing as T
+import time
 from pathlib import Path
 
 from omegaconf import OmegaConf
@@ -112,14 +113,16 @@ class SampleLatent:
         all_sampled = []
         cur_n_sampled = 0
 
+        start = time.time()
         for _ in trange(0, num_samples, self.batch_size, desc="Sampling batches:"):
             sampled_latent = self.sample()
             all_sampled.append(sampled_latent)
             cur_n_sampled += self.batch_size
-
+        end = time.time()
+        print(f"Sampling took {end-start:.2f} seconds.")
         all_sampled = torch.cat(all_sampled, dim=0)
         all_sampled = all_sampled.cpu().numpy()
-        all_sampled = all_sampled.astype(np.float16)
+        all_sampled = all_sampled.astype(np.float16)  # this is ok because values are [-1,1]
 
         if not self.output_dir.exists():
             self.output_dir.mkdir(parents=True)
@@ -127,4 +130,8 @@ class SampleLatent:
         outpath = self.output_dir / f"{str(timestamp())}.npz"
         np.savez(outpath, samples=all_sampled)
         print(f"Saved .npz file to {outpath} [shape={all_sampled.shape}].")
+
+        with open(outpath.with_suffix(".log"), "w") as f:
+            f.write("Sampling took {:.2f} seconds.".format(end-start))
+
         return outpath
