@@ -1,3 +1,7 @@
+"""
+From sampled compressed latent, uncompress and generate sequence and structure using frozen decoders.
+"""
+
 from pathlib import Path
 from typing import Dict
 
@@ -7,7 +11,9 @@ import pandas as pd
 import pickle as pkl
 
 from cheap.proteins import LatentToSequence, LatentToStructure
+from cheap.utils import LatentScaler
 from cheap.pretrained import CHEAP_pfam_shorten_2_dim_32
+
 from plaid.utils import outputs_to_avg_metric, npy, write_pdb_to_disk, write_to_fasta
 from plaid.typed import PathLike
 
@@ -39,6 +45,7 @@ class DecodeLatent:
         self.sequence_constructor = None
         self.structure_constructor = None
         self.cheap_pipeline = CHEAP_pfam_shorten_2_dim_32()
+        self.latent_scaler = LatentScaler()
         self.hourglass = self.cheap_pipeline.hourglass_model
         self.hourglass.to(device).eval()
     
@@ -47,6 +54,7 @@ class DecodeLatent:
         x = torch.tensor(data["samples"])
         if x.dim() == 4:
             # take last timestep only
+            # (B, T, L, D) -> (B, L, D)
             x = x[:, -1, :, :]
         assert x.ndim == 3
         x = x.float()  # float16 to float32
@@ -56,7 +64,12 @@ class DecodeLatent:
         x = x.to(self.device)
         if mask is not None:
             mask = mask.to(self.device)
-        return self.hourglass.decode(x, mask)
+
+        # uncompress 
+        x = self.hourglass.decode(x, mask)
+
+        # unscale from "smooth" latent space back to "pathological" ESMFold latent space
+        return self.latent_scaler.unscale(x)
 
     def construct_sequence(
         self,
