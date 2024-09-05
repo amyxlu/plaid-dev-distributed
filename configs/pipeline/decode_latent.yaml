@@ -1,12 +1,12 @@
 defaults:
   - _self_
 
-# npz_timestamp: "2021-09-30T15:00:00"
-# npz_path: /data/lux70/plaid/artifacts/samples/4hdab8dn/${npz_timestamp}/latent.npz
-# output_root_dir: /data/lux70/plaid/artifacts/samples/4hdab8dn/${npz_timestamp}/generated
+cond_code: "f11_o3617"
+npz_timestamp: "240828_1420"
+plaid_model_id: 4hdab8dn
 
-npz_path: /data/lux70/plaid/artifacts/samples/4hdab8dn/f10_o3617/240828_1145.npz
-output_root_dir: /data/lux70/plaid/artifacts/samples/4hdab8dn/f10_o3617/240828_1145/generated
+npz_path: /data/lux70/plaid/artifacts/samples/${plaid_model_id}/${cond_code}/${npz_timestamp}.npz
+output_root_dir: /data/lux70/plaid/artifacts/samples/${plaid_model_id}/${cond_code}/${npz_timestamp}/generated
 batch_size: 1024
 device: "cuda"
 num_recycles: 4
