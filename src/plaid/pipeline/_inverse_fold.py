@@ -1,12 +1,14 @@
 """
-Based on https://colab.research.google.com/github/dauparas/ProteinMPNN/blob/main/colab_notebooks/quickdemo.ipynb
-Wrapper for running ProteinMPNN.
+Wrapper for running ProteinMPNN, based on:
+https://colab.research.google.com/github/dauparas/ProteinMPNN/blob/main/colab_notebooks/quickdemo.ipynb
+https://github.com/dauparas/ProteinMPNN/blob/main/colab_notebooks/ca_only_quickdemo.ipynb
 """
+import glob
 import os
 import typing as T
 from pathlib import Path
-import dataclasses
 import numpy as np
+from tqdm import tqdm
 import torch
 import re
 import copy
@@ -20,7 +22,13 @@ from .ProteinMPNN.protein_mpnn_utils import (
     ProteinMPNN,
 )
 
+from ..utils import write_to_fasta
 from ..typed import PathLike, DeviceLike
+
+def ensure_exists(path): 
+    path = Path(path)
+    if not path.exists():
+        path.mkdir(parents=True, exist_ok=True)
 
 
 class InverseFold:
@@ -28,16 +36,17 @@ class InverseFold:
 
     def __init__(
         self, 
+        pdb_dir: PathLike,  # list to PDB files, will inverse fold all files with .pdb extension
         model_name="v_48_020",  # @param ["v_48_002", "v_48_010", "v_48_020", "v_48_030"]
+        verbose: bool = False,
         hidden_dim=128,
         num_layers=3,
         base_dir_to_model_weights: str = os.path.join(os.path.dirname(__file__), 'ProteinMPNN'),
-        device_id: int = 0,
         ca_only: bool = True,
         batch_size: int = 1,  # Batch size; can set higher for titan, quadro GPUs, reduce this if running out of GPU memory
-        max_length: int = 20000,  # Max sequence length
+        max_length: int = 512,  # Max sequence length
         num_seq_per_target: int = 8,  # Sequences to generate per structure, must be a power of 2
-        sampling_temp: float = 0.1,  # Sampling temperature, one of ["0.0001", "0.1", "0.15", "0.2", "0.25", "0.3", "0.5"]
+        sampling_temp: str = "0.1",  # Sampling temperature, one of ["0.0001", "0.1", "0.15", "0.2", "0.25", "0.3", "0.5"]
         designed_chain: str = "A",  # IMPORTANT: only supports monomers for now!
         fixed_chain: str = "",
         backbone_noise: float = 0.00,  # Standard deviation of Gaussian noise to add to backbone atoms
@@ -53,12 +62,14 @@ class InverseFold:
         pssm_log_odds_flag: bool = False,
         pssm_bias_flag: bool = False,
         device: DeviceLike = "cuda",
+        outdir: PathLike = None,
     ):
+        self.pdb_dir = Path(pdb_dir)
+        self.verbose = verbose
         self.model_name = model_name
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
         self.base_dir_to_model_weights = base_dir_to_model_weights
-        self.device_id = device_id
         self.ca_only = ca_only
         self.batch_size = batch_size
         self.max_length = max_length
@@ -78,6 +89,10 @@ class InverseFold:
         self.pssm_threshold = pssm_threshold
         self.pssm_log_odds_flag = pssm_log_odds_flag
         self.pssm_bias_flag = pssm_bias_flag
+
+        if outdir is None:
+            outdir = self.pdb_dir / "../inverse_generate"
+        self.outdir = Path(outdir)
 
         self.device = device
         self.model = self.load_protein_mpnn_model()
@@ -126,7 +141,7 @@ class InverseFold:
         model.to(self.device)
         return model
 
-    def _make_tied_positions_for_homomers(pdb_dict_list):
+    def _make_tied_positions_for_homomers(self, pdb_dict_list):
         my_dict = {}
         for result in pdb_dict_list:
             all_chain_list = sorted(
@@ -142,7 +157,7 @@ class InverseFold:
             my_dict[result["name"]] = tied_positions_list
         return my_dict
 
-    def run(self, pdb_path: PathLike, return_outdict: bool = False, verbose: bool = False) -> T.Dict[str, np.ndarray]:
+    def inverse_fold(self, pdb_path: PathLike, return_outdict: bool = False, verbose: bool = False) -> T.Dict[str, np.ndarray]:
         if self.designed_chain == "":
             designed_chain_list = []
         else:
@@ -430,17 +445,46 @@ class InverseFold:
             all_log_probs_concat = np.concatenate(all_log_probs_list)
             S_sample_concat = np.concatenate(S_sample_list)
 
+            best_seq = S_sample_concat[np.argmin(score_list)]
+            best_seq = _S_to_seq(best_seq, chain_M[0])
+
             outdict = {
                 "all_probs_concat": all_probs_concat,
                 "all_log_probs_concat": all_log_probs_concat,
                 "S_sample_concat": S_sample_concat,
                 "score_list": np.array(score_list),
-                "sequences": np.array(sequences)
+                "sequences": np.array(sequences),
+                "best_seq": best_seq
             }
 
-            best_seq = S_sample_concat[np.argmin(score_list)]
-            best_seq = _S_to_seq(best_seq, chain_M[0])
             if return_outdict:
                 return outdict
             else:
                 return best_seq
+    
+    def inverse_fold_batch(self, write_on_the_fly=False) -> T.Union[T.List[str], T.List[T.Dict[str, np.ndarray]]]:
+        pdb_paths = glob.glob(str(self.pdb_dir / "*.pdb"))
+        sequences = []
+        headers = []
+
+        for pdb_path in tqdm(pdb_paths):
+            header = Path(pdb_path).stem
+            seq = self.inverse_fold(pdb_path, return_outdict=False, verbose=self.verbose)
+
+            sequences.append(seq)
+            headers.append(header)
+
+            if write_on_the_fly:
+                ensure_exists(self.outdir)
+                with open(self.outdir / "sequences.fasta", "a") as f:
+                    f.write(f">{header}\n{seq}\n")
+
+        return sequences, headers
+    
+    def run(self):
+        sequences, headers = self.inverse_fold_batch(write_on_the_fly=True)
+        # write_to_fasta(
+        #     sequences=sequences,
+        #     outpath=self.outdir / "sequences.fasta",
+        #     headers=headers
+        # )

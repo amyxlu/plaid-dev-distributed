@@ -1,0 +1,19 @@
+defaults:
+  - _self_
+
+cond_code: "f11_o3617"
+npz_timestamp: "240828_1420"
+plaid_model_id: 4hdab8dn
+
+pdb_dir: /data/lux70/plaid/artifacts/samples/${plaid_model_id}/${cond_code}/${npz_timestamp}/generated
+outdir: null  # use default, which is "${pdb_dir}/../inverse_generated"
+verbose: true
+model_name: "v_48_002"
+ca_only: true
+num_seq_per_target: 8
+sampling_temp: "0.1"
+save_score: false
+save_probs: false
+score_only: false
+conditional_probs_only: false
+conditional_probs_only_backbone: false
