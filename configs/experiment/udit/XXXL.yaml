@@ -1,0 +1,10 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - override /denoiser: UDiT_XXXL.yaml
+  - override /trainer: ddp.yaml
+
+datamodule:
+  batch_size: 4 
+  max_length: 256
