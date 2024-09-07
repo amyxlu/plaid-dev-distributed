@@ -32,7 +32,7 @@ class SampleLatent:
         num_samples: int = -1,
         beta_scheduler_name: T.Optional[str] = "sigmoid",
         sampling_timesteps: int = 1000 ,
-        batch_size: int = 2048 ,
+        batch_size: int = -1,
         length: int = 32,  # the final length, after decoding back to structure/sequence, is twice this value
         return_all_timesteps: bool = False,
 
@@ -47,16 +47,22 @@ class SampleLatent:
         self.num_samples = num_samples
         self.beta_scheduler_name = beta_scheduler_name
         self.sampling_timesteps = sampling_timesteps
-        self.batch_size = batch_size
         self.length = length
         self.return_all_timesteps = return_all_timesteps
         self.output_root_dir = output_root_dir
 
-        self.output_dir = Path(self.output_root_dir) / model_id / f"f{self.function_idx}_o{self.organism_idx}"
+        # default to cuda
         self.device = torch.device("cuda")
+        
+        # if no batch size is provided, sample all at once
+        self.batch_size = batch_size if batch_size > 0 else num_samples
 
+        # set up paths
+        self.output_dir = Path(self.output_root_dir) / model_id / f"f{self.function_idx}_o{self.organism_idx}"
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
+
+        # set up diffusion model
         self.diffusion = self.create_diffusion(config_path, model_path)
         self.diffusion = self.diffusion.to(self.device)
 
@@ -70,18 +76,28 @@ class SampleLatent:
         # shorten_factor = COMPRESSION_SHORTEN_FACTORS[compression_model_id]
         input_dim = COMPRESSION_INPUT_DIMENSIONS[compression_model_id]
 
+        # instantiate the correct denoiser class
+        # UDiT supports skip connections and memory-efficient attention, while DiT does not
         denoiser_kwargs = cfg.denoiser
-        denoiser_kwargs.pop("_target_")
-        denoiser = FunctionOrganismDiT(**denoiser_kwargs, input_dim=input_dim)
+        denoiser_class = denoiser_kwargs.pop("_target_")
+
+        if denoiser_class == "plaid.denoisers.FunctionOrganismUDiT":
+            denoiser = FunctionOrganismUDiT(**denoiser_kwargs, input_dim=input_dim)
+        elif denoiser_class == "plaid.denoisers.FunctionOrganismDiT":
+            denoiser = FunctionOrganismDiT(**denoiser_kwargs, input_dim=input_dim)
+        else:
+            raise ValueError(f"Unknown denoiser class: {denoiser_class}")
 
         # lask.ckpt automatically links to the EMA
         ckpt = torch.load(model_path)
 
+        # remove the prefix from the state dict if torch.compile was used during training
         mod_state_dict = {}
         for k, v in ckpt['state_dict'].items():
             if k[:16] == "model._orig_mod.":
                 mod_state_dict[k[16:]] = v
 
+        # load weights and create diffusion object
         denoiser.load_state_dict(mod_state_dict)
         diffusion_kwargs = cfg.diffusion
         diffusion_kwargs.pop("_target_")
@@ -92,7 +108,6 @@ class SampleLatent:
 
         diffusion = FunctionOrganismDiffusion(model=denoiser,**diffusion_kwargs)
         return diffusion
-
 
     def sample(self):
         N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim 
@@ -106,7 +121,6 @@ class SampleLatent:
             cond_scale=self.cond_scale
         )
         return sampled_latent
-
 
     def run(self):
         num_samples = max(self.num_samples, self.batch_size)
