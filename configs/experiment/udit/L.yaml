@@ -2,9 +2,9 @@
 
 defaults:
   - _self_
-  - override /denoiser: UDiT_XL.yaml
+  - override /denoiser: UDiT_L.yaml
   - override /trainer: ddp.yaml
 
 datamodule:
-  batch_size: 64
+  batch_size: 64 
   max_length: 256
