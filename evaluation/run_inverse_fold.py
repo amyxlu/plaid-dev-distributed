@@ -1,11 +1,11 @@
-from plaid.pipeline._inverse_fold import InverseFold
+from plaid.pipeline._inverse_fold import InverseFoldPipeline
 import hydra
 from omegaconf import DictConfig
 
 
 def run(cfg: DictConfig):
     """Hydra configurable instantiation, for imports in full pipeline."""
-    inverse_fold = InverseFold(
+    inverse_fold = InverseFoldPipeline(
         pdb_dir=cfg.pdb_dir,
         outdir=cfg.outdir,
         model_name=cfg.model_name,

@@ -320,14 +320,6 @@ def to_tensor(x, device=None, dtype=None):
     return x
 
 
-def save_pdbstr_to_disk(pdbstrs: T.List[str], outdir: PathLike, identifiers_list: T.List[str]):
-    assert len(pdbstrs) == len(identifiers_list)
-    for i in range(len(pdbstrs)):
-        path = Path(outdir) / f"{identifiers_list[i]}.pdb"
-        with open(path, "w") as f:
-            f.write(pdbstrs[i])
-
-
 def set_random_seed(seed: int) -> None:
     if seed == -1:
         # pseudorandom-ception
@@ -383,6 +375,35 @@ def write_pdb_to_disk(pdb_str, outpath):
     with open(outpath, "w") as f:
         f.write(pdb_str)
     return outpath
+
+
+def save_pdb_strs_to_disk(pdb_strs, outdir, identifiers_list=None, save_as_single_file=False):
+    """Allows the option of saving all structures as models in a single file, useful for making animations.
+    """
+    if identifiers_list is None:
+        identifiers_list = [f"protein{i}" for i in range(len(pdb_strs))]
+
+    outdir = Path(outdir)
+    outpaths = []
+
+    if save_as_single_file: 
+        print("Writing all PDBs to a single file.")
+        outpath = outdir / "all.pdb"
+        with open(outpath, 'w') as f:
+            for i, (header, pdb_str) in enumerate(zip(identifiers_list, pdb_strs)): 
+                f.write(f"MODEL {i+1}\n")
+                f.write(pdb_str)
+                f.write("ENDMDL\n")
+            outpaths.append(outpath)
+        
+    else:
+        for i, (header, pdb_str) in enumerate(zip(identifiers_list, pdb_strs)):
+            outpath = outdir / f"{header}.pdb"
+            with open(outpath, 'w') as f:
+                f.write(pdb_str)
+                outpaths.append(outpath)
+
+    return outpaths
 
 
 def write_to_fasta(sequences, outpath, headers: T.Optional[T.List[str]] = None):

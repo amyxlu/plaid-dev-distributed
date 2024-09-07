@@ -1,52 +1,86 @@
-from typing import Optional
+from typing import Optional, List, Tuple
+
 import pandas as pd
-
+import numpy as np
 import torch
-from cheap.esmfold import esmfold_v1
+from tqdm import tqdm
 
-from ..typed import PathLike
+from ..esmfold import output_to_pdb, esmfold_v1
+from ..typed import PathLike, DeviceLike
+from ..datasets import FastaDataset
+from ..utils import save_pdb_strs_to_disk
 
 
-class Fold:
+class FoldPipeline:
     def __init__(
         self,
         fasta_file: PathLike,
-        num_recycles: int = 4,
-        batch_size: int = 512,
-        max_seq_len: int = 512,
+        outdir: Optional[PathLike],
         esmfold: Optional[torch.nn.Module] = None,
+        num_recycles: int = 4,
+        batch_size: int = -1,
+        max_seq_len: int = 512,
+        save_as_single_pdb_file: bool = False,
+        device: DeviceLike = torch.device("cuda"),
+        max_num_batches: Optional[int] = None,
+        shuffle: bool = False
     ):
         self.fasta_file = fasta_file
-        self.seq_df = self.load_sequences()
+        self.outdir = outdir
         self.num_recycles = num_recycles
         self.batch_size = batch_size
         self.max_seq_len = max_seq_len
+        self.device = device
+        self.max_num_batches = max_num_batches
+        self.save_as_single_pdb_file = save_as_single_pdb_file
+
+        self.ds = FastaDataset(fasta_file)
+        if batch_size == -1:
+            batch_size = len(self.ds)
+        self.dataloader = torch.utils.data.DataLoader(
+            self.ds, batch_size=batch_size, shuffle=shuffle, num_workers=4
+        )
 
         if esmfold is None:
             esmfold = esmfold_v1() 
         self.esmfold = esmfold
+        self.esmfold.to(self.device)
+    
+    def to(self, device):
+        self.device = device
+        self.esmfold.to(device)
+        return self
 
-    def load_sequences(self):
-        ret = {
-            "headers": [],
-            "sequences": []
-        }
+    def fold_batch(self, sequences) -> Tuple[List[str], List[float]]:
+        output = self.esmfold.infer(sequences)
 
-        with open(self.fasta_file, 'r') as f:
-            for line in f:
-                if line.startswith('>'):
-                    ret["headers"].append(line.strip())
-                else:
-                    ret["sequences"].append(line.strip())
-        return pd.DataFrame(ret)
+        plddts = output['plddt'].cpu().numpy()
+        assert plddts.ndim == 3
 
-    def fold_batch(self, sequences):
-        self.esmfold.infer_pdbs(sequences)
-        pass
+        pdb_strs = output_to_pdb(output) 
+        return pdb_strs, plddts
+
+    def write(self, pdb_strs, headers):
+        if self.outdir is None:
+            print("Skipping PDB writing as _save_mode is None.")
+        else:
+            save_pdb_strs_to_disk(pdb_strs, self.outdir, headers, self.save_as_single_pdb_file)
 
     def run(self):
-        for start_idx in range(0, len(self.sequences), self.batch_size):
-            end_idx = start_idx + self.batch_size
-            batch = self.seq_df.iloc[start_idx:end_idx, :]
-            pdb_strs = self.fold_batch(batch['sequences'].values)
+        all_headers = []
+        all_pdb_strs = []
 
+        num_batches = min(len(self.ds) // self.batch_size, self.max_num_batches)
+
+        for i, batch in tqdm(enumerate(self.dataloader), total=num_batches):
+            if self.max_num_batches is not None and i >= self.max_num_batches:
+                print(f"Stopping at {self.max_num_batches} batches.")
+                break
+
+            headers, sequences = batch
+            pdb_strs, _ = self.fold_batch(sequences)
+            all_headers.extend(headers)
+            all_pdb_strs.extend(pdb_strs)
+        
+        self.write(all_pdb_strs, all_headers)
+        return all_pdb_strs

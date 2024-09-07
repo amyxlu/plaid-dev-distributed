@@ -31,7 +31,7 @@ def ensure_exists(path):
         path.mkdir(parents=True, exist_ok=True)
 
 
-class InverseFold:
+class InverseFoldPipeline:
     """Monomer-only, CA-only ProteinMPNN wrapper for inverse folding."""
 
     def __init__(
