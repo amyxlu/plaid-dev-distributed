@@ -3,7 +3,7 @@ defaults:
   - paths: pcluster 
   - trainer: default
   - datamodule: compositional/j1v1wv6w 
-  - denoiser: DiT_B 
+  - denoiser: UDiT_B 
   - diffusion: compositional 
   - callbacks/checkpoint: ema
   - callbacks/ema: default
