@@ -36,13 +36,12 @@ def maybe_resume_job_from_config(cfg: OmegaConf) -> T.Tuple[dict, str, bool]:
         cfg = OmegaConf.load(config_path)
         rank_zero_info(f"Overriding config from job ID {job_id}!")
 
-    # : 
     # https://github.com/facebookresearch/xformers/issues/920
     if hasattr(cfg.trainer, "precision"):
         if cfg.trainer.precision == "bf16-mixed" and cfg.denoiser._target_ == "plaid.denoisers.FunctionOrganismUDiT":
             cfg.trainer.update({"precision": "32"})
             print(
-                "torch.compile does not yet work for memory-efficient attention"
+                "torch.compile does not yet work for memory-efficient attention.\n"
                 "Overriding precision to 32-bit for FunctionOrganismUDiT denoiser."
             )
         else:
