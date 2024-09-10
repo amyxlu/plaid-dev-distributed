@@ -9,6 +9,7 @@ from ..esmfold import output_to_pdb, esmfold_v1
 from ..typed import PathLike, DeviceLike
 from ..datasets import FastaDataset
 from ..utils import save_pdb_strs_to_disk
+from ..transforms import get_random_sequence_crop_batch
 
 
 class FoldPipeline:
@@ -19,7 +20,7 @@ class FoldPipeline:
         esmfold: Optional[torch.nn.Module] = None,
         num_recycles: int = 4,
         batch_size: int = -1,
-        max_seq_len: int = 512,
+        max_seq_len: Optional[int] = 512,
         save_as_single_pdb_file: bool = False,
         device: DeviceLike = torch.device("cuda"),
         max_num_batches: Optional[int] = None,
@@ -52,7 +53,11 @@ class FoldPipeline:
         return self
 
     def fold_batch(self, sequences) -> Tuple[List[str], List[float]]:
-        output = self.esmfold.infer(sequences)
+        if not self.max_seq_len is None:
+            sequences = get_random_sequence_crop_batch(sequences, self.max_seq_len, min_len=30)
+        
+        with torch.no_grad():
+            output = self.esmfold.infer(sequences)
 
         plddts = output['plddt'].cpu().numpy()
         assert plddts.ndim == 3
