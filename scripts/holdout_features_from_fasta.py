@@ -8,7 +8,7 @@ import torch
 import einops
 import safetensors
 
-from plaid.transformers import get_random_sequence_crop_batch
+from plaid.transforms import get_random_sequence_crop_batch
 from cheap.pretrained import CHEAP_pfam_shorten_2_dim_32
 
 
@@ -50,7 +50,7 @@ for i, batch in tqdm(enumerate(dataloader)):
     sequences = batch[1]
     sequences = get_random_sequence_crop_batch(sequences, 512, min_len=30)
     with torch.no_grad():
-        feats, mask = cheap_pipeline.encode(sequences)
+        feats, mask = cheap_pipeline(sequences)
 
     feats = feats.detach().cpu()  # (N, L, 32)
     masks = mask.detach().cpu()  # (N, L)
