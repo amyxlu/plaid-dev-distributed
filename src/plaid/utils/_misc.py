@@ -637,6 +637,10 @@ def extract_step(checkpoint_file):
     return -1
 
 
+def round_to_multiple(x, multiple):
+    return int(multiple * round(x/multiple))
+
+
 ######
 # The following is adapted from pseudocode in Chen et al.,
 # https://arxiv.org/abs/2301.10972
