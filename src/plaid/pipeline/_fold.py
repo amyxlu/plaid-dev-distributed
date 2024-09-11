@@ -53,17 +53,16 @@ class FoldPipeline:
         return self
 
     def fold_batch(self, sequences) -> Tuple[List[str], List[float]]:
+        # if not self.max_seq_len is None:
+        #     sequences = get_random_sequence_crop_batch(sequences, self.max_seq_len, min_len=30)
         if not self.max_seq_len is None:
-            sequences = get_random_sequence_crop_batch(sequences, self.max_seq_len, min_len=30)
+            sequences = [seq[:self.max_seq_len] for seq in sequences]
         
         with torch.no_grad():
-            output = self.esmfold.infer(sequences)
-
-        plddts = output['plddt'].cpu().numpy()
-        assert plddts.ndim == 3
-
-        pdb_strs = output_to_pdb(output) 
-        return pdb_strs, plddts
+            # output = self.esmfold.infer(sequences)
+            # plddts = output['plddt'].cpu().numpy()
+            # assert plddts.ndim == 3
+            return self.esmfold.infer_pdbs(sequences, num_recycles=self.num_recycles)
 
     def write(self, pdb_strs, headers):
         if self.outdir is None:
@@ -72,6 +71,10 @@ class FoldPipeline:
             save_pdb_strs_to_disk(pdb_strs, self.outdir, headers, self.save_as_single_pdb_file)
 
     def run(self):
+        if self.outdir is not None:
+            print("Warning: make sure there are no repeated headers in the FASTA file.\n"
+                  "Otherwise, the resulting structures will be overwritten.")
+
         all_headers = []
         all_pdb_strs = []
 
@@ -83,9 +86,12 @@ class FoldPipeline:
                 break
 
             headers, sequences = batch
-            pdb_strs, _ = self.fold_batch(sequences)
+            pdb_strs = self.fold_batch(sequences)
             all_headers.extend(headers)
             all_pdb_strs.extend(pdb_strs)
+
+            # write samples for this batch: 
+            headers = [f"pfam{i}" for i in range(len(pdb_strs))]
+            self.write(pdb_strs, headers)
         
-        self.write(all_pdb_strs, all_headers)
         return all_pdb_strs

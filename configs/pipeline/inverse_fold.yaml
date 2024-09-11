@@ -1,9 +1,9 @@
 defaults:
   - _self_
 
-cond_code: "f11_o3617"
-npz_timestamp: "240828_1420"
-plaid_model_id: 4hdab8dn
+cond_code: ???
+npz_timestamp: ??? 
+plaid_model_id: "5j007z42" 
 
 pdb_dir: /data/lux70/plaid/artifacts/samples/${plaid_model_id}/${cond_code}/${npz_timestamp}/generated
 outdir: null  # use default, which is "${pdb_dir}/../inverse_generated"

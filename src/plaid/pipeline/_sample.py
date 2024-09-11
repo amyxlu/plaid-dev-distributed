@@ -145,7 +145,7 @@ class SampleLatent:
         np.savez(outpath, samples=all_sampled)
         print(f"Saved .npz file to {outpath} [shape={all_sampled.shape}].")
 
-        with open(outpath.with_suffix(".log"), "w") as f:
-            f.write("Sampling took {:.2f} seconds.".format(end-start))
+        with open(self.output_dir / "sample.log", "w") as f:
+            f.write("Sampling time: {:.2f} seconds.\n".format(end-start))
 
         return outpath

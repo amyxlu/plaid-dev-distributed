@@ -4,6 +4,7 @@ From sampled compressed latent, uncompress and generate sequence and structure u
 
 from pathlib import Path
 from typing import Dict
+import time
 
 import torch
 import numpy as np
@@ -38,6 +39,7 @@ class DecodeLatent:
     ):
         self.npz_path = npz_path
         self.output_root_dir = Path(output_root_dir)
+        self.time_log_path = self.output_root_dir / "../construct.log"
         self.num_recycles = num_recycles
         self.batch_size = batch_size
         self.device = device
@@ -66,7 +68,8 @@ class DecodeLatent:
             mask = mask.to(self.device)
 
         # uncompress 
-        x = self.hourglass.decode(x, mask)
+        with torch.no_grad():
+            x = self.hourglass.decode(x, mask)
 
         # unscale from "smooth" latent space back to "pathological" ESMFold latent space
         return self.latent_scaler.unscale(x)
@@ -90,32 +93,22 @@ class DecodeLatent:
         device = self.device
         if self.structure_constructor is None:
             # warning: this implicitly creates an ESMFold inference model, can be very memory consuming
-            self.structure_constructor = LatentToStructure()
+            self.structure_constructor = LatentToStructure(chunk_size=128)
 
         self.structure_constructor.to(device)
         x_processed = x_processed.to(device=device)
 
         with torch.no_grad():
-            pdb_strs, outputs = self.structure_constructor.to_structure(
+            pdb_strs = self.structure_constructor.to_structure(
                 x_processed,
                 sequences=seq_str,
                 num_recycles=self.num_recycles,
                 batch_size=self.batch_size,
-                return_raw_outputs=True
+                # return_raw_outputs=True
+                return_raw_outputs=False
             )
-
-        metrics = outputs_to_avg_metric(outputs)
-        plddt = npy(metrics["plddt"].flatten())
-        pae = npy(metrics["predicted_aligned_error"].flatten())
-        ptm = npy(metrics["ptm"].flatten())
-
-        log_dict = {
-            "plddt": plddt,
-            "pae": pae,
-            "ptm": ptm,
-        }
-        return pdb_strs, log_dict
-    
+        return pdb_strs
+        
     def write_structures_to_disk(self, pdb_strs):
         ensure_exists(self.output_root_dir)
         assert not self.output_root_dir is None
@@ -149,15 +142,26 @@ class DecodeLatent:
         x = self.load_sampled(self.npz_path)
 
         print("Decompressing latent samples")
+        start = time.time()
         x_processed = self.process_x(x)
         del self.cheap_pipeline  # free up memory 
+        end = time.time()
+        with open(self.time_log_path, "w") as f:
+            f.write(f"Decompress time: {end - start:.2f} seconds.\n")
 
         print(f"Constructing sequences and writing to {str(self.output_root_dir)}")
+        start = time.time()
         seq_strs = self.construct_sequence(x_processed)
         self.write_sequences_to_disk(seq_strs, "sequences.fasta")
         del self.sequence_constructor  # free up memory
+        end = time.time()
+        with open(self.time_log_path, "a") as f:
+            f.write(f"Sequence construction time: {end - start:.2f} seconds.\n")
         
         print(f"Constructing structures and writing to {str(self.output_root_dir)}")
-        pdb_strs, struct_log_dict = self.construct_structure(x_processed, seq_strs)
+        start = time.time()
+        pdb_strs = self.construct_structure(x_processed, seq_strs)
         self.write_structures_to_disk(pdb_strs)
-        self.write_structure_metrics_to_disk(struct_log_dict)
+        end = time.time()
+        with open(self.time_log_path, "a") as f:
+            f.write(f"Structure construction time: {end - start:.2f} seconds.\n")

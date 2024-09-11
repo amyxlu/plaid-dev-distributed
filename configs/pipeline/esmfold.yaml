@@ -4,8 +4,8 @@ defaults:
 fasta_file: ??? 
 outdir": ??? 
 
-num_recycles: 4
-max_seq_len: 512
+num_recycles: 1 
+max_seq_len: 256
 max_num_batches: null
 shuffle: False
 
