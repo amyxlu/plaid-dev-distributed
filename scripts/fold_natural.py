@@ -4,11 +4,12 @@ esmfold = esmfold_v1()
 from plaid.pipeline._fold import FoldPipeline
 
 fasta_file = "/data/lux70/data/pfam/val.fasta"
-# fasta_file = "/homefs/home/lux70/generated.fasta"
-outdir = "/data/lux70/data/pfam/val_fold"
-batch_size = 8 
-max_seq_len = 768
+outdir = "/data/lux70/data/pfam/val_stats/folded"
+batch_size = 32 
+max_seq_len = 256 
 max_num_batches = 200
+num_recycles = 1
+
 
 fold_pipeline = FoldPipeline(
     fasta_file,
@@ -17,5 +18,8 @@ fold_pipeline = FoldPipeline(
     max_seq_len=max_seq_len,
     batch_size=batch_size,
     max_num_batches=max_num_batches,
+    num_recycles=num_recycles,
     shuffle=True
 )
+
+fold_pipeline.run()
