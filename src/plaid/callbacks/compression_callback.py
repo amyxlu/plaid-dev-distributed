@@ -11,7 +11,6 @@ from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.utilities import rank_zero_only
 
 from plaid.esmfold.misc import batch_encode_sequences
-from plaid.datasets import CATHStructureDataModule
 from plaid.transforms import trim_or_pad_batch_first
 from plaid.utils import (
     LatentScaler,
@@ -74,6 +73,7 @@ class CompressionReconstructionCallback(Callback):
         print(f"Creating reference validation data of {self.max_samples} points...")
 
         # only preprocess max_samples data points and load all in one batch
+        from plaid.datasets import CATHStructureDataModule
         dm = CATHStructureDataModule(
             self.shard_dir,
             self.pdb_dir,
