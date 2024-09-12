@@ -1,14 +1,42 @@
 from typing import Optional
+from pathlib import Path
 
+import pandas as pd
 import numpy as np
 from scipy import linalg
+import math
 import torch
+import einops
+
+from ..typed import DeviceLike, PathLike
+from ..datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
 
 
 """
 Clean FID implementations
 https://arxiv.org/abs/2104.11222
 """
+
+def default(x, val):
+    return x if x is not None else val
+
+
+def is_fn_conditional(fn_idx):
+    ret = True
+    if fn_idx is None:
+        ret = False
+    if fn_idx == NUM_FUNCTION_CLASSES:
+        ret = False
+    return ret
+
+
+def is_org_conditional(org_idx):
+    ret = True
+    if org_idx is None:
+        ret = False
+    if org_idx == NUM_ORGANISM_CLASSES:
+        ret = False
+    return ret
 
 
 def frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
@@ -140,34 +168,149 @@ def calc_fid_fn(x, y, eps=1e-8):
     return mean_term + cov_term
 
 
-
-
 class ConditionalFID:
+    """
+    Given a sampled latent from a function and organism, compute the FID.
+    
+    This will look in the cache to see if we've already computed the CHEAP latent embedding
+    for this function + organism combination. If not, it will load the CHEAP pipeline,
+    look for examples in the validation data with this combination, run the pipeline,
+    and save the results to cache, if desired.
+    """
     def __init__(
         self,
-        function_idx: int,
-        organism_idx: int,
-        use_cache: bool = True,
+        function_idx: Optional[int] = None,
+        organism_idx: Optional[int] = None,
+        val_parquet_fpath: Optional[PathLike] = "/data/lux70/data/pfam/val.parquet",
+        cached_pt_dir: Optional[PathLike] = "/data/lux70/data/pfam/features",
+        max_seq_len: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        max_eval_samples: int = 512,
+        device: DeviceLike = "cuda",
+        cheap_pipeline: Optional[torch.nn.Module] = None,
+        write_to_cache: bool = True,
+        min_samples: int = 512
     ):
-        self.function_idx = function_idx
-        self.organism_idx = organism_idx
-        self.use_cache = use_cache
-        self.real = self.make_reference_embedding() # tensor
-        
-    def obtain_embed_from_sequence(self, sequence):
-        # ...
-        return
+        self.function_idx = default(function_idx, NUM_FUNCTION_CLASSES)
+        self.organism_idx = default(organism_idx, NUM_ORGANISM_CLASSES)
+        self.device = device
+        self.max_seq_len = max_seq_len
+        self.batch_size = batch_size
+        self.max_eval_samples = max_eval_samples
+        self.write_to_cache = write_to_cache
+        self.min_samples = min_samples
 
-    def obtain_embed_from_shards(self):
-        # ...
-        return
+        self.val_parquet_fpath = Path(val_parquet_fpath)
+        self.cached_pt_dir = Path(cached_pt_dir)
+        
+        self.cheap_pipeline = cheap_pipeline
+        self.val_parquet = None
+
+        # trigger pipeline that creates the reference embedding 
+        self.real = self.make_reference_embedding()
     
-    def make_reference_embedding(self, n_to_sample=1000):
-        # ...
-        if self.use_cache:
-            return self.obtain_embed_from_shards()
+    def _make_cheap_pipeline(self):
+        from cheap.pretrained import CHEAP_pfam_shorten_2_dim_32
+        self.cheap_pipeline = CHEAP_pfam_shorten_2_dim_32()
+        self.cheap_pipeline.to(self.device)
+    
+    def _load_val_parquet(self):
+        self.val_parquet = pd.read_parquet(self.val_parquet_fpath)
+        
+    def _features_from_sequence_strings(self, sequences):
+        from ..transforms import get_random_sequence_crop_batch
+
+        if self.cheap_pipeline is None: 
+            self._make_cheap_pipeline()
+        
+        sequences = [s[:self.max_seq_len] for s in sequences]
+        feats_all = []
+
+        for i in range(0, len(sequences), self.batch_size):
+            batch = sequences[i:i+self.batch_size]
+            with torch.no_grad():
+                feats, mask = self.cheap_pipeline(batch)
+            
+            # save GPU memory
+            feats = feats.detach().cpu()  # (N, L, 32)
+            masks = mask.detach().cpu()  # (N, L)
+
+            # calculate masked average
+            masks = einops.repeat(masks, "N L -> N L C", C=32)  # (N, L, 32)
+            feats = feats * masks  # (N, L, 32)
+            feats = feats.sum(dim=1) / masks.sum(dim=1)  # (N, 32)
+
+            # append batch
+            feats_all.append(feats)
+        
+        return torch.cat(feats_all, dim=0)
+    
+    def _load_cached_embedding(self):
+        from safetensors import safe_open
+
+        filecode = f"f{self.function_idx}_o{self.organism_idx}"
+        with safe_open(self.cached_pt_dir / f"{filecode}.pt", "pt") as f:
+            x = f.get_tensor('features').numpy()
+
+        assert x.shape[0] >= self.min_samples, f"Need at least {self.min_samples} samples, as configured."
+
+        if len(x) > self.max_eval_samples:
+            idxs = np.random.choice(len(x), self.max_eval_samples, replace=False)
+            x = x[idxs]
+        return x
+
+    def _save_embedding_to_cache(self, feats):
+        from safetensors.torch import save_file
+
+        filecode = f"f{self.function_idx}_o{self.organism_idx}"
+        save_file({"features": feats}, self.cached_pt_dir / f"{filecode}.pt")
+    
+
+    def _run_pipeline_for_condition(self, save=True):
+        if self.val_parquet is None:
+            self._load_val_parquet()
+
+        df = self.val_parquet
+
+        # filter by condition
+        if is_fn_conditional(self.function_idx):
+            df = df[df.GO_idx == self.function_idx]
+        
+        if is_org_conditional(self.organism_idx):
+            df = df[df.organism_index == self.organism_idx]
+        
+        print(f"Found {len(df)} samples for this condition.")
+
+        sequences = df.sequence.values
+
+        if len(sequences) < self.min_samples:
+            raise ValueError(f"Need at least {self.min_samples} samples, as configured.")
+        
+        np.random.shuffle(sequences)
+        sequences = sequences[:self.max_eval_samples]
+
+        x = self._features_from_sequence_strings(sequences)
+        if save:
+            self._save_embedding_to_cache(x)
+        return x
+    
+    def make_reference_embedding(self):
+        if (self.organism_idx == NUM_ORGANISM_CLASSES) and (self.function_idx == NUM_FUNCTION_CLASSES):
+            # unconditional
+            x = self._load_cached_embedding(filecode="all")
         else:
-            return self.obtain_embed_from_sequence()
+            cached_pt_fpath = self.cached_pt_dir / f"f{self.function_idx}_o{self.organism_idx}.pt"
+            if cached_pt_fpath.exists():
+                x = self._load_cached_embedding()
+            else:
+                x = self._run_pipeline_for_condition(save=self.write_to_cache)
+        
+        if isinstance(x, torch.Tensor):
+            x = x.cpu().numpy()
+            
+        return x
 
     def run(self, sampled):
-        return calc_fid_fn(sampled, self.real)
+        if isinstance(sampled, torch.Tensor):
+            sampled = sampled.cpu().numpy()
+        return parmar_fid(sampled, self.real)

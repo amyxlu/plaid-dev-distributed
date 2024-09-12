@@ -8,7 +8,7 @@ from plaid.pipeline import SampleLatent
 Script configs
 """
 
-NUM_TO_EVAL = 10
+# NUM_TO_EVAL = 10
 
 script_config = {
     "return_all_timesteps": True,
@@ -29,8 +29,10 @@ unique_go_idxs.sort()
 Loop through
 """
 for i, idx in enumerate(unique_go_idxs):
-    if i > NUM_TO_EVAL:
-        break
+    # if i > NUM_TO_EVAL:
+    #     break
+    if i < 10:
+        continue
 
     median_len = int(df[df.GO_idx == idx].seq_len.median())
     sample_len = round_to_multiple(median_len / 2, multiple=4)
