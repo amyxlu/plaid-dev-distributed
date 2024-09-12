@@ -5,9 +5,10 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from evo.dataset import FastaDataset
+
 from ..esmfold import output_to_pdb, esmfold_v1
 from ..typed import PathLike, DeviceLike
-from ..datasets import FastaDataset
 from ..utils import save_pdb_strs_to_disk
 from ..transforms import get_random_sequence_crop_batch
 
