@@ -8,5 +8,5 @@ mlp_ratio: 4.0
 use_self_conditioning: True
 
 timestep_embedding_strategy: "fourier"
-use_skip_connect: True
+use_skip_connect: False 
 attention_mode: "xformers_scaled_dot_product"

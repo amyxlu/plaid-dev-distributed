@@ -8,7 +8,7 @@ mlp_ratio: 4.0
 use_self_conditioning: True
 
 timestep_embedding_strategy: "sinusoidal"
-use_skip_connect: True
+use_skip_connect: False 
 attention_mode: "xformers_memory_efficient"
 
 # 900M parameters
