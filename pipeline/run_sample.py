@@ -19,7 +19,8 @@ def run(cfg: DictConfig):
         return_all_timesteps=cfg.return_all_timesteps,
         output_root_dir=cfg.output_root_dir,
     )
-    sample_latent.run()
+    sample_latent.dpm_sample()
+    # sample_latent.run()
 
 
 @hydra.main(config_path="../configs/pipeline", config_name="sample_latent")

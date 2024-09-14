@@ -18,11 +18,15 @@ from plaid.utils import timestamp
 device = torch.device("cuda")
 
 
+def default(x, val):
+    return x if x is not None else val
+
+
 class SampleLatent:
     def __init__(
         self,
         # model setup
-        model_id: str = "4hdab8dn",
+        model_id: str = "5j007z42",
         model_ckpt_dir: str = "/data/lux70/plaid/checkpoints/plaid-compositional",
 
         # sampling setup
@@ -35,6 +39,7 @@ class SampleLatent:
         batch_size: int = -1,
         length: int = 32,  # the final length, after decoding back to structure/sequence, is twice this value
         return_all_timesteps: bool = False,
+        sample_scheduler: str = "ddim",  # ["dpm", "ddpm"]
 
         # output setup
         output_root_dir: str = "/data/lux70/plaid/artifacts/samples",
@@ -45,8 +50,6 @@ class SampleLatent:
         self.function_idx = function_idx
         self.cond_scale = cond_scale
         self.num_samples = num_samples
-        self.beta_scheduler_name = beta_scheduler_name
-        self.sampling_timesteps = sampling_timesteps
         self.length = length
         self.return_all_timesteps = return_all_timesteps
         self.output_root_dir = output_root_dir
@@ -62,16 +65,76 @@ class SampleLatent:
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
 
-        # set up diffusion model
-        self.diffusion = self.create_diffusion(config_path, model_path)
-        self.diffusion = self.diffusion.to(self.device)
+        # load config
+        self.cfg = OmegaConf.load(config_path)
 
-    def create_diffusion(
+        # if specified a specific beta scheduler or number of sampling steps, override
+        # otherwise, use what was used during training
+        self.beta_scheduler_name = default(beta_scheduler_name, self.cfg.beta_scheduler_name)
+        self.sampling_timesteps = default(sampling_timesteps, self.cfg.timesteps)
+
+        # create the denoiser
+        self.denoiser = self.create_denoiser(model_path)
+
+        # Create the sampler solver
+        if sample_scheduler == "dpm":
+            self.create_dpm_solver()
+        else:
+            self.diffusion = self.create_diffusion(self.denoiser, model_path)
+
+    def create_dpm_solver(self):
+        from ..diffusion.dpm_solver import NoiseScheduleVP, DPM_Solver
+        from ..diffusion.beta_schedulers import make_beta_scheduler
+
+        """
+        Make noise schedule
+        """
+
+        # set up betas from beta scheduler
+        beta_scheduler = make_beta_scheduler(
+            self.cfg.beta_scheduler_name,
+            self.cfg.beta_scheduler_start,
+            self.cfg.beta_scheduler_end,
+            self.cfg.beta_scheduler_tau
+        )
+        betas = beta_scheduler(self.sampling_timesteps)
+        betas = torch.tensor(betas, dtype=torch.float64)
+
+        alphas = 1. - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+
+        noise_schedule = NoiseScheduleVP(
+            schedule="discrete",
+            betas=betas, 
+            alphas_cumprod=alphas_cumprod
+        ) 
+
+        """
+        Make model wrapper
+        """
+        from ..diffusion.dpm_solver import model_wrapper
+        pred_type_conversion = {
+            "pred_v": "v",
+            "pred_noise": "noise",
+            "pred_x0": "x_start"
+        }
+
+        # TODO: how does double self cond work"?
+        wrapper = model_wrapper(
+            model=self.denoiser,
+            noise_schedule=noise_schedule,
+            model_type=pred_type_conversion[self.cfg.diffusion.objective],
+            model_kwargs={},
+            guidance_type="classifier-free",
+            guidance_scale=self.cond_scale
+        )
+
+
+    def create_denoiser(
         self,
-        config_path,
         model_path,
     ):
-        cfg = OmegaConf.load(config_path)
+        cfg = self.cfg
         compression_model_id = cfg['compression_model_id']
         # shorten_factor = COMPRESSION_SHORTEN_FACTORS[compression_model_id]
         input_dim = COMPRESSION_INPUT_DIMENSIONS[compression_model_id]
@@ -99,29 +162,41 @@ class SampleLatent:
 
         # load weights and create diffusion object
         denoiser.load_state_dict(mod_state_dict)
-        diffusion_kwargs = cfg.diffusion
+        denoiser = denoiser.to(self.device)
+        return denoiser
+
+    def create_diffusion(self, denoiser):
+        diffusion_kwargs = self.cfg.diffusion
         diffusion_kwargs.pop("_target_")
-
         diffusion_kwargs["sampling_timesteps"] = self.sampling_timesteps 
-        if self.beta_scheduler_name is not None:
-            diffusion_kwargs["beta_scheduler_name"] = self.beta_scheduler_name
-
+        diffusion_kwargs["beta_scheduler_name"] = self.beta_scheduler_name
         diffusion = FunctionOrganismDiffusion(model=denoiser,**diffusion_kwargs)
+        diffusion = diffusion.to(self.device)
         return diffusion
-
-    def sample(self):
+    
+    def dpm_sample(self):
+        import IPython;IPython.embed()
+    
+    def sample(self, use_ddim=True):
         N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim 
         shape = (N, L, C)
 
-        sampled_latent = self.diffusion.ddim_sample_loop(
-            shape=shape,
-            organism_idx=self.organism_idx,
-            function_idx=self.function_idx,
-            return_all_timesteps=self.return_all_timesteps, 
-            cond_scale=self.cond_scale
-        )
-        return sampled_latent
+        if use_ddim:
+            sample_loop_fn = self.diffusion.ddim_sample_loop
+        else:
+            sample_loop_fn = self.diffusion.p_sample_loop
 
+        # assuming no gradient-guided diffusion:
+        with torch.no_grad():
+            sampled_latent = sample_loop_fn(
+                shape=shape,
+                organism_idx=self.organism_idx,
+                function_idx=self.function_idx,
+                return_all_timesteps=self.return_all_timesteps, 
+                cond_scale=self.cond_scale
+            )
+        return sampled_latent
+    
     def run(self):
         num_samples = max(self.num_samples, self.batch_size)
         all_sampled = []
@@ -141,11 +216,14 @@ class SampleLatent:
         if not self.output_dir.exists():
             self.output_dir.mkdir(parents=True)
 
-        outpath = self.output_dir / f"{str(timestamp())}.npz"
+        outpath = self.output_dir / str(timestamp()) / "latent.npz"
+        if not outpath.parent.exists():
+            outpath.parent.mkdir(parents=True)
+
         np.savez(outpath, samples=all_sampled)
         print(f"Saved .npz file to {outpath} [shape={all_sampled.shape}].")
 
-        with open(self.output_dir / "sample.log", "w") as f:
+        with open(outpath.parent / "sample.txt", "w") as f:
             f.write("Sampling time: {:.2f} seconds.\n".format(end-start))
 
         return outpath
