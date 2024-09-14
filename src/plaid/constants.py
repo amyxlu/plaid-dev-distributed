@@ -7,6 +7,8 @@ structure_module_c_z = 128
 c_s = 1024
 c_z = 128
 
+ICLR_MODEL_ID = "5j007z42"
+
 
 # DEFAULT_CACHE = Path(os.environ['HOME']) / f".cache/cheap"
 DEFAULT_CACHE = Path("/data/lux70/cheap")
