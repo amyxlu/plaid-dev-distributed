@@ -31,7 +31,7 @@ Loop through
 for i, idx in enumerate(unique_go_idxs):
     # if i > NUM_TO_EVAL:
     #     break
-    if i < 10:
+    if i < 100:
         continue
 
     median_len = int(df[df.GO_idx == idx].seq_len.median())
