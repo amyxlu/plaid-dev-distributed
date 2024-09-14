@@ -1,4 +1,4 @@
-from ._datasets import *
+# from ._datasets import *
 from ._sharded import (
     FunctionOrganismDataModule,
     make_sample,
