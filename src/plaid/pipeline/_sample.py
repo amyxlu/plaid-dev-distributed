@@ -91,6 +91,9 @@ class SampleLatent:
         self.denoiser = self.create_denoiser(model_path)
         self.diffusion = self.create_diffusion(self.denoiser)
 
+        self.denoiser.eval().requires_grad_(False)
+        self.diffusion.eval().requires_grad_(False)
+
     def create_denoiser(
         self,
         model_path,
@@ -165,12 +168,14 @@ class SampleLatent:
         cur_n_sampled = 0
 
         start = time.time()
-        for _ in trange(0, num_samples, self.batch_size, desc="Sampling batches:"):
+        for _ in trange(0, num_samples, self.batch_size, desc="Sampling batches"):
             sampled_latent = self.sample()
             all_sampled.append(sampled_latent)
             cur_n_sampled += self.batch_size
         end = time.time()
+
         print(f"Sampling took {end-start:.2f} seconds.")
+
         all_sampled = torch.cat(all_sampled, dim=0)
         all_sampled = all_sampled.cpu().numpy()
         all_sampled = all_sampled.astype(
@@ -189,6 +194,9 @@ class SampleLatent:
 
         with open(outpath.parent / "sample.log", "w") as f:
             f.write("Sampling time: {:.2f} seconds.\n".format(end - start))
+
+        with open(outpath.parent / "config.yaml", "w") as f:
+            f.write(OmegaConf.to_yaml(self.cfg))
 
         return outpath
 

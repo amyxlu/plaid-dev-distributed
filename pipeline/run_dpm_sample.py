@@ -19,7 +19,6 @@ def run(cfg: DictConfig):
         return_all_timesteps=cfg.return_all_timesteps,
         output_root_dir=cfg.output_root_dir,
         ### DPM specific:
-
         t_start=cfg.t_start,
         t_end=cfg.t_end,
         order=cfg.order,

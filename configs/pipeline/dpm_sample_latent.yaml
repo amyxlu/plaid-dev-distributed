@@ -13,7 +13,7 @@ sampling_timesteps: 20
 
 batch_size: -1 
 return_all_timesteps: False 
-output_root_dir: "/data/lux70/plaid/artifacts/samples"
+output_root_dir: "/data/lux70/plaid/artifacts/samples/dpm2m"
 
 # length must be divisible by 4.
 # the actual protein length will be 2 * length.

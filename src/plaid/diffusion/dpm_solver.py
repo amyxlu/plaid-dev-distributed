@@ -1375,7 +1375,7 @@ class DPM_Solver:
                     intermediates.append(x)
 
                 # Init the first `order` values by lower order multistep DPM-Solver.
-                print(f"Init the first {order} values by lower order multistep DPM-Solver.")
+                print(f"Init the first {order - 1} order values by lower order multistep DPM-Solver.")
 
                 for step in range(1, order):
                     t = timesteps[step]
