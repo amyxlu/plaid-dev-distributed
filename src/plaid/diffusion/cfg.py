@@ -308,10 +308,10 @@ class FunctionOrganismDiffusion(L.LightningModule):
         self,
         x: torch.Tensor,
         t: int,
+        x_self_cond: T.Optional[torch.Tensor] = None,
         function_idx: T.Optional[int] = None,
         organism_idx: T.Optional[int] = None,
         mask: T.Optional[torch.Tensor] = None,
-        x_self_cond: T.Optional[torch.Tensor] = None,
         *args,
         **kwargs,
     ):
@@ -345,7 +345,7 @@ class FunctionOrganismDiffusion(L.LightningModule):
             x_self_cond=x_self_cond,
         )
 
-    def continuous_time_model_predictions(
+    def continuous_time_noise_predictions(
         self,
         x: torch.Tensor,
         t_continuous: int,

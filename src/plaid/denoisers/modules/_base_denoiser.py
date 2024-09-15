@@ -144,6 +144,10 @@ class BaseDenoiser(nn.Module):
         mask = denoiser_kwargs.mask
         x_self_cond = denoiser_kwargs.x_self_cond
 
+        # if mask is not supplied, assume that nothing needs to be masked
+        if mask is None:
+            mask = torch.ones(x.shape[:2], device=x.device).bool()
+
         # project along the channel dimension if using self-conditioning
         if x_self_cond is not None:
             x = self.self_conditioning_mlp(torch.cat([x, x_self_cond], dim=-1))
@@ -168,9 +172,6 @@ class BaseDenoiser(nn.Module):
         # combine timestep and label conditioning labels
         c = t + function_y + organism_y
 
-        # if mask is not supplied, assume that nothing needs to be masked
-        if mask is None:
-            mask = torch.ones(x.shape[:2], device=x.device).bool()
 
         ###########################################################################
         ###########################################################################

@@ -9,6 +9,8 @@ import torch
 import numpy as np
 
 from plaid.diffusion import FunctionOrganismDiffusion
+from plaid.diffusion.beta_schedulers import make_beta_scheduler
+from plaid.diffusion.dpm_solver import NoiseScheduleVP, DPM_Solver
 from plaid.denoisers import FunctionOrganismDiT, FunctionOrganismUDiT, DenoiserKwargs
 from plaid.constants import COMPRESSION_INPUT_DIMENSIONS
 from plaid.datasets import NUM_ORGANISM_CLASSES, NUM_FUNCTION_CLASSES
@@ -28,19 +30,20 @@ class SampleLatent:
         # model setup
         model_id: str = "5j007z42",
         model_ckpt_dir: str = "/data/lux70/plaid/checkpoints/plaid-compositional",
-
         # sampling setup
         organism_idx: int = NUM_ORGANISM_CLASSES,
         function_idx: int = NUM_FUNCTION_CLASSES,
         cond_scale: float = 7,
         num_samples: int = -1,
-        beta_scheduler_name: T.Optional[str] = "sigmoid",
-        sampling_timesteps: int = 1000 ,
+        beta_scheduler_name: T.Optional[str] = None,
+        beta_scheduler_start: T.Optional[int] = None,
+        beta_scheduler_end: T.Optional[int] = None,
+        beta_scheduler_tau: T.Optional[int] = None,
+        sampling_timesteps: int = 1000,
         batch_size: int = -1,
         length: int = 32,  # the final length, after decoding back to structure/sequence, is twice this value
         return_all_timesteps: bool = False,
-        sample_scheduler: str = "ddim",  # ["dpm", "ddpm"]
-
+        sample_scheduler: str = "ddim",  # ["ddim", ""ddpm"]
         # output setup
         output_root_dir: str = "/data/lux70/plaid/artifacts/samples",
     ):
@@ -53,15 +56,20 @@ class SampleLatent:
         self.length = length
         self.return_all_timesteps = return_all_timesteps
         self.output_root_dir = output_root_dir
+        self.sample_scheduler = sample_scheduler
 
         # default to cuda
         self.device = torch.device("cuda")
-        
+
         # if no batch size is provided, sample all at once
         self.batch_size = batch_size if batch_size > 0 else num_samples
 
         # set up paths
-        self.output_dir = Path(self.output_root_dir) / model_id / f"f{self.function_idx}_o{self.organism_idx}"
+        self.output_dir = (
+            Path(self.output_root_dir)
+            / model_id
+            / f"f{self.function_idx}_o{self.organism_idx}"
+        )
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
 
@@ -70,72 +78,25 @@ class SampleLatent:
 
         # if specified a specific beta scheduler or number of sampling steps, override
         # otherwise, use what was used during training
-        self.beta_scheduler_name = default(beta_scheduler_name, self.cfg.beta_scheduler_name)
-        self.sampling_timesteps = default(sampling_timesteps, self.cfg.timesteps)
+        self.sampling_timesteps = default(sampling_timesteps, self.cfg.diffusion.timesteps)
 
-        # create the denoiser
+        self.beta_scheduler_name = default(
+            beta_scheduler_name, self.cfg.diffusion.beta_scheduler_name
+        )
+        self.beta_scheduler_start = default(beta_scheduler_start, self.cfg.diffusion.beta_scheduler_start)
+        self.beta_scheduler_end = default(beta_scheduler_end, self.cfg.diffusion.beta_scheduler_end)
+        self.beta_scheduler_tau = default(beta_scheduler_tau, self.cfg.diffusion.beta_scheduler_tau)
+
+        # create the denoiser and solvers
         self.denoiser = self.create_denoiser(model_path)
-
-        # Create the sampler solver
-        if sample_scheduler == "dpm":
-            self.create_dpm_solver()
-        else:
-            self.diffusion = self.create_diffusion(self.denoiser, model_path)
-
-    def create_dpm_solver(self):
-        from ..diffusion.dpm_solver import NoiseScheduleVP, DPM_Solver
-        from ..diffusion.beta_schedulers import make_beta_scheduler
-
-        """
-        Make noise schedule
-        """
-
-        # set up betas from beta scheduler
-        beta_scheduler = make_beta_scheduler(
-            self.cfg.beta_scheduler_name,
-            self.cfg.beta_scheduler_start,
-            self.cfg.beta_scheduler_end,
-            self.cfg.beta_scheduler_tau
-        )
-        betas = beta_scheduler(self.sampling_timesteps)
-        betas = torch.tensor(betas, dtype=torch.float64)
-
-        alphas = 1. - betas
-        alphas_cumprod = torch.cumprod(alphas, dim=0)
-
-        noise_schedule = NoiseScheduleVP(
-            schedule="discrete",
-            betas=betas, 
-            alphas_cumprod=alphas_cumprod
-        ) 
-
-        """
-        Make model wrapper
-        """
-        from ..diffusion.dpm_solver import model_wrapper
-        pred_type_conversion = {
-            "pred_v": "v",
-            "pred_noise": "noise",
-            "pred_x0": "x_start"
-        }
-
-        # TODO: how does double self cond work"?
-        wrapper = model_wrapper(
-            model=self.denoiser,
-            noise_schedule=noise_schedule,
-            model_type=pred_type_conversion[self.cfg.diffusion.objective],
-            model_kwargs={},
-            guidance_type="classifier-free",
-            guidance_scale=self.cond_scale
-        )
-
+        self.diffusion = self.create_diffusion(self.denoiser)
 
     def create_denoiser(
         self,
         model_path,
     ):
         cfg = self.cfg
-        compression_model_id = cfg['compression_model_id']
+        compression_model_id = cfg["compression_model_id"]
         # shorten_factor = COMPRESSION_SHORTEN_FACTORS[compression_model_id]
         input_dim = COMPRESSION_INPUT_DIMENSIONS[compression_model_id]
 
@@ -156,7 +117,7 @@ class SampleLatent:
 
         # remove the prefix from the state dict if torch.compile was used during training
         mod_state_dict = {}
-        for k, v in ckpt['state_dict'].items():
+        for k, v in ckpt["state_dict"].items():
             if k[:16] == "model._orig_mod.":
                 mod_state_dict[k[16:]] = v
 
@@ -168,23 +129,24 @@ class SampleLatent:
     def create_diffusion(self, denoiser):
         diffusion_kwargs = self.cfg.diffusion
         diffusion_kwargs.pop("_target_")
-        diffusion_kwargs["sampling_timesteps"] = self.sampling_timesteps 
+        diffusion_kwargs["sampling_timesteps"] = self.sampling_timesteps
         diffusion_kwargs["beta_scheduler_name"] = self.beta_scheduler_name
-        diffusion = FunctionOrganismDiffusion(model=denoiser,**diffusion_kwargs)
+        diffusion = FunctionOrganismDiffusion(model=denoiser, **diffusion_kwargs)
         diffusion = diffusion.to(self.device)
         return diffusion
-    
-    def dpm_sample(self):
-        import IPython;IPython.embed()
-    
-    def sample(self, use_ddim=True):
-        N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim 
+
+    def sample(self):
+        N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim
         shape = (N, L, C)
 
-        if use_ddim:
+        if self.sample_scheduler == "ddim":
             sample_loop_fn = self.diffusion.ddim_sample_loop
-        else:
+        elif self.sample_scheduler == "ddpm":
             sample_loop_fn = self.diffusion.p_sample_loop
+        else:
+            raise ValueError(f"Unknown sample scheduler: {self.sample_scheduler}."
+                             " Must be one of ['ddim', 'ddpm']."
+                             " Did you mean to use `DPMSolverSampleLatent`?")
 
         # assuming no gradient-guided diffusion:
         with torch.no_grad():
@@ -192,11 +154,11 @@ class SampleLatent:
                 shape=shape,
                 organism_idx=self.organism_idx,
                 function_idx=self.function_idx,
-                return_all_timesteps=self.return_all_timesteps, 
-                cond_scale=self.cond_scale
+                return_all_timesteps=self.return_all_timesteps,
+                cond_scale=self.cond_scale,
             )
         return sampled_latent
-    
+
     def run(self):
         num_samples = max(self.num_samples, self.batch_size)
         all_sampled = []
@@ -211,7 +173,9 @@ class SampleLatent:
         print(f"Sampling took {end-start:.2f} seconds.")
         all_sampled = torch.cat(all_sampled, dim=0)
         all_sampled = all_sampled.cpu().numpy()
-        all_sampled = all_sampled.astype(np.float16)  # this is ok because values are [-1,1]
+        all_sampled = all_sampled.astype(
+            np.float16
+        )  # this is ok because values are [-1,1]
 
         if not self.output_dir.exists():
             self.output_dir.mkdir(parents=True)
@@ -223,7 +187,108 @@ class SampleLatent:
         np.savez(outpath, samples=all_sampled)
         print(f"Saved .npz file to {outpath} [shape={all_sampled.shape}].")
 
-        with open(outpath.parent / "sample.txt", "w") as f:
-            f.write("Sampling time: {:.2f} seconds.\n".format(end-start))
+        with open(outpath.parent / "sample.log", "w") as f:
+            f.write("Sampling time: {:.2f} seconds.\n".format(end - start))
 
         return outpath
+
+
+class DPMSolverSampleLatent(SampleLatent):
+    def __init__(
+        self,
+        t_start=None,
+        t_end=None,
+        order=2,
+        skip_type='time_uniform',
+        method='multistep',
+        lower_order_final=True,
+        denoise_to_zero=False,
+        solver_type='dpmsolver',
+        atol=0.0078,
+        rtol=0.05,
+        *args,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.solver_type = solver_type
+
+        # DPM sampling parameters
+        self.t_start = t_start
+        self.t_end = t_end
+        self.order = order
+        self.skip_type = skip_type
+        self.method = method
+        self.lower_order_final = lower_order_final
+        self.denoise_to_zero = denoise_to_zero
+        self.solver_type = solver_type
+        self.atol = atol
+        self.rtol = rtol
+
+        self.dpm_solver = self.create_dpm_solver(solver_type, sampling_timesteps=self.sampling_timesteps)
+
+    def create_dpm_solver(self, dpm_algorithm: str, sampling_timesteps, **kwargs):
+        """
+        Make noise schedule
+        """
+        # set up betas from beta scheduler
+        beta_scheduler = make_beta_scheduler(
+            self.beta_scheduler_name,
+            self.beta_scheduler_start,
+            self.beta_scheduler_end,
+            self.beta_scheduler_tau
+        )
+        betas = beta_scheduler(sampling_timesteps)
+        print("Sampling timesteps:", sampling_timesteps)
+        betas = torch.tensor(betas, dtype=torch.float64)
+
+        alphas = 1. - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+
+        noise_schedule = NoiseScheduleVP(
+            schedule="discrete",
+            betas=betas,
+            alphas_cumprod=alphas_cumprod,
+        )
+
+        """
+        Configure DPM++ solver
+        """
+        model_fn = self.diffusion.continuous_time_noise_predictions
+
+        return DPM_Solver(
+            model_forward_wrapper=model_fn,
+            noise_schedule=noise_schedule,
+            algorithm_type=dpm_algorithm,
+            # TODO: can play around with dynamic thresholding
+            **kwargs,
+        )
+
+    def sample(self):
+        if self.dpm_solver is None:
+            self.create_dpm_solver("dpm_solver", sampling_timesteps=self.sampling_timesteps)
+
+        N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim
+        shape = (N, L, C)
+        x = torch.randn(shape, device=self.device)
+
+        print("Starting DPM sampling...")
+
+        with torch.no_grad():
+            sampled_latent = self.dpm_solver.sample(
+                x=x,
+                steps=self.sampling_timesteps,
+                t_start=self.t_start,
+                t_end=self.t_end,
+                order=self.order,
+                skip_type=self.skip_type,
+                method=self.method,
+                lower_order_final=self.lower_order_final,
+                denoise_to_zero=self.denoise_to_zero,
+                solver_type=self.solver_type,
+                atol=self.atol,
+                rtol=self.rtol,
+                # TODO: figure out the return intermediates option in the DPM code
+                # return_intermediate=self.return_all_timesteps,
+                return_intermediate=False,
+            )
+        return sampled_latent

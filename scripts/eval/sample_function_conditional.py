@@ -31,18 +31,18 @@ Loop through
 for i, idx in enumerate(unique_go_idxs):
     # if i > NUM_TO_EVAL:
     #     break
-    if i < 100:
-        continue
+    # if i < 100:
+    #     continue
+    if 50 < i < 100:
+        median_len = int(df[df.GO_idx == idx].seq_len.median())
+        sample_len = round_to_multiple(median_len / 2, multiple=4)
 
-    median_len = int(df[df.GO_idx == idx].seq_len.median())
-    sample_len = round_to_multiple(median_len / 2, multiple=4)
+        for k, v in script_config.items():
+            cfg[k] = v
 
-    for k, v in script_config.items():
-        cfg[k] = v
+        # for each unique GO term, keep organism as the "unconditional" index and use median length
+        cfg.function_idx = int(idx)
+        cfg.length = int(sample_len)
 
-    # for each unique GO term, keep organism as the "unconditional" index and use median length
-    cfg.function_idx = int(idx)
-    cfg.length = int(sample_len)
-
-    sample_latent = SampleLatent(**cfg)
-    sample_latent.run()
+        sample_latent = SampleLatent(**cfg)
+        sample_latent.run()
