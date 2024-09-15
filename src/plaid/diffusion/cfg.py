@@ -350,10 +350,10 @@ class FunctionOrganismDiffusion(L.LightningModule):
         x: torch.Tensor,
         t_continuous: int,
         total_T: int,
+        x_self_cond: T.Optional[torch.Tensor] = None,
         function_idx: T.Optional[int] = None,
         organism_idx: T.Optional[int] = None,
         mask: T.Optional[torch.Tensor] = None,
-        x_self_cond: T.Optional[torch.Tensor] = None,
         cond_scale: float = 6.0,
         rescaled_phi: float = 0.7,
     ):
@@ -362,7 +362,12 @@ class FunctionOrganismDiffusion(L.LightningModule):
         """
         discrete_t = (t_continuous - 1.0 / total_T) * 1000.0
         denoiser_kwargs = self.sample_step_inputs_to_kwargs(
-            x, discrete_t, function_idx, organism_idx, mask, x_self_cond
+            x=x,
+            t=discrete_t,
+            x_self_cond=x_self_cond,
+            function_idx=function_idx,
+            organism_idx=organism_idx,
+            mask=mask,
         )
         preds = self.model_predictions(denoiser_kwargs, cond_scale, rescaled_phi)
         return preds.pred_noise  # needed for DPM solvers

@@ -301,7 +301,13 @@ class DPM_Solver:
         Return the noise prediction model.
         """
         total_T = self.noise_schedule.total_N
-        return self.model_forward_wrapper(x, t, total_T=total_T, x_self_cond=x_self_cond, **model_kwargs)
+        return self.model_forward_wrapper(
+            x=x,
+            t_continuous=t,
+            total_T=total_T,
+            x_self_cond=x_self_cond,
+            **model_kwargs
+        )
 
     def data_prediction_fn(self, x, t, x_self_cond=None, model_kwargs={}):
         """
@@ -1370,7 +1376,7 @@ class DPM_Solver:
 
                 # Init the first `order` values by lower order multistep DPM-Solver.
                 print(f"Init the first {order} values by lower order multistep DPM-Solver.")
-                
+
                 for step in range(1, order):
                     t = timesteps[step]
                     x = self.multistep_dpm_solver_update(
