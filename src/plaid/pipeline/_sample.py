@@ -10,7 +10,19 @@ import numpy as np
 
 from plaid.diffusion import FunctionOrganismDiffusion
 from plaid.diffusion.beta_schedulers import make_beta_scheduler
-from plaid.diffusion.dpm_solver import NoiseScheduleVP, DPM_Solver
+from plaid.diffusion.dpm_samplers import (
+    sample_dpmpp_2m,
+    sample_dpmpp_2m_sde,
+    sample_dpmpp_3m_sde,
+    sample_dpmpp_2s_ancestral,
+    sample_dpmpp_sde,
+    get_sigmas_karras,
+    get_sigmas_exponential,
+    get_sigmas_polyexponential,
+    get_sigmas_vp,
+    ModelWrapper,
+    DiscreteSchedule,
+)
 from plaid.denoisers import FunctionOrganismDiT, FunctionOrganismUDiT, DenoiserKwargs
 from plaid.constants import COMPRESSION_INPUT_DIMENSIONS
 from plaid.datasets import NUM_ORGANISM_CLASSES, NUM_FUNCTION_CLASSES
@@ -78,14 +90,22 @@ class SampleLatent:
 
         # if specified a specific beta scheduler or number of sampling steps, override
         # otherwise, use what was used during training
-        self.sampling_timesteps = default(sampling_timesteps, self.cfg.diffusion.timesteps)
+        self.sampling_timesteps = default(
+            sampling_timesteps, self.cfg.diffusion.timesteps
+        )
 
         self.beta_scheduler_name = default(
             beta_scheduler_name, self.cfg.diffusion.beta_scheduler_name
         )
-        self.beta_scheduler_start = default(beta_scheduler_start, self.cfg.diffusion.beta_scheduler_start)
-        self.beta_scheduler_end = default(beta_scheduler_end, self.cfg.diffusion.beta_scheduler_end)
-        self.beta_scheduler_tau = default(beta_scheduler_tau, self.cfg.diffusion.beta_scheduler_tau)
+        self.beta_scheduler_start = default(
+            beta_scheduler_start, self.cfg.diffusion.beta_scheduler_start
+        )
+        self.beta_scheduler_end = default(
+            beta_scheduler_end, self.cfg.diffusion.beta_scheduler_end
+        )
+        self.beta_scheduler_tau = default(
+            beta_scheduler_tau, self.cfg.diffusion.beta_scheduler_tau
+        )
 
         # create the denoiser and solvers
         self.denoiser = self.create_denoiser(model_path)
@@ -147,9 +167,8 @@ class SampleLatent:
         elif self.sample_scheduler == "ddpm":
             sample_loop_fn = self.diffusion.p_sample_loop
         else:
-            raise ValueError(f"Unknown sample scheduler: {self.sample_scheduler}."
-                             " Must be one of ['ddim', 'ddpm']."
-                             " Did you mean to use `DPMSolverSampleLatent`?")
+            self.dpm_setup()
+            return self.dpm_sample()
 
         # assuming no gradient-guided diffusion:
         with torch.no_grad():
@@ -161,6 +180,40 @@ class SampleLatent:
                 cond_scale=self.cond_scale,
             )
         return sampled_latent
+
+    def dpm_setup(self, **kwargs):
+        self.sample_fn = globals()[f"sample_{self.sample_scheduler}"]
+        self.sigmas = get_sigmas_karras(
+            self.sampling_timesteps,
+            self.sigma_min,
+            self.sigma_max,
+            rho=7.0,
+            device=self.device,
+        )
+        discrete_schedule = DiscreteSchedule(self.sigmas, quantize=True)
+
+        self.extra_args = {
+            "function_idx": self.function_idx,
+            "organism_idx": self.function_idx,
+            "mask": None,
+            "cond_scale": self.cond_scale,
+            "rescaled_phi": 0.7,
+        }
+
+        self.model = ModelWrapper(self.diffusion, discrete_schedule)
+
+    def dpm_sample(self):
+        N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim
+        shape = (N, L, C)
+        x = torch.randn(shape, device=self.device)
+        with torch.no_grad():
+            return self.sample_fn(
+                x,
+                self.model,
+                self.sigmas,
+                extra_args=self.extra_args,
+                return_intermediates=self.return_all_timesteps,
+            )
 
     def run(self):
         num_samples = max(self.num_samples, self.batch_size)
@@ -199,104 +252,3 @@ class SampleLatent:
             f.write(OmegaConf.to_yaml(self.cfg))
 
         return outpath
-
-
-class DPMSolverSampleLatent(SampleLatent):
-    def __init__(
-        self,
-        t_start=None,
-        t_end=None,
-        order=2,
-        skip_type='time_uniform',
-        method='multistep',
-        lower_order_final=True,
-        denoise_to_zero=False,
-        solver_type='dpmsolver',
-        atol=0.0078,
-        rtol=0.05,
-        *args,
-        **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        self.solver_type = solver_type
-
-        # DPM sampling parameters
-        self.t_start = t_start
-        self.t_end = t_end
-        self.order = order
-        self.skip_type = skip_type
-        self.method = method
-        self.lower_order_final = lower_order_final
-        self.denoise_to_zero = denoise_to_zero
-        self.solver_type = solver_type
-        self.atol = atol
-        self.rtol = rtol
-
-        self.dpm_solver = self.create_dpm_solver(solver_type, sampling_timesteps=self.sampling_timesteps)
-
-    def create_dpm_solver(self, dpm_algorithm: str, sampling_timesteps, **kwargs):
-        """
-        Make noise schedule
-        """
-        # set up betas from beta scheduler
-        beta_scheduler = make_beta_scheduler(
-            self.beta_scheduler_name,
-            self.beta_scheduler_start,
-            self.beta_scheduler_end,
-            self.beta_scheduler_tau
-        )
-        betas = beta_scheduler(sampling_timesteps)
-        print("Sampling timesteps:", sampling_timesteps)
-        betas = torch.tensor(betas, dtype=torch.float64)
-
-        alphas = 1. - betas
-        alphas_cumprod = torch.cumprod(alphas, dim=0)
-
-        noise_schedule = NoiseScheduleVP(
-            schedule="discrete",
-            betas=betas,
-            alphas_cumprod=alphas_cumprod,
-        )
-
-        """
-        Configure DPM++ solver
-        """
-        model_fn = self.diffusion.continuous_time_noise_predictions
-
-        return DPM_Solver(
-            model_forward_wrapper=model_fn,
-            noise_schedule=noise_schedule,
-            algorithm_type=dpm_algorithm,
-            # TODO: can play around with dynamic thresholding
-            **kwargs,
-        )
-
-    def sample(self):
-        if self.dpm_solver is None:
-            self.create_dpm_solver("dpm_solver", sampling_timesteps=self.sampling_timesteps)
-
-        N, L, C = self.batch_size, self.length, self.diffusion.model.input_dim
-        shape = (N, L, C)
-        x = torch.randn(shape, device=self.device)
-
-        print("Starting DPM sampling...")
-
-        with torch.no_grad():
-            sampled_latent = self.dpm_solver.sample(
-                x=x,
-                steps=self.sampling_timesteps,
-                t_start=self.t_start,
-                t_end=self.t_end,
-                order=self.order,
-                skip_type=self.skip_type,
-                method=self.method,
-                lower_order_final=self.lower_order_final,
-                denoise_to_zero=self.denoise_to_zero,
-                solver_type=self.solver_type,
-                atol=self.atol,
-                rtol=self.rtol,
-                # TODO: figure out the return intermediates option in the DPM code
-                # return_intermediate=self.return_all_timesteps,
-                return_intermediate=False,
-            )
-        return sampled_latent

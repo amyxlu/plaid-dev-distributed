@@ -9,24 +9,18 @@ beta_scheduler_start: null
 beta_scheduler_end: null
 beta_scheduler_tau: null
 
-sampling_timesteps: 20
+sampling_timesteps: 50
 
 batch_size: -1 
-return_all_timesteps: False 
+return_all_timesteps: True
 output_root_dir: "/data/lux70/plaid/artifacts/samples/dpm2m"
 
 # length must be divisible by 4.
 # the actual protein length will be 2 * length.
-length: 128
+# length: 128
+length: 32
 
 # DPM-Solver specific parameters
-t_start: null
-t_end: null
-order: 2
-skip_type: 'time_uniform'
-method: 'multistep' # ['multistep', 'single_step' (i.e. DPM-Solver-Fast)]
-lower_order_final: True
-denoise_to_zero: False
-solver_type: 'dpmsolver'
-atol: 0.0078
-rtol: 0.05
+sample_scheduler: dpmpp_2m_sde
+sigma_min: 1e-2
+sigma_max: 160
