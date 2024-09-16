@@ -1,7 +1,6 @@
 from typing import Optional, List, Tuple
+import os
 
-import pandas as pd
-import numpy as np
 import torch
 from tqdm import tqdm
 
@@ -10,7 +9,11 @@ from evo.dataset import FastaDataset
 from ..esmfold import output_to_pdb, esmfold_v1
 from ..typed import PathLike, DeviceLike
 from ..utils import save_pdb_strs_to_disk
-from ..transforms import get_random_sequence_crop_batch
+
+
+def ensure_exists(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 
 
 class FoldPipeline:
@@ -30,23 +33,29 @@ class FoldPipeline:
         self.fasta_file = fasta_file
         self.outdir = outdir
         self.num_recycles = num_recycles
-        self.batch_size = batch_size
         self.max_seq_len = max_seq_len
         self.device = device
-        self.max_num_batches = max_num_batches
         self.save_as_single_pdb_file = save_as_single_pdb_file
 
+        # tidy up some default values
         self.ds = FastaDataset(fasta_file)
         if batch_size == -1:
             batch_size = len(self.ds)
+        self.batch_size = batch_size
+
         self.dataloader = torch.utils.data.DataLoader(
             self.ds, batch_size=batch_size, shuffle=shuffle, num_workers=4
         )
+        if max_num_batches is None:
+            max_num_batches = len(self.dataloader)
+        self.max_num_batches = max_num_batches
 
+        # create esmfold
         if esmfold is None:
             esmfold = esmfold_v1() 
         self.esmfold = esmfold
         self.esmfold.to(self.device)
+        self.esmfold.eval().requires_grad_(False)
     
     def to(self, device):
         self.device = device
@@ -76,10 +85,15 @@ class FoldPipeline:
             print("Warning: make sure there are no repeated headers in the FASTA file.\n"
                   "Otherwise, the resulting structures will be overwritten.")
 
+        ensure_exists(self.outdir)
+
         all_headers = []
         all_pdb_strs = []
 
         num_batches = min(len(self.ds) // self.batch_size, self.max_num_batches)
+
+        print("Saving structures to", self.outdir)        
+        cur_idx = 0
 
         for i, batch in tqdm(enumerate(self.dataloader), total=num_batches):
             if self.max_num_batches is not None and i >= self.max_num_batches:
@@ -92,7 +106,8 @@ class FoldPipeline:
             all_pdb_strs.extend(pdb_strs)
 
             # write samples for this batch: 
-            headers = [f"pfam{i}" for i in range(len(pdb_strs))]
+            headers = [f"pfam{cur_idx}" for i in range(len(pdb_strs))]
             self.write(pdb_strs, headers)
+            cur_idx += 1
         
         return all_pdb_strs
