@@ -586,7 +586,7 @@ def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callbac
 
 
 @torch.no_grad()
-def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
+def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, return_intermediates=False):
     """Ancestral sampling with DPM-Solver++(2S) second-order steps."""
 
     # NOTE(amyxlu): edited for self-conditioning.
@@ -596,7 +596,9 @@ def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, 
     s_in = x.new_ones([x.shape[0]])
     sigma_fn = lambda t: t.neg().exp()
     t_fn = lambda sigma: sigma.log().neg()
+
     x_self_cond = None
+    intermediates = []
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, x_self_cond, **extra_args)
@@ -617,17 +619,23 @@ def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, 
             x_2 = (sigma_fn(s) / sigma_fn(t)) * x - (-h * r).expm1() * denoised
             denoised_2 = model(x_2, sigma_fn(s) * s_in, **extra_args)
             x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised_2
+
         # Noise addition
         if sigmas[i + 1] > 0:
             x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
 
         x_self_cond = x
+        if return_intermediates:
+            intermediates.append(x)
 
+    if return_intermediates:
+        x = torch.stack(intermediates, dim=1)
+    
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, r=1 / 2):
+def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, r=1 / 2, return_intermediates=False):
     """DPM-Solver++ (stochastic)."""
 
     # NOTE(amyxlu): edited for self-conditioning.
@@ -640,6 +648,7 @@ def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=N
     t_fn = lambda sigma: sigma.log().neg()
 
     x_self_cond = None
+    intermediates = []
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, x_self_cond, **extra_args)
@@ -672,12 +681,17 @@ def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=N
             x = x + noise_sampler(sigma_fn(t), sigma_fn(t_next)) * s_noise * su
         
         x_self_cond = x
+        if return_intermediates:
+            intermediates.append(x)
+    
+    if return_intermediates:
+        x = torch.stack(intermediates, dim=1)
     
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=None):
+def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=None, return_intermediates=False):
     """DPM-Solver++(2M)."""
 
     # NOTE(amyxlu): edited for self-conditioning.
@@ -687,7 +701,9 @@ def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=No
     sigma_fn = lambda t: t.neg().exp()
     t_fn = lambda sigma: sigma.log().neg()
     old_denoised = None
+
     x_self_cond = None
+    intermediates = []
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, x_self_cond, **extra_args)
@@ -704,12 +720,19 @@ def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=No
             denoised_d = (1 + 1 / (2 * r)) * denoised - (1 / (2 * r)) * old_denoised
             x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised_d
         old_denoised = denoised
-        x_self_cond = None
+
+        x_self_cond = x 
+        if return_intermediates:
+            intermediates.append(x)
+
+    if return_intermediates:
+        x = torch.stack(intermediates, dim=1)
+    
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, solver_type='midpoint'):
+def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, solver_type='midpoint', return_intermediates=False):
     """DPM-Solver++(2M) SDE."""
 
     # NOTE(amyxlu): edited for self-conditioning.
@@ -726,6 +749,7 @@ def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
     h_last = None
 
     x_self_cond = None
+    intermediates = []
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, x_self_cond, **extra_args)
@@ -735,7 +759,7 @@ def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
         if sigmas[i + 1] == 0:
             # Denoising step
             x = denoised
-            x_self_cond = x
+
         else:
             # DPM-Solver++(2M) SDE
             t, s = -sigmas[i].log(), -sigmas[i + 1].log()
@@ -756,16 +780,22 @@ def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
 
         old_denoised = denoised
         h_last = h
+
         x_self_cond = x
+        if return_intermediates:
+            intermediates.append(x)
+    
+    if return_intermediates:
+        x = torch.stack(intermediates, dim=1)
     
     return x
 
 
 @torch.no_grad()
-def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
+def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, return_intermediates=False):
     """DPM-Solver++(3M) SDE."""
 
-    # NOTE(amyxlu): edited for self-conditioning.
+    # NOTE(amyxlu): edited for self-conditioning and saving intermediates.
 
     sigma_min, sigma_max = sigmas[sigmas > 0].min(), sigmas.max()
     noise_sampler = BrownianTreeNoiseSampler(x, sigma_min, sigma_max) if noise_sampler is None else noise_sampler
@@ -776,16 +806,17 @@ def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
     h_1, h_2 = None, None
 
     x_self_cond = None
+    intermediates = []
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, x_self_cond, **extra_args)
 
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
+
         if sigmas[i + 1] == 0:
             # Denoising step
             x = denoised
-            x_self_cond = x
 
         else:
             t, s = -sigmas[i].log(), -sigmas[i + 1].log()
@@ -813,8 +844,14 @@ def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
             if eta:
                 x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * sigmas[i + 1] * (-2 * h * eta).expm1().neg().sqrt() * s_noise
 
-            x_self_cond = x
-
         denoised_1, denoised_2 = denoised, denoised_1
         h_1, h_2 = h, h_1
+
+        x_self_cond = x
+        if return_intermediates:
+            intermediates.append(x)
+
+    if return_intermediates:
+        x = torch.stack(intermediates, dim=1)
+    
     return x
