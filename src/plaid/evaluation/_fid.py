@@ -245,10 +245,9 @@ class ConditionalFID:
         
         return torch.cat(feats_all, dim=0)
     
-    def _load_cached_embedding(self):
+    def _load_cached_embedding(self, filecode):
         from safetensors import safe_open
-
-        filecode = f"f{self.function_idx}_o{self.organism_idx}"
+        
         with safe_open(self.cached_pt_dir / f"{filecode}.pt", "pt") as f:
             x = f.get_tensor('features').numpy()
 
@@ -299,9 +298,10 @@ class ConditionalFID:
             # unconditional
             x = self._load_cached_embedding(filecode="all")
         else:
-            cached_pt_fpath = self.cached_pt_dir / f"f{self.function_idx}_o{self.organism_idx}.pt"
+            filecode = f"f{self.function_idx}_o{self.organism_idx}"
+            cached_pt_fpath = self.cached_pt_dir / f"f{filecode}.pt"
             if cached_pt_fpath.exists():
-                x = self._load_cached_embedding()
+                x = self._load_cached_embedding(filecode)
             else:
                 x = self._run_pipeline_for_condition(save=self.write_to_cache)
         
