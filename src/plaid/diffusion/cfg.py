@@ -328,19 +328,23 @@ class FunctionOrganismDiffusion(L.LightningModule):
 
         # batch integers into tensors
         b, *_, device = *x.shape, x.device
-        batched_times = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
-        batched_function_idx = torch.full(
-            (x.shape[0],), function_idx, device=x.device, dtype=torch.long
-        )
-        batched_organism_idx = torch.full(
-            (x.shape[0],), organism_idx, device=x.device, dtype=torch.long
-        )
+
+        if isinstance(t, int):
+            t = torch.full((x.shape[0],), t, device=x.device, dtype=torch.long)
+        if isinstance(function_idx, int):
+            function_idx = torch.full(
+                (x.shape[0],), function_idx, device=x.device, dtype=torch.long
+            )
+        if isinstance(organism_idx, int):
+            organism_idx = torch.full(
+                (x.shape[0],), organism_idx, device=x.device, dtype=torch.long
+            )
 
         return DenoiserKwargs(
             x=x,
-            t=batched_times,
-            function_y=batched_function_idx,
-            organism_y=batched_organism_idx,
+            t=t,
+            function_y=function_idx,
+            organism_y=organism_idx,
             mask=mask,
             x_self_cond=x_self_cond,
         )
