@@ -27,8 +27,8 @@ from ..typed import PathLike, DeviceLike
 
 def ensure_exists(path): 
     path = Path(path)
-    if not path.exists():
-        path.mkdir(parents=True, exist_ok=True)
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
 
 
 class InverseFoldPipeline:
@@ -62,7 +62,7 @@ class InverseFoldPipeline:
         pssm_log_odds_flag: bool = False,
         pssm_bias_flag: bool = False,
         device: DeviceLike = "cuda",
-        outdir: PathLike = None,
+        output_fasta_path: PathLike = None,
     ):
         self.pdb_dir = Path(pdb_dir)
         self.verbose = verbose
@@ -90,9 +90,9 @@ class InverseFoldPipeline:
         self.pssm_log_odds_flag = pssm_log_odds_flag
         self.pssm_bias_flag = pssm_bias_flag
 
-        if outdir is None:
-            outdir = self.pdb_dir / "../inverse_generate"
-        self.outdir = Path(outdir)
+        if output_fasta_path is None:
+            output_fasta_path = self.pdb_dir / "../inverse_generate/sequences.fasta"
+        self.output_fasta_path = Path(output_fasta_path)
 
         self.device = device
         self.model = self.load_protein_mpnn_model()
@@ -473,18 +473,14 @@ class InverseFoldPipeline:
 
             sequences.append(seq)
             headers.append(header)
-
+            
             if write_on_the_fly:
-                ensure_exists(self.outdir)
-                with open(self.outdir / "sequences.fasta", "a") as f:
+                ensure_exists(self.output_fasta_path)
+                with open(self.output_fasta_path, "a") as f:
                     f.write(f">{header}\n{seq}\n")
 
         return sequences, headers
     
     def run(self):
         sequences, headers = self.inverse_fold_batch(write_on_the_fly=True)
-        # write_to_fasta(
-        #     sequences=sequences,
-        #     outpath=self.outdir / "sequences.fasta",
-        #     headers=headers
-        # )
+        return sequences, headers

@@ -1,13 +1,6 @@
 PLAID_MODEL_ID="5j007z42"
 SAMPLE_ARTIFACTS_ROOT_DIR="/data/lux70/plaid/artifacts/samples"
 
-# f322_o3617 f362_o3617 f263_o3617 
-# f319_o3617 f269_o3617 f327_o3617 
-# f308_o3617 f349_o3617 f356_o3617 f307_o3617
-
-# for COND_CODE in f322_o3617 f362_o3617 f263_o3617 f319_o3617 f269_o3617 f327_o3617 f308_o3617 f349_o3617 f356_o3617 f307_o3617; do
-# for COND_CODE in f308_o3617 f349_o3617 f356_o3617 f307_o3617; do
-
 cd ${SAMPLE_ARTIFACTS_ROOT_DIR}/${PLAID_MODEL_ID}/
 
 condcodes=($(find . -maxdepth 1 -type d -name 'f*o*' -not -path .))

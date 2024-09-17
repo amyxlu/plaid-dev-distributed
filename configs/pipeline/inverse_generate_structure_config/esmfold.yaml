@@ -1,8 +1,8 @@
 defaults:
   - _self_
 
-fasta_file: ??? 
-outdir: ??? 
+fasta_file: "" 
+outdir: ""
 
 num_recycles: 1 
 max_seq_len: 256

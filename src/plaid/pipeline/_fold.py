@@ -24,7 +24,7 @@ class FoldPipeline:
         esmfold: Optional[torch.nn.Module] = None,
         num_recycles: int = 4,
         batch_size: int = -1,
-        max_seq_len: Optional[int] = 512,
+        max_seq_len: Optional[int] = None,
         save_as_single_pdb_file: bool = False,
         device: DeviceLike = torch.device("cuda"),
         max_num_batches: Optional[int] = None,
@@ -74,12 +74,6 @@ class FoldPipeline:
             # assert plddts.ndim == 3
             return self.esmfold.infer_pdbs(sequences, num_recycles=self.num_recycles)
 
-    def write(self, pdb_strs, headers):
-        if self.outdir is None:
-            print("Skipping PDB writing as _save_mode is None.")
-        else:
-            save_pdb_strs_to_disk(pdb_strs, self.outdir, headers, self.save_as_single_pdb_file)
-
     def run(self):
         if self.outdir is not None:
             print("Warning: make sure there are no repeated headers in the FASTA file.\n"
@@ -93,7 +87,6 @@ class FoldPipeline:
         num_batches = min(len(self.ds) // self.batch_size, self.max_num_batches)
 
         print("Saving structures to", self.outdir)        
-        cur_idx = 0
 
         for i, batch in tqdm(enumerate(self.dataloader), total=num_batches):
             if self.max_num_batches is not None and i >= self.max_num_batches:
@@ -105,9 +98,9 @@ class FoldPipeline:
             all_headers.extend(headers)
             all_pdb_strs.extend(pdb_strs)
 
-            # write samples for this batch: 
-            headers = [f"pfam{cur_idx}" for i in range(len(pdb_strs))]
-            self.write(pdb_strs, headers)
-            cur_idx += 1
-        
+            # write for this batch:
+            for i in range(len(pdb_strs)):
+                with open(self.outdir / f"{headers[i]}.pdb", "w") as f:
+                    f.write(pdb_strs[i])
+
         return all_pdb_strs

@@ -267,4 +267,5 @@ class SampleLatent:
         with open(outpath.parent / "config.yaml", "w") as f:
             f.write(OmegaConf.to_yaml(self.cfg))
 
+        self.outpath = outpath
         return outpath

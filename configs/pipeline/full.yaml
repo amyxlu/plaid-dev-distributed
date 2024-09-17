@@ -11,12 +11,12 @@
 # 4b. Phantom reconstruct: generated structure to phantom sequence
 # --> 4c. Calculate scSR and scRMSD. 
 
-# sample_latent: False
 
 # f2219_o3617
 function_idx: 2219
 organism_idx: 3617
 
+sample_latent: False
 calculate_fid: False
 decode_latent: False
 log_perplexity_and_plddt: False
@@ -35,3 +35,4 @@ defaults:
   - inverse_generate_structure_config: esmfold
   - phantom_generate_sequence_config: null
   - phantom_generate_structure_config: null
+  - experiment: null

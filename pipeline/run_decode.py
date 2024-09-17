@@ -3,7 +3,6 @@ from plaid.pipeline._decode import DecodeLatent
 import hydra
 from omegaconf import DictConfig
 
-
 def run(cfg: DictConfig):
     if cfg.npz_path is None:
         timestamps = os.listdir(f"/data/lux70/plaid/artifacts/samples/{cfg.plaid_model_id}/{cfg.cond_code}")

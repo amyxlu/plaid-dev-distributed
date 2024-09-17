@@ -7,7 +7,7 @@ def run(cfg: DictConfig):
     """Hydra configurable instantiation, for imports in full pipeline."""
     inverse_fold = InverseFoldPipeline(
         pdb_dir=cfg.pdb_dir,
-        outdir=cfg.outdir,
+        output_fasta_path=cfg.output_fasta_path,
         model_name=cfg.model_name,
         ca_only=cfg.ca_only,
         num_seq_per_target=cfg.num_seq_per_target,
