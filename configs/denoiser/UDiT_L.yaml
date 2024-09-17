@@ -2,7 +2,7 @@ _target_: plaid.denoisers.FunctionOrganismUDiT
 
 hidden_size: 1280
 max_seq_len: 256
-depth: 30
+depth: 28 
 num_heads: 16
 mlp_ratio: 4.0
 use_self_conditioning: True

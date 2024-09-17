@@ -2,14 +2,15 @@ model_id: "5j007z42"
 model_ckpt_dir: "/data/lux70/plaid/checkpoints/plaid-compositional"
 organism_idx: 3617 
 function_idx: 2219 
-cond_scale: 10.
-num_samples: 1024 
+
+cond_scale: 7.5
+num_samples: 128 
 beta_scheduler_name: null 
 beta_scheduler_start: null
 beta_scheduler_end: null
 beta_scheduler_tau: null
 
-sampling_timesteps: 50
+sampling_timesteps: 30
 
 batch_size: -1 
 return_all_timesteps: True

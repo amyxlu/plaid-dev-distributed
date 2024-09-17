@@ -11,15 +11,27 @@
 # 4b. Phantom reconstruct: generated structure to phantom sequence
 # --> 4c. Calculate scSR and scRMSD. 
 
+# sample_latent: False
 
-sample_latent: True
-calculate_fid: True
-generate_latent_to_sequence: True
-generate_latent_to_structure: True
-log_perplexity_and_plddt: True
-inverse_reconstruct_generated_sequence_to_reconstructed_structure: True
-inverse_reconstruct_generated_structure_to_reconstructed_sequence: True
-calculate_ccsr_and_ccrmsd: True
-phantom_reconstruct_generated_sequence_to_phantom_structure: True
-phantom_reconstruct_generated_structure_to_phantom_sequence: True
-calculate_scsr_and_scrmsd: True
+# f2219_o3617
+function_idx: 2219
+organism_idx: 3617
+
+calculate_fid: False
+decode_latent: False
+log_perplexity_and_plddt: False
+inverse_generate_sequence: False
+inverse_generate_structure: False
+calculate_ccsr_and_ccrmsd: False
+phantom_reconstruct_generated_sequence_to_phantom_structure: False
+phantom_reconstruct_generated_structure_to_phantom_sequence: False
+calculate_scsr_and_scrmsd: False
+
+defaults:
+  - _self_
+  - decode_latent_config: decode_latent
+  - sample_latent_config: sample_latent
+  - inverse_generate_sequence_config: inverse_fold
+  - inverse_generate_structure_config: esmfold
+  - phantom_generate_sequence_config: null
+  - phantom_generate_structure_config: null
