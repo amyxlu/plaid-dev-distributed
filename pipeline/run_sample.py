@@ -1,4 +1,4 @@
-from plaid.pipeline._sample import SampleLatent
+from plaid.pipeline import SampleLatent
 import hydra
 from omegaconf import DictConfig
 

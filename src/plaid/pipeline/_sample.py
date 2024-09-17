@@ -35,6 +35,16 @@ device = torch.device("cuda")
 def default(x, val):
     return x if x is not None else val
 
+AVAILABLE_SAMPLERS = [
+    "ddim",
+    "ddpm",
+    "dpmpp_2s_ancestral",
+    "dpmpp_sde",
+    "dpmpp_2m",
+    "dpmpp_2m_sde",
+    "dpmpp_3m_sde",
+]
+
 
 class SampleLatent:
     def __init__(
@@ -55,10 +65,14 @@ class SampleLatent:
         batch_size: int = -1,
         length: int = 32,  # the final length, after decoding back to structure/sequence, is twice this value
         return_all_timesteps: bool = False,
-        sample_scheduler: str = "ddim",  # ["ddim", ""ddpm"]
         # output setup
         output_root_dir: str = "/data/lux70/plaid/artifacts/samples",
+        # scheduler
+        sample_scheduler: str = "ddim",  # ["ddim", ""ddpm"]
+        sigma_min: float = 1e-2,
+        sigma_max: float = 160
     ):
+        assert sample_scheduler in AVAILABLE_SAMPLERS, f"Invalid sample scheduler: {sample_scheduler}. Must be one of {AVAILABLE_SAMPLERS}."
         self.model_id = model_id
         self.model_ckpt_dir = Path(model_ckpt_dir)
         self.organism_idx = organism_idx
@@ -69,6 +83,8 @@ class SampleLatent:
         self.return_all_timesteps = return_all_timesteps
         self.output_root_dir = output_root_dir
         self.sample_scheduler = sample_scheduler
+        self.sigma_min = sigma_min
+        self.sigma_max = sigma_max
 
         # default to cuda
         self.device = torch.device("cuda")
@@ -208,8 +224,8 @@ class SampleLatent:
         x = torch.randn(shape, device=self.device)
         with torch.no_grad():
             return self.sample_fn(
-                x,
                 self.model,
+                x,
                 self.sigmas,
                 extra_args=self.extra_args,
                 return_intermediates=self.return_all_timesteps,
