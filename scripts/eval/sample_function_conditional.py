@@ -1,36 +1,38 @@
 import argparse
 
 import pandas as pd
-from omegaconf import OmegaConf, DictConfig
+from omegaconf import OmegaConf
 
 from plaid.utils import round_to_multiple
-from plaid.pipeline import SampleLatent, DPMSolverSampleLatent
+from plaid.pipeline import SampleLatent
 
 """
 Script configs
 """
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--return_all_timesteps", type=bool, default=True)
-parser.add_argument("--num_samples", type=int, default=512)
 parser.add_argument("--start_idx", type=int, default=-1)
 parser.add_argument("--end_idx", type=int, default=-1)
+parser.add_argument("--GO_term_contains", type=str, default=None)
 args = parser.parse_args()
 
-# cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/sample_latent.yaml")
-cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/dpm_sample_latent.yaml")
+# cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/sample_latent_config/sample_latent.yaml")
+cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/sample_latent_config/dpm_sample_latent.yaml")
 try:
     cfg.pop("defaults")
 except KeyError:
     pass
 
-cfg['return_all_timesteps'] = args.return_all_timesteps
-cfg['num_samples'] = args.num_samples
-
 """
 Get unique GO terms in val dataset
 """
 df = pd.read_parquet("/data/lux70/data/pfam/val.parquet")
+
+if args.GO_term_contains is not None:
+    df = df[df.GO_term.str.contains(args.GO_term_contains)]
+
+print("Unique GO terms in val dataset:", df.GO_idx.unique())
+
 unique_go_idxs = df.GO_idx.unique()
 unique_go_idxs.sort()
 
@@ -50,6 +52,5 @@ for i, idx in enumerate(unique_go_idxs):
         cfg.function_idx = int(idx)
         cfg.length = int(sample_len)
 
-        # sample_latent = SampleLatent(**cfg)
-        sample_latent = DPMSolverSampleLatent(**cfg)
+        sample_latent = SampleLatent(**cfg)
         sample_latent.run()
