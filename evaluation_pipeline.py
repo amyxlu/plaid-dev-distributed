@@ -9,40 +9,41 @@ from plaid.esmfold import esmfold_v1
 from safetensors import safe_open
 from plaid.evaluation import parmar_fid
 from plaid.typed import PathLike
+import hydra
 
 """
 DDIM T=500.
 """
 
-cond_code = "f2219_o3617"
+# cond_code = "f2219_o3617"
 
 
-sample_cfg = OmegaConf.load(
-    "/homefs/home/lux70/code/plaid/configs/pipeline/sample/ddim_unconditional.yaml"
-)
+# sample_cfg = OmegaConf.load(
+#     "/homefs/home/lux70/code/plaid/configs/pipeline/sample_latent_config/ddim_unconditional.yaml"
+# )
 
-decode_cfg = OmegaConf.load(
-    "/homefs/home/lux70/code/plaid/configs/pipeline/decode/decode_latent.yaml"
-)
+# decode_cfg = OmegaConf.load(
+#     "/homefs/home/lux70/code/plaid/configs/pipeline/decode_config/decode_latent.yaml"
+# )
 
-inverse_generate_sequence_cfg = OmegaConf.load(
-    "/homefs/home/lux70/code/plaid/configs/pipeline/inverse_generate_sequence/inverse_fold.yaml"
-)
+# inverse_generate_sequence_cfg = OmegaConf.load(
+#     "/homefs/home/lux70/code/plaid/configs/pipeline/inverse_generate_sequence_config/inverse_fold.yaml"
+# )
 
-inverse_generate_structure_cfg = OmegaConf.load(
-    "/homefs/home/lux70/code/plaid/configs/pipeline/inverse_generate_structure/esmfold.yaml"
-)
+# inverse_generate_structure_cfg = OmegaConf.load(
+#     "/homefs/home/lux70/code/plaid/configs/pipeline/inverse_generate_structure_config/esmfold.yaml"
+# )
 
-phantom_generate_sequence_cfg = OmegaConf.load(
-    "/homefs/home/lux70/code/plaid/configs/pipeline/phantom_generate_sequence/default.yaml"
-)
+# phantom_generate_sequence_cfg = OmegaConf.load(
+#     "/homefs/home/lux70/code/plaid/configs/pipeline/phantom_generate_sequence_config/default.yaml"
+# )
 
 
 def default(val, default_val):
     return val if val is not None else default_val
 
 
-def sample_run(cfg: DictConfig):
+def sample_run(cfg: DictConfig, outdir: Path):
     sample_latent = SampleLatent(
         model_id=cfg.model_id,
         model_ckpt_dir=cfg.model_ckpt_dir,
@@ -55,7 +56,7 @@ def sample_run(cfg: DictConfig):
         batch_size=cfg.batch_size,
         length=cfg.length,
         return_all_timesteps=cfg.return_all_timesteps,
-        output_root_dir=cfg.output_root_dir,
+        output_root_dir=outdir,
     )
     npz_path = sample_latent.run()  # returns npz path
     with open(npz_path.parent / "sample.yaml", "w") as f:
@@ -152,11 +153,21 @@ def phantom_generate_sequence_run(cfg, pdb_dir=None, output_fasta_path=None):
     return inverse_fold
 
 
-if __name__ == "__main__":
+@hydra.main(config_path="configs/pipeline", config_name="full")
+def main(cfg: DictConfig):
+    sample_cfg = cfg.sample
+    decode_cfg = cfg.decode
+    inverse_generate_sequence_cfg = cfg.inverse_generate_sequence
+    inverse_generate_structure_cfg = cfg.inverse_generate_structure
+    phantom_generate_sequence_cfg = cfg.phantom_generate_sequence
+    # NOTE: no phantom generate structure config, using all OmegaFold defaults.
+
     # ===========================
     # Sample configuration
     # ===========================
-    npz_path = sample_run(sample_cfg)
+    output_root_dir = Path(cfg.output_root_dir)
+    outdir = output_root_dir / sample_cfg.model_id / sample_cfg.sample_scheduler
+    npz_path = sample_run(sample_cfg, outdir)
 
     x = np.load(npz_path)["samples"]
 
@@ -210,12 +221,16 @@ if __name__ == "__main__":
     # ===========================
 
     # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery
-    # if not (npz_path.parent / "phantom_generated").exists():
-    #     Path(npz_path.parent / "phantom_generated").mkdir(parents=True)
+    if not (npz_path.parent / "phantom_generated").exists():
+        Path(npz_path.parent / "phantom_generated").mkdir(parents=True)
 
     input_pdb_dir = npz_path.parent / "inverse_generated/structures"
     output_fasta_path = npz_path.parent / "phantom_generated/sequences.fasta"
-    phantom_generate_sequence_run(inverse_generate_sequence_cfg, pdb_dir=input_pdb_dir, output_fasta_path=output_fasta_path) 
+    phantom_generate_sequence_run(phantom_generate_sequence_cfg, pdb_dir=input_pdb_dir, output_fasta_path=output_fasta_path) 
 
     # uses OmegaFold to fold the inverse-fold sequence predictions of generated structures to look at scTM and scRMSD
     phantom_generate_structure_run(npz_path.parent)
+
+
+if __name__ == "__main__":
+    main()

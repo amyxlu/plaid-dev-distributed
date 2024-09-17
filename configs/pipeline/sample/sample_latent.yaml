@@ -3,7 +3,7 @@ model_ckpt_dir: "/data/lux70/plaid/checkpoints/plaid-compositional"
 organism_idx: 3617
 function_idx: 2219
 
-cond_scale: 1.0 
+cond_scale: 7.5
 num_samples: 128 
 beta_scheduler_name: null 
 beta_scheduler_start: null
@@ -14,11 +14,11 @@ sampling_timesteps: 500
 
 batch_size: -1 
 return_all_timesteps: True
-output_root_dir: "/data/lux70/plaid/artifacts/samples/${model_id}/${sample_scheduler}"
+output_root_dir: "/data/lux70/plaid/artifacts/samples/"
 
 # length must be divisible by 4.
 # the actual protein length will be 2 * length.
-# length: 128
+length: 256 
 # length: 32
-length: 128 
+
 sample_scheduler: ddim 
