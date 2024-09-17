@@ -2,6 +2,8 @@ import torch
 from biotite.structure import rmspd
 from biotite.structure.io import pdb
 import numpy as np
+from Bio import PDB
+from concurrent.futures import ProcessPoolExecutor
 
 
 def pdb_path_to_biotite_atom_array(file_path):
@@ -15,7 +17,6 @@ def pdb_path_to_biotite_atom_array(file_path):
 RMSPD calculation from biotite
 """
 
-
 def rmspd_from_pdb_paths(path1, path2):
     aarray_recons = pdb_path_to_biotite_atom_array(path1)
     aarray_orig = pdb_path_to_biotite_atom_array(path2)
@@ -26,10 +27,10 @@ def batch_rmspd_from_pdb_paths(pdb_paths1, pdb_paths2):
     all_rmspds = []
     for a, b in zip(pdb_paths1, pdb_paths2):
         result = rmspd_from_pdb_paths(a, b)
-        all_rmspds.append(result)
-        print(result)
-    print("mean: ", np.mean(all_rmspds))
-    print("median: ", np.median(all_rmspds))
+        all_rmspds.append(result[0])
+        # print(result)
+    # print("mean: ", np.mean(all_rmspds))
+    # print("median: ", np.median(all_rmspds))
     return all_rmspds
 
 
@@ -168,3 +169,50 @@ def gdt_ts(p1, p2, mask):
 
 def gdt_ha(p1, p2, mask):
     return gdt(p1, p2, mask, [0.5, 1.0, 2.0, 4.0])
+
+
+
+def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A'):
+    # Initialize the PDB parser
+    parser = PDB.PDBParser(QUIET=True)
+    
+    # Load the PDB structures
+    structure1 = parser.get_structure('structure1', pdb_path_1)
+    structure2 = parser.get_structure('structure2', pdb_path_2)
+
+    # Select the chains
+    chain1 = structure1[0][chain_id_1]
+    chain2 = structure2[0][chain_id_2]
+
+    # Extract the alpha carbons (CA) for alignment
+    atoms1 = [atom for atom in chain1.get_atoms() if atom.get_id() == 'CA']
+    atoms2 = [atom for atom in chain2.get_atoms() if atom.get_id() == 'CA']
+
+    # Ensure both chains have the same number of alpha carbons
+    if len(atoms1) != len(atoms2):
+        raise ValueError(f"CA atom count mismatch between {pdb_path_1} and {pdb_path_2}. Cannot calculate RMSD.")
+
+    # Perform the superimposition
+    super_imposer = PDB.Superimposer()
+    super_imposer.set_atoms(atoms1, atoms2)
+    
+    # Calculate RMSD
+    rmsd = super_imposer.rms
+
+    return rmsd
+
+def process_pdb_pair(pdb_pair):
+    pdb_path_1, pdb_path_2 = pdb_pair
+    return calculate_rmsd(pdb_path_1, pdb_path_2)
+
+def batch_rmsd_calculation(pdb_paths1, pdb_paths2):
+    pdb_pairs = zip(pdb_paths1, pdb_paths2)
+    results = []
+
+    # Use ProcessPoolExecutor to parallelize the RMSD calculations
+    with ProcessPoolExecutor() as executor:
+        for result in executor.map(process_pdb_pair, pdb_pairs):
+            results.append(result)
+    
+    return results
+

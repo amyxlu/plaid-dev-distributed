@@ -421,17 +421,6 @@ def write_to_fasta(sequences, outpath, headers: T.Optional[T.List[str]] = None):
     print(f"Wrote {len(sequences)} sequences to {outpath}.")
 
 
-def load_from_fasta(fpath: PathLike) -> T.List[str]:
-    sequences = []
-    with open(fpath, "r") as f:
-        for line in f.readlines():
-            if line.startswith(">"):
-                pass
-            else:
-                sequences.append(line.strip())
-    return sequences
-
-
 def extract_avg_b_factor_per_residue(pdb_file: PathLike) -> T.List[float]:
     """Mostly used for OmegaFold."""
     b_factors = []
@@ -618,6 +607,18 @@ def calc_sequence_recovery(
         
     assert len(pred_seq) == len(orig_seq)
     return np.sum(npy(pred_seq) == npy(orig_seq)) / len(pred_seq)
+
+
+def read_sequences_from_fasta(fasta_path):
+    sequences = {}
+    with open(fasta_path, "r") as f:
+        for line in f.readlines():
+            if line[0] == ">":
+                header = line.rstrip("\n")[1:]
+            else:
+                sequence = line.rstrip("\n")
+                sequences[header] = sequence
+    return sequences
 
 
 def find_latest_checkpoint(folder):
