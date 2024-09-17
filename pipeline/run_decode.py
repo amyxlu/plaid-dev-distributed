@@ -1,12 +1,20 @@
+import os
 from plaid.pipeline._decode import DecodeLatent
 import hydra
 from omegaconf import DictConfig
 
 
 def run(cfg: DictConfig):
+    if cfg.npz_path is None:
+        timestamps = os.listdir(f"/data/lux70/plaid/artifacts/samples/{cfg.plaid_model_id}/{cfg.cond_code}")
+        timestamp = timestamps[-1]
+        npz_path = f"/data/lux70/plaid/artifacts/samples/{cfg.plaid_model_id}/{cfg.cond_code}/{timestamp}/latent.npz"
+    else:
+        npz_path = cfg.npz_path
+
     """Hydra configurable instantiation, for imports in full pipeline."""
     decode_latent = DecodeLatent(
-        npz_path=cfg.npz_path,
+        npz_path=npz_path,
         output_root_dir=cfg.output_root_dir,
         num_recycles=cfg.num_recycles,
         batch_size=cfg.batch_size,

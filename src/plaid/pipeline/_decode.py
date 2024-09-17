@@ -39,7 +39,10 @@ class DecodeLatent:
     ):
         self.npz_path = npz_path
         self.output_root_dir = Path(output_root_dir)
-        self.time_log_path = self.output_root_dir / "../construct.log"
+        print("Output root dir:", self.output_root_dir)
+        ensure_exists(self.output_root_dir)
+
+        self.time_log_path = self.output_root_dir / "construct.log"
         self.num_recycles = num_recycles
         self.batch_size = batch_size
         self.device = device
