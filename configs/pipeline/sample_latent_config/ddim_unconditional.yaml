@@ -20,5 +20,5 @@ output_root_dir: "/data/lux70/plaid/artifacts/samples/${model_id}/${sample_sched
 # the actual protein length will be 2 * length.
 # length: 128
 # length: 32
-length: 32
+length: 128 
 sample_scheduler: ddim 

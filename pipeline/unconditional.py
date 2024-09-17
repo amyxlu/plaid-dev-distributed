@@ -16,6 +16,7 @@ DDIM T=500.
 
 cond_code = "f2219_o3617"
 
+
 sample_cfg = OmegaConf.load(
     "/homefs/home/lux70/code/plaid/configs/pipeline/sample_latent_config/ddim_unconditional.yaml"
 )
@@ -152,63 +153,61 @@ def phantom_generate_sequence_run(cfg, pdb_dir=None, output_fasta_path=None):
 
 
 if __name__ == "__main__":
-    # # ===========================
-    # # Sample configuration
-    # # ===========================
-    # npz_path = sample_run(sample_cfg)
+    # ===========================
+    # Sample configuration
+    # ===========================
+    npz_path = sample_run(sample_cfg)
 
-    # x = np.load(npz_path)["samples"]
+    x = np.load(npz_path)["samples"]
 
-    # with open(npz_path.parent / "sample_config.yaml", "w") as f:
-    #     OmegaConf.save(sample_cfg, f)
+    with open(npz_path.parent / "sample_config.yaml", "w") as f:
+        OmegaConf.save(sample_cfg, f)
 
-    # # ===========================
-    # # FID calculation
-    # # ===========================
-    # gt_path = "/data/lux70/data/pfam/features/all.pt"
+    # ===========================
+    # FID calculation
+    # ===========================
+    gt_path = "/data/lux70/data/pfam/features/all.pt"
 
-    # with safe_open(gt_path, "pt") as f:
-    #     gt = f.get_tensor("features").numpy()
+    with safe_open(gt_path, "pt") as f:
+        gt = f.get_tensor("features").numpy()
 
-    # # randomly sample x
-    # idx = np.random.choice(gt.shape[0], size=sample_cfg.num_samples, replace=False)
-    # gt = gt[idx]
+    # randomly sample x
+    idx = np.random.choice(gt.shape[0], size=sample_cfg.num_samples, replace=False)
+    gt = gt[idx]
 
-    # feat = x[:, -1, :, :].mean(axis=1)
-    # fid = parmar_fid(feat, gt)
-    # with open(npz_path.parent / "fid.txt", "w") as f:
-    #     f.write(str(fid))
+    feat = x[:, -1, :, :].mean(axis=1)
+    fid = parmar_fid(feat, gt)
+    with open(npz_path.parent / "fid.txt", "w") as f:
+        f.write(str(fid))
 
-    # print(fid)
+    print(fid)
 
-    # # ===========================
-    # # Decode
-    # # ===========================
-    # esmfold = esmfold_v1()
-    # esmfold.eval().requires_grad_(False)
-    # esmfold.cuda()
+    # ===========================
+    # Decode
+    # ===========================
+    esmfold = esmfold_v1()
+    esmfold.eval().requires_grad_(False)
+    esmfold.cuda()
 
-    # decode_run(decode_cfg, npz_path=npz_path, esmfold=esmfold)
+    decode_run(decode_cfg, npz_path=npz_path, esmfold=esmfold)
 
-    # # ===========================
-    # # Inverse generations for cross-consistency
-    # # ===========================
+    # ===========================
+    # Inverse generations for cross-consistency
+    # ===========================
 
-    # # run ProteinMPNN for generated structures
-    # input_pdb_dir = npz_path.parent / "generated/structures"
-    # output_fasta_path = npz_path.parent / "inverse_generated/sequences.fasta"
-    # inverse_generate_sequence_run(inverse_generate_sequence_cfg, pdb_dir=input_pdb_dir, output_fasta_path=output_fasta_path)
+    # run ProteinMPNN for generated structures
+    input_pdb_dir = npz_path.parent / "generated/structures"
+    output_fasta_path = npz_path.parent / "inverse_generated/sequences.fasta"
+    inverse_generate_sequence_run(inverse_generate_sequence_cfg, pdb_dir=input_pdb_dir, output_fasta_path=output_fasta_path)
 
-    # # run ESMFold for generated sequences
-    # input_fasta_file = npz_path.parent / "generated" / "sequences.fasta"
-    # structure_outdir = npz_path.parent / "inverse_generated" / "structures"
-    # inverse_generate_structure_run(inverse_generate_structure_cfg, fasta_file=input_fasta_file, outdir=structure_outdir, esmfold=esmfold)
+    # run ESMFold for generated sequences
+    input_fasta_file = npz_path.parent / "generated" / "sequences.fasta"
+    structure_outdir = npz_path.parent / "inverse_generated" / "structures"
+    inverse_generate_structure_run(inverse_generate_structure_cfg, fasta_file=input_fasta_file, outdir=structure_outdir, esmfold=esmfold)
 
     # ===========================
     # Phantom generations for self-consistency
     # ===========================
-
-    npz_path = Path("/data/lux70/plaid/artifacts/samples/5j007z42/ddim/5j007z42/f2219_o3617/240917_0619/latent.npz")
 
     # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery
     # if not (npz_path.parent / "phantom_generated").exists():

@@ -33,6 +33,10 @@ git+https://github.com/webdataset/webdataset.git@5b12e0ba78bfb64741add2533c5d1e4
 ipython
 jupyter
 ipykernel # for adding python env to jupyter kernel
+torchdiffeq
+torchsde
+xformers
+git+https://github.com/amyxlu/cheap-proteins.git
 
 # for openfold, use this hack to get around clunky imports while
 # making sure the custom CUDA kernels used are being created: 

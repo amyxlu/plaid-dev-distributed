@@ -4,6 +4,7 @@ from biotite.structure.io import pdb
 import numpy as np
 from Bio import PDB
 from concurrent.futures import ProcessPoolExecutor
+from glob import glob
 
 
 def pdb_path_to_biotite_atom_array(file_path):
