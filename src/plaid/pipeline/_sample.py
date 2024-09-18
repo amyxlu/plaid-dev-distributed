@@ -8,6 +8,8 @@ from tqdm import trange
 import torch
 import numpy as np
 
+import wandb
+
 from plaid.diffusion import FunctionOrganismDiffusion
 from plaid.diffusion.beta_schedulers import make_beta_scheduler
 from plaid.diffusion.dpm_samplers import (
@@ -26,7 +28,6 @@ from plaid.diffusion.dpm_samplers import (
 from plaid.denoisers import FunctionOrganismDiT, FunctionOrganismUDiT, DenoiserKwargs
 from plaid.constants import COMPRESSION_INPUT_DIMENSIONS
 from plaid.datasets import NUM_ORGANISM_CLASSES, NUM_FUNCTION_CLASSES
-from plaid.utils import timestamp
 
 
 device = torch.device("cuda")
@@ -92,11 +93,15 @@ class SampleLatent:
         # if no batch size is provided, sample all at once
         self.batch_size = batch_size if batch_size > 0 else num_samples
 
+        self.uid = wandb.util.generate_id()
+
         # set up paths
-        self.output_dir = (
+        self.outdir = (
             Path(self.output_root_dir)
             / model_id
-            / f"f{self.function_idx}_o{self.organism_idx}"
+            / f"f{self.function_idx}_o{self.organism_idx}" 
+            / sample_scheduler
+            / self.uid
         )
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
@@ -251,21 +256,22 @@ class SampleLatent:
             np.float16
         )  # this is ok because values are [-1,1]
 
-        if not self.output_dir.exists():
-            self.output_dir.mkdir(parents=True)
+        if not self.outdir.exists():
+            self.outdir.mkdir(parents=True)
 
-        outpath = self.output_dir / str(timestamp()) / "latent.npz"
-        if not outpath.parent.exists():
-            outpath.parent.mkdir(parents=True)
+        outpath = self.outdir / "latent.npz"
 
         np.savez(outpath, samples=all_sampled)
         print(f"Saved .npz file to {outpath} [shape={all_sampled.shape}].")
 
         with open(outpath.parent / "sample.log", "w") as f:
+            self.sampling_time = end - start
             f.write("Sampling time: {:.2f} seconds.\n".format(end - start))
 
         with open(outpath.parent / "config.yaml", "w") as f:
             f.write(OmegaConf.to_yaml(self.cfg))
 
         self.outpath = outpath
-        return outpath
+        self.x = all_sampled
+
+        return self 

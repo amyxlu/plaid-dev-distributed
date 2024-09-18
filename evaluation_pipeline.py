@@ -1,155 +1,102 @@
 from typing import Optional
 from pathlib import Path
-from plaid.pipeline import SampleLatent, DecodeLatent, FoldPipeline, InverseFoldPipeline
+import glob
 import os
+import time
+
+import wandb
+import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 import torch
 import numpy as np
-from plaid.esmfold import esmfold_v1
 from safetensors import safe_open
-from plaid.evaluation import parmar_fid
-from plaid.typed import PathLike
 import hydra
 
-"""
-DDIM T=500.
-"""
-
-# cond_code = "f2219_o3617"
-
-
-# sample_cfg = OmegaConf.load(
-#     "/homefs/home/lux70/code/plaid/configs/pipeline/sample_latent_config/ddim_unconditional.yaml"
-# )
-
-# decode_cfg = OmegaConf.load(
-#     "/homefs/home/lux70/code/plaid/configs/pipeline/decode_config/decode_latent.yaml"
-# )
-
-# inverse_generate_sequence_cfg = OmegaConf.load(
-#     "/homefs/home/lux70/code/plaid/configs/pipeline/inverse_generate_sequence_config/inverse_fold.yaml"
-# )
-
-# inverse_generate_structure_cfg = OmegaConf.load(
-#     "/homefs/home/lux70/code/plaid/configs/pipeline/inverse_generate_structure_config/esmfold.yaml"
-# )
-
-# phantom_generate_sequence_cfg = OmegaConf.load(
-#     "/homefs/home/lux70/code/plaid/configs/pipeline/phantom_generate_sequence_config/default.yaml"
-# )
+from plaid.esmfold import esmfold_v1
+from plaid.evaluation import (
+    parmar_fid,
+    RITAPerplexity,
+    CrossConsistencyEvaluation,
+    SelfConsistencyEvaluation,
+)
+from plaid.typed import PathLike
+from plaid.utils import extract_avg_b_factor_per_residue
 
 
 def default(val, default_val):
     return val if val is not None else default_val
 
 
-def sample_run(cfg: DictConfig, outdir: Path):
-    sample_latent = SampleLatent(
-        model_id=cfg.model_id,
-        model_ckpt_dir=cfg.model_ckpt_dir,
-        organism_idx=cfg.organism_idx,
-        function_idx=cfg.function_idx,
-        cond_scale=cfg.cond_scale,
-        num_samples=cfg.num_samples,
-        beta_scheduler_name=cfg.beta_scheduler_name,
-        sampling_timesteps=cfg.sampling_timesteps,
-        batch_size=cfg.batch_size,
-        length=cfg.length,
-        return_all_timesteps=cfg.return_all_timesteps,
-        output_root_dir=outdir,
+def sample_run(sample_cfg: DictConfig):
+    sample_latent = hydra.utils.instantiate(sample_cfg)
+    sample_latent = sample_latent.run()  # returns npz path
+    with open(sample_latent.outdir / "sample.yaml", "w") as f:
+        OmegaConf.save(sample_cfg, f)
+    return sample_latent
+
+
+def decode_run(
+    decode_cfg: DictConfig, npz_path: PathLike, output_root_dir: PathLike, esmfold=None
+):
+    decode_latent = hydra.utils.instantiate(
+        decode_cfg, npz_path=npz_path, output_root_dir=output_root_dir, esmfold=esmfold
     )
-    npz_path = sample_latent.run()  # returns npz path
-    with open(npz_path.parent / "sample.yaml", "w") as f:
-        OmegaConf.save(cfg, f)
-    return npz_path
-
-
-def decode_run(cfg: DictConfig, npz_path: Optional[PathLike] = None, esmfold=None):
-    npz_path = default(npz_path, cfg.npz_path)
-    output_root_dir = npz_path.parent / "generated"
-
-    """Hydra configurable instantiation, for imports in full pipeline."""
-    decode_latent = DecodeLatent(
-        npz_path=npz_path,
-        output_root_dir=output_root_dir,
-        num_recycles=cfg.num_recycles,
-        batch_size=cfg.batch_size,
-        device=cfg.device,
-        esmfold=esmfold,
-    )
-    decode_latent.run()
+    seq_strs, pdb_paths = decode_latent.run()
     with open(output_root_dir / "decode_config.yaml", "w") as f:
-        OmegaConf.save(cfg, f)
-    
-    return decode_latent
+        OmegaConf.save(decode_cfg, f)
+    return seq_strs, pdb_paths
 
 
-def inverse_generate_structure_run(cfg: DictConfig, fasta_file=None, outdir=None, esmfold: torch.nn.Module = None):
-    fasta_file = default(fasta_file, cfg.fasta_file)
-    outdir = default(outdir, cfg.outdir)
-    fold_pipeline = FoldPipeline(
+def inverse_generate_structure_run(
+    inverse_generate_structure_cfg: DictConfig,
+    fasta_file,
+    outdir,
+    esmfold: torch.nn.Module = None,
+):
+    fold_pipeline = hydra.utils.instantiate(
+        inverse_generate_structure_cfg,
         fasta_file=fasta_file,
         outdir=outdir,
         esmfold=esmfold,
-        max_seq_len=cfg.max_seq_len,
-        batch_size=cfg.batch_size,
-        max_num_batches=cfg.max_num_batches,
-        shuffle=cfg.shuffle,
     )
     fold_pipeline.run()
     with open(outdir / "fold_config.yaml", "w") as f:
-        OmegaConf.save(cfg, f)
-    return fold_pipeline
+        OmegaConf.save(inverse_generate_structure_cfg, f)
 
 
-def inverse_generate_sequence_run(cfg: DictConfig, pdb_dir=None, output_fasta_path=None):
+def inverse_generate_sequence_run(
+    inverse_generate_sequence_cfg: DictConfig, pdb_dir=None, output_fasta_path=None
+):
     """Hydra configurable instantiation, for imports in full pipeline."""
-    pdb_dir = default(pdb_dir, cfg.pdb_dir)
-    output_fasta_path = default(output_fasta_path, cfg.output_fasta_path)
-    inverse_fold = InverseFoldPipeline(
+    inverse_fold = hydra.utils.instantiate(
+        inverse_generate_sequence_cfg,
         pdb_dir=pdb_dir,
         output_fasta_path=output_fasta_path,
-        model_name=cfg.model_name,
-        ca_only=cfg.ca_only,
-        num_seq_per_target=cfg.num_seq_per_target,
-        sampling_temp=cfg.sampling_temp,
-        save_score=cfg.save_score,
-        save_probs=cfg.save_probs,
-        score_only=cfg.score_only,
-        conditional_probs_only=cfg.conditional_probs_only,
-        conditional_probs_only_backbone=cfg.conditional_probs_only_backbone,
     )
     inverse_fold.run()
     with open(Path(output_fasta_path).parent / "inverse_fold_config.yaml", "w") as f:
-        OmegaConf.save(cfg, f)
-    return inverse_fold
+        OmegaConf.save(inverse_generate_sequence_cfg, f)
 
 
 def phantom_generate_structure_run(sample_dir):
     # generated structure to inverse-generated sequence
-    cmd = f"""omegafold {str(sample_dir / "inverse_generated/sequences.fasta")} {str(sample_dir / "phantom_generated/structures")} --subbatch_size 64""" 
+    cmd = f"""omegafold {str(sample_dir / "inverse_generated/sequences.fasta")} {str(sample_dir / "phantom_generated/structures")} --subbatch_size 64"""
     os.system(cmd)
 
 
-def phantom_generate_sequence_run(cfg, pdb_dir=None, output_fasta_path=None):
-    pdb_dir = default(pdb_dir, cfg.pdb_dir)
-    output_fasta_path = default(output_fasta_path, cfg.output_fasta_path)
-    inverse_fold = InverseFoldPipeline(
+def phantom_generate_sequence_run(
+    phantom_generate_sequence_cfg, pdb_dir, output_fasta_path
+):
+    inverse_fold = hydra.utils.instantiate(
+        phantom_generate_sequence_cfg,
         pdb_dir=pdb_dir,
         output_fasta_path=output_fasta_path,
-        model_name=cfg.model_name,
-        ca_only=cfg.ca_only,
-        num_seq_per_target=cfg.num_seq_per_target,
-        sampling_temp=cfg.sampling_temp,
-        save_score=cfg.save_score,
-        save_probs=cfg.save_probs,
-        score_only=cfg.score_only,
-        conditional_probs_only=cfg.conditional_probs_only,
-        conditional_probs_only_backbone=cfg.conditional_probs_only_backbone,
     )
     inverse_fold.run()
-    with open(Path(output_fasta_path).parent / "inverse_fold_config.yaml", "w") as f:
-        OmegaConf.save(cfg, f)
+    with open(
+        Path(output_fasta_path).parent / "phantom_generate_sequence_config.yaml", "w"
+    ) as f:
+        OmegaConf.save(phantom_generate_sequence_cfg, f)
     return inverse_fold
 
 
@@ -165,18 +112,42 @@ def main(cfg: DictConfig):
     # ===========================
     # Sample configuration
     # ===========================
-    output_root_dir = Path(cfg.output_root_dir)
-    outdir = output_root_dir / sample_cfg.model_id / sample_cfg.sample_scheduler
-    npz_path = sample_run(sample_cfg, outdir)
 
-    x = np.load(npz_path)["samples"]
+    # an unique ID was generated while sampling, but also provide the option to begin from
+    # an existing sampled UID, in which case we bystep the sampling
+    if cfg.uid is None:
+        sample_latent = sample_run(sample_cfg)
+        outdir = sample_latent.outdir
+        uid = sample_latent.uid
+    else:
+        uid = cfg.uid
+        outdir = (
+            Path(sample_cfg.output_root_dir)
+            / sample_cfg.model_id
+            / f"f{sample_cfg.function_idx}_o{sample_cfg.organism_idx}"
+            / sample_cfg.sample_scheduler
+            / uid
+        )
 
-    with open(npz_path.parent / "sample_config.yaml", "w") as f:
-        OmegaConf.save(sample_cfg, f)
+    # if the job id is repeated in an wandb init, it logs to the same entry
+    wandb.init(
+        project="plaid-sampling",
+        config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
+        id=uid,
+        resume="allow",
+    )
+
+    if cfg.uid is None:
+        wandb.log({"sample_latent_time": sample_latent.sampling_time})
 
     # ===========================
     # FID calculation
     # ===========================
+    if cfg.uid is None:
+        x = sample_latent.x
+    else:
+        x = np.load(sample_latent.outdir / "latent.npz", allow_pickle=True)["sampled"]
+
     gt_path = "/data/lux70/data/pfam/features/all.pt"
 
     with safe_open(gt_path, "pt") as f:
@@ -188,48 +159,179 @@ def main(cfg: DictConfig):
 
     feat = x[:, -1, :, :].mean(axis=1)
     fid = parmar_fid(feat, gt)
-    with open(npz_path.parent / "fid.txt", "w") as f:
+    with open(outdir / "fid.txt", "w") as f:
         f.write(str(fid))
 
     print(fid)
+    wandb.log({"fid": fid})
 
     # ===========================
-    # Decode
+    # Decode, calculate naturalness, and log
     # ===========================
     esmfold = esmfold_v1()
     esmfold.eval().requires_grad_(False)
     esmfold.cuda()
 
-    decode_run(decode_cfg, npz_path=npz_path, esmfold=esmfold)
+    start = time.time()
+    seq_strs, pdb_paths = decode_run(
+        decode_cfg,
+        npz_path=outdir / "latent.npz",
+        output_root_dir=outdir / "generated",
+        esmfold=esmfold,
+    )
+    end = time.time()
+    wandb.log({"decode_time": end - start})
+
+    assert len(seq_strs) == len(pdb_paths) == x.shape[0]
+
+    perplexity_calc = RITAPerplexity()
+
+    samples_d = {
+        "structure": [],
+        "sequence": [],
+        "plddt": [],
+        "perplexity": [],
+    }
+
+    for i in range(x.shape[0]):
+        seqstr, pdbpath = seq_strs[i], pdb_paths[i]
+        samples_d["structure"].append(wandb.Molecule(str(pdbpath)))
+        samples_d["sequence"].append(seqstr)
+
+        # extract pLDDT scores
+        plddts = extract_avg_b_factor_per_residue(pdbpath)
+        samples_d["plddt"].append(np.mean(plddts))  # average across the pLDDT scores
+
+        # calculate perplexity
+        perplexity = perplexity_calc.calc_perplexity(seqstr)
+        samples_d["perplexity"].append(perplexity)
+
+    wandb.log(
+        {
+            "plddt_mean": np.mean(samples_d["plddt"]),
+            "plddt_std": np.std(samples_d["plddt"]),
+            "plddt_median": np.median(samples_d["plddt"]),
+            "plddt_hist": wandb.Histogram(samples_d["plddt"]),
+        }
+    )
+
+    wandb.log(
+        {
+            "perplexity_mean": np.mean(samples_d["perplexity"]),
+            "perplexity_std": np.std(samples_d["perplexity"]),
+            "perplexity_median": np.median(samples_d["perplexity"]),
+            "perplexity_hist": wandb.Histogram(samples_d["perplexity"]),
+        }
+    )
+
+    wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
 
     # ===========================
     # Inverse generations for cross-consistency
     # ===========================
 
     # run ProteinMPNN for generated structures
-    input_pdb_dir = npz_path.parent / "generated/structures"
-    output_fasta_path = npz_path.parent / "inverse_generated/sequences.fasta"
-    inverse_generate_sequence_run(inverse_generate_sequence_cfg, pdb_dir=input_pdb_dir, output_fasta_path=output_fasta_path)
+    input_pdb_dir = outdir / "generated/structures"
+    output_fasta_path = outdir / "inverse_generated/sequences.fasta"
+    inverse_generate_sequence_run(
+        inverse_generate_sequence_cfg,
+        pdb_dir=input_pdb_dir,
+        output_fasta_path=output_fasta_path,
+    )
 
     # run ESMFold for generated sequences
-    input_fasta_file = npz_path.parent / "generated" / "sequences.fasta"
-    structure_outdir = npz_path.parent / "inverse_generated" / "structures"
-    inverse_generate_structure_run(inverse_generate_structure_cfg, fasta_file=input_fasta_file, outdir=structure_outdir, esmfold=esmfold)
+    input_fasta_file = outdir / "generated" / "sequences.fasta"
+    structure_outdir = outdir / "inverse_generated" / "structures"
+    inverse_generate_structure_run(
+        inverse_generate_structure_cfg,
+        fasta_file=input_fasta_file,
+        outdir=structure_outdir,
+        esmfold=esmfold,
+    )
+
+    cross_consistency_calc = CrossConsistencyEvaluation(outdir)
+
+    # should be already sorted in the same order
+    ccrmsd = cross_consistency_calc.cross_consistency_rmsd()
+    # ccrmspd = cross_consistency_calc.cross_consistency_rmspd()
+    cctm = cross_consistency_calc.cross_consistency_tm()
+    ccsr = cross_consistency_calc.cross_consistency_sr()
+
+    wandb.log(
+        {
+            # detailed stats for ccRMSD and ccSR as representative metrics
+            "ccrmsd_mean": np.mean(ccrmsd),
+            "ccrmsd_std": np.std(ccrmsd),
+            "ccrmsd_median": np.std(ccrmsd),
+            "ccsr_mean": np.mean(ccsr),
+            "ccsr_std": np.std(ccsr),
+            "ccsr_median": np.std(ccsr),
+            # also log histogram
+            "cctm_hist": wandb.Histogram(cctm),
+            "ccrmsd_hist": wandb.Histogram(ccrmsd),
+            # "ccrmspd_hist": wandb.Histogram(ccrmspd),
+            "ccsr_hist": wandb.Histogram(ccsr),
+        }
+    )
+
+    # add to the big table
+
+    samples_d["ccrmsd"] = ccrmsd
+    # samples_d["ccrmspd"] = ccrmspd
+    samples_d["cctm"] = cctm
+    samples_d["ccsr"] = ccsr
 
     # ===========================
     # Phantom generations for self-consistency
     # ===========================
 
     # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery
-    if not (npz_path.parent / "phantom_generated").exists():
-        Path(npz_path.parent / "phantom_generated").mkdir(parents=True)
+    if not (outdir / "phantom_generated").exists():
+        Path(outdir / "phantom_generated").mkdir(parents=True)
 
-    input_pdb_dir = npz_path.parent / "inverse_generated/structures"
-    output_fasta_path = npz_path.parent / "phantom_generated/sequences.fasta"
-    phantom_generate_sequence_run(phantom_generate_sequence_cfg, pdb_dir=input_pdb_dir, output_fasta_path=output_fasta_path) 
+    input_pdb_dir = outdir / "inverse_generated/structures"
+    output_fasta_path = outdir / "phantom_generated/sequences.fasta"
+    phantom_generate_sequence_run(
+        phantom_generate_sequence_cfg,
+        pdb_dir=input_pdb_dir,
+        output_fasta_path=output_fasta_path,
+    )
 
     # uses OmegaFold to fold the inverse-fold sequence predictions of generated structures to look at scTM and scRMSD
-    phantom_generate_structure_run(npz_path.parent)
+    phantom_generate_structure_run(outdir)
+
+    self_consistency_calc = SelfConsistencyEvaluation(outdir)
+
+    self_consistency_rmsd = self_consistency_calc.cross_consistency_rmsd()
+    # self_consistency_rmspd = self_consistency_calc.cross_consistency_rmspd()
+    self_consistency_tm = self_consistency_calc.cross_consistency_tm()
+    self_consistency_sr = self_consistency_calc.cross_consistency_sr()
+
+    wandb.log(
+        {
+            # detailed stats for self-consistency RMSD and SR as representative metrics
+            "self_consistency_rmsd_mean": np.mean(self_consistency_rmsd),
+            "self_consistency_rmsd_std": np.std(self_consistency_rmsd),
+            "self_consistency_rmsd_median": np.median(self_consistency_rmsd),
+            "self_consistency_sr_mean": np.mean(self_consistency_sr),
+            "self_consistency_sr_std": np.std(self_consistency_sr),
+            "self_consistency_sr_median": np.median(self_consistency_sr),
+            # also log histogram
+            "self_consistency_tm_hist": wandb.Histogram(self_consistency_tm),
+            "self_consistency_rmsd_hist": wandb.Histogram(self_consistency_rmsd),
+            # "self_consistency_rmspd_hist": wandb.Histogram(self_consistency_rmspd),
+            "self_consistency_sr_hist": wandb.Histogram(self_consistency_sr),
+        }
+    )
+
+    # add to the big table
+    samples_d["self_consistency_rmsd"] = self_consistency_rmsd
+    # samples_d["self_consistency_rmspd"] = self_consistency_rmspd
+    samples_d["self_consistency_tm"] = self_consistency_tm
+    samples_d["self_consistency_sr"] = self_consistency_sr
+
+    # log our big table
+    wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
 
 
 if __name__ == "__main__":

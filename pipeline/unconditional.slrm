@@ -8,6 +8,6 @@
 #SBATCH --time=5-00:00:00
 
 source ~/.bashrc
-micromamba activate plaid-train 
+micromamba activate omegafold 
 
 srun python /homefs/home/lux70/code/plaid/pipeline/unconditional.py $@ 

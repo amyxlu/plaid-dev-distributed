@@ -1,23 +1,10 @@
-# Full pipeline:
-# 1. Sample latent from conditioning
-# --> 1b. Calculate FID
-# 2a. Generate: latent to sequence
-# 2b. Generate: latent to structure
-# --> 2c. Log perplexity and pLDDT
-# 3a. Inverse reconstruct: generated sequence to reconstructed structure
-# 3b. Inverse reconstruct: generated structure to reconstructed sequence
-# --> 3c. Calculate ccSR and ccRMSD.
-# 4a. Phantom reconstruct: generated sequence to phantom structure
-# 4b. Phantom reconstruct: generated structure to phantom sequence
-# --> 4c. Calculate scSR and scRMSD. 
-
-
+uid: null
 
 defaults:
   - _self_
-  - decode: decode_latent
-  - sample: sample_latent
-  - inverse_generate_sequence: inverse_fold
+  - decode: default
+  - sample: ddim_unconditional 
+  - inverse_generate_sequence: default
   - inverse_generate_structure: esmfold
   - phantom_generate_sequence: default
   - experiment: null

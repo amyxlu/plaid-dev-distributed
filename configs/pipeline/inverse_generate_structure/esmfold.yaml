@@ -1,8 +1,7 @@
-defaults:
-  - _self_
+_target_: plaid.pipeline.FoldPipeline
 
-fasta_file: "" 
-outdir: ""
+fasta_file: null 
+outdir: null
 
 num_recycles: 4 
 max_seq_len: 256

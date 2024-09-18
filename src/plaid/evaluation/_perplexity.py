@@ -9,7 +9,7 @@ from ..utils import to_tensor
 
 
 class RITAPerplexity:
-    def __init__(self, device):
+    def __init__(self, device="cuda"):
         self.device = device
         self.model = AutoModelForCausalLM.from_pretrained("lightonai/RITA_xl", trust_remote_code=True)
         self.model.to(self.device)
@@ -25,7 +25,7 @@ class RITAPerplexity:
         loss, logits = outputs[:2]
         return math.exp(loss)
 
-    def batch_eval(self, all_sequences, batch_size: int = None, return_mean=True):
+    def batch_eval(self, all_sequences, batch_size: int = None, *args, **kwargs):
         """Calculates the average perplexity under RITA for a batch of strings"""
         if not len(set([len(s) for s in all_sequences])) == 1:
             raise NotImplementedError(
@@ -43,10 +43,7 @@ class RITAPerplexity:
             loss, logits = outputs[:2]
             all_perplexities.append(torch.exp(loss).item())
 
-        if return_mean:
-            return np.mean(all_perplexities)
-        else:
-            return all_perplexities
+        return np.mean(all_perplexities)
 
 
 class ESMPseudoPerplexity:

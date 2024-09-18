@@ -37,6 +37,8 @@ class InverseFoldPipeline:
     def __init__(
         self, 
         pdb_dir: PathLike,  # list to PDB files, will inverse fold all files with .pdb extension
+        output_fasta_path: PathLike = None,
+        # ProteinMPNN backbone-only defaults:
         model_name="v_48_020",  # @param ["v_48_002", "v_48_010", "v_48_020", "v_48_030"]
         verbose: bool = False,
         hidden_dim=128,
@@ -62,7 +64,6 @@ class InverseFoldPipeline:
         pssm_log_odds_flag: bool = False,
         pssm_bias_flag: bool = False,
         device: DeviceLike = "cuda",
-        output_fasta_path: PathLike = None,
     ):
         self.pdb_dir = Path(pdb_dir)
         self.verbose = verbose

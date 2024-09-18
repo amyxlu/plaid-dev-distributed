@@ -125,19 +125,19 @@ class DecodeLatent:
             paths.append(outpath)
         return paths
     
-    def write_structure_metrics_to_disk(self, struct_log_dict: Dict[str, np.ndarray]):
-        ensure_exists(self.output_root_dir)
-        # pickle dump
-        with open(Path(self.output_root_dir) / "structure_metrics.pkl", "wb") as f:
-            pkl.dump(struct_log_dict, f)
+    # def write_structure_metrics_to_disk(self, struct_log_dict: Dict[str, np.ndarray]):
+    #     ensure_exists(self.output_root_dir)
+    #     # pickle dump
+    #     with open(Path(self.output_root_dir) / "structure_metrics.pkl", "wb") as f:
+    #         pkl.dump(struct_log_dict, f)
 
-        # write a dataframe summary
-        means = {f"{k}_mean": v.mean() for k, v in struct_log_dict.items()}
-        stds = {f"{k}_std": v.std() for k, v in struct_log_dict.items()}
-        d = means | stds
-        with open(Path(self.output_root_dir) / "structure_metrics.txt", "w") as f:
-            for k, v in d.items():
-                f.write(f"{k}: {v:.4f}\n")
+    #     # write a dataframe summary
+    #     means = {f"{k}_mean": v.mean() for k, v in struct_log_dict.items()}
+    #     stds = {f"{k}_std": v.std() for k, v in struct_log_dict.items()}
+    #     d = means | stds
+    #     with open(Path(self.output_root_dir) / "structure_metrics.txt", "w") as f:
+    #         for k, v in d.items():
+    #             f.write(f"{k}: {v:.4f}\n")
 
     def write_sequences_to_disk(self, sequences, fasta_name):
         ensure_exists(self.output_root_dir)
@@ -167,7 +167,9 @@ class DecodeLatent:
         print(f"Constructing structures and writing to {str(self.output_root_dir / 'structures')}")
         start = time.time()
         pdb_strs = self.construct_structure(x_processed, seq_strs)
-        self.write_structures_to_disk(pdb_strs)
+        pdb_paths = self.write_structures_to_disk(pdb_strs)
         end = time.time()
         with open(self.time_log_path, "a") as f:
             f.write(f"Structure construction time: {end - start:.2f} seconds.\n")
+        
+        return seq_strs, pdb_paths 
