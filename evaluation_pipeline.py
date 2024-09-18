@@ -168,6 +168,9 @@ def main(cfg: DictConfig):
     # ===========================
     # Decode, calculate naturalness, and log
     # ===========================
+    if not cfg.run_decode:
+        exit(0)
+
     esmfold = esmfold_v1()
     esmfold.eval().requires_grad_(False)
     esmfold.cuda()
@@ -224,10 +227,12 @@ def main(cfg: DictConfig):
         }
     )
 
-
     # ===========================
-    # Run consistency evals 
+    # Run consistency evals
     # ===========================
+    
+    if not cfg.run_cross_consistency:
+        exit(0)
 
     try:
         # run ProteinMPNN for generated structures
@@ -281,10 +286,20 @@ def main(cfg: DictConfig):
         samples_d["cctm"] = cctm
         samples_d["ccsr"] = ccsr
 
-        # ===========================
-        # Phantom generations for self-consistency
-        # ===========================
+    except:
+        # log our table with whatever we got to:
+        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
+        pass
 
+
+    # ===========================
+    # Phantom generations for self-consistency
+    # ===========================
+
+    if not cfg.run_self_consistency:
+        exit(0)
+
+    try:
         # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery
         if not (outdir / "phantom_generated").exists():
             Path(outdir / "phantom_generated").mkdir(parents=True)
@@ -302,10 +317,10 @@ def main(cfg: DictConfig):
 
         self_consistency_calc = SelfConsistencyEvaluation(outdir)
 
-        self_consistency_rmsd = self_consistency_calc.cross_consistency_rmsd()
+        self_consistency_rmsd = self_consistency_calc.self_consistency_rmsd()
         # self_consistency_rmspd = self_consistency_calc.cross_consistency_rmspd()
-        self_consistency_tm = self_consistency_calc.cross_consistency_tm()
-        self_consistency_sr = self_consistency_calc.cross_consistency_sr()
+        self_consistency_tm = self_consistency_calc.self_consistency_tm()
+        self_consistency_sr = self_consistency_calc.self_consistency_sr()
 
         wandb.log(
             {
@@ -330,12 +345,14 @@ def main(cfg: DictConfig):
         samples_d["self_consistency_tm"] = self_consistency_tm
         samples_d["self_consistency_sr"] = self_consistency_sr
 
-        # log our big table
-        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
-
     except:
-        # log our table with whatever we got to:
-        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
+        pass
+
+    # log our big table
+    wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
+
+
+
 
 if __name__ == "__main__":
     main()

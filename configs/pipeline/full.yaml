@@ -1,5 +1,9 @@
 uid: null
 
+run_decode: True
+run_cross_consistency: True
+run_self_consistency: True
+
 defaults:
   - _self_
   - decode: default
