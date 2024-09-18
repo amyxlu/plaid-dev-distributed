@@ -1,7 +1,7 @@
 _target_: plaid.pipeline.InverseFoldPipeline
 
 pdb_dir: null
-outdir: null
+output_fasta_path: null
 
 verbose: true
 model_name: "v_48_002"

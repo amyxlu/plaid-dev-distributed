@@ -224,115 +224,118 @@ def main(cfg: DictConfig):
         }
     )
 
-    wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
 
     # ===========================
-    # Inverse generations for cross-consistency
+    # Run consistency evals 
     # ===========================
 
-    # run ProteinMPNN for generated structures
-    input_pdb_dir = outdir / "generated/structures"
-    output_fasta_path = outdir / "inverse_generated/sequences.fasta"
-    inverse_generate_sequence_run(
-        inverse_generate_sequence_cfg,
-        pdb_dir=input_pdb_dir,
-        output_fasta_path=output_fasta_path,
-    )
+    try:
+        # run ProteinMPNN for generated structures
+        input_pdb_dir = outdir / "generated/structures"
+        output_fasta_path = outdir / "inverse_generated/sequences.fasta"
+        inverse_generate_sequence_run(
+            inverse_generate_sequence_cfg,
+            pdb_dir=input_pdb_dir,
+            output_fasta_path=output_fasta_path,
+        )
 
-    # run ESMFold for generated sequences
-    input_fasta_file = outdir / "generated" / "sequences.fasta"
-    structure_outdir = outdir / "inverse_generated" / "structures"
-    inverse_generate_structure_run(
-        inverse_generate_structure_cfg,
-        fasta_file=input_fasta_file,
-        outdir=structure_outdir,
-        esmfold=esmfold,
-    )
+        # run ESMFold for generated sequences
+        input_fasta_file = outdir / "generated" / "sequences.fasta"
+        structure_outdir = outdir / "inverse_generated" / "structures"
+        inverse_generate_structure_run(
+            inverse_generate_structure_cfg,
+            fasta_file=input_fasta_file,
+            outdir=structure_outdir,
+            esmfold=esmfold,
+        )
 
-    cross_consistency_calc = CrossConsistencyEvaluation(outdir)
+        cross_consistency_calc = CrossConsistencyEvaluation(outdir)
 
-    # should be already sorted in the same order
-    ccrmsd = cross_consistency_calc.cross_consistency_rmsd()
-    # ccrmspd = cross_consistency_calc.cross_consistency_rmspd()
-    cctm = cross_consistency_calc.cross_consistency_tm()
-    ccsr = cross_consistency_calc.cross_consistency_sr()
+        # should be already sorted in the same order
+        ccrmsd = cross_consistency_calc.cross_consistency_rmsd()
+        # ccrmspd = cross_consistency_calc.cross_consistency_rmspd()
+        cctm = cross_consistency_calc.cross_consistency_tm()
+        ccsr = cross_consistency_calc.cross_consistency_sr()
 
-    wandb.log(
-        {
-            # detailed stats for ccRMSD and ccSR as representative metrics
-            "ccrmsd_mean": np.mean(ccrmsd),
-            "ccrmsd_std": np.std(ccrmsd),
-            "ccrmsd_median": np.std(ccrmsd),
-            "ccsr_mean": np.mean(ccsr),
-            "ccsr_std": np.std(ccsr),
-            "ccsr_median": np.std(ccsr),
-            # also log histogram
-            "cctm_hist": wandb.Histogram(cctm),
-            "ccrmsd_hist": wandb.Histogram(ccrmsd),
-            # "ccrmspd_hist": wandb.Histogram(ccrmspd),
-            "ccsr_hist": wandb.Histogram(ccsr),
-        }
-    )
+        wandb.log(
+            {
+                # detailed stats for ccRMSD and ccSR as representative metrics
+                "ccrmsd_mean": np.mean(ccrmsd),
+                "ccrmsd_std": np.std(ccrmsd),
+                "ccrmsd_median": np.std(ccrmsd),
+                "ccsr_mean": np.mean(ccsr),
+                "ccsr_std": np.std(ccsr),
+                "ccsr_median": np.std(ccsr),
+                # also log histogram
+                "cctm_hist": wandb.Histogram(cctm),
+                "ccrmsd_hist": wandb.Histogram(ccrmsd),
+                # "ccrmspd_hist": wandb.Histogram(ccrmspd),
+                "ccsr_hist": wandb.Histogram(ccsr),
+            }
+        )
 
-    # add to the big table
+        # add to the big table
 
-    samples_d["ccrmsd"] = ccrmsd
-    # samples_d["ccrmspd"] = ccrmspd
-    samples_d["cctm"] = cctm
-    samples_d["ccsr"] = ccsr
+        samples_d["ccrmsd"] = ccrmsd
+        # samples_d["ccrmspd"] = ccrmspd
+        samples_d["cctm"] = cctm
+        samples_d["ccsr"] = ccsr
 
-    # ===========================
-    # Phantom generations for self-consistency
-    # ===========================
+        # ===========================
+        # Phantom generations for self-consistency
+        # ===========================
 
-    # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery
-    if not (outdir / "phantom_generated").exists():
-        Path(outdir / "phantom_generated").mkdir(parents=True)
+        # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery
+        if not (outdir / "phantom_generated").exists():
+            Path(outdir / "phantom_generated").mkdir(parents=True)
 
-    input_pdb_dir = outdir / "inverse_generated/structures"
-    output_fasta_path = outdir / "phantom_generated/sequences.fasta"
-    phantom_generate_sequence_run(
-        phantom_generate_sequence_cfg,
-        pdb_dir=input_pdb_dir,
-        output_fasta_path=output_fasta_path,
-    )
+        input_pdb_dir = outdir / "inverse_generated/structures"
+        output_fasta_path = outdir / "phantom_generated/sequences.fasta"
+        phantom_generate_sequence_run(
+            phantom_generate_sequence_cfg,
+            pdb_dir=input_pdb_dir,
+            output_fasta_path=output_fasta_path,
+        )
 
-    # uses OmegaFold to fold the inverse-fold sequence predictions of generated structures to look at scTM and scRMSD
-    phantom_generate_structure_run(outdir)
+        # uses OmegaFold to fold the inverse-fold sequence predictions of generated structures to look at scTM and scRMSD
+        phantom_generate_structure_run(outdir)
 
-    self_consistency_calc = SelfConsistencyEvaluation(outdir)
+        self_consistency_calc = SelfConsistencyEvaluation(outdir)
 
-    self_consistency_rmsd = self_consistency_calc.cross_consistency_rmsd()
-    # self_consistency_rmspd = self_consistency_calc.cross_consistency_rmspd()
-    self_consistency_tm = self_consistency_calc.cross_consistency_tm()
-    self_consistency_sr = self_consistency_calc.cross_consistency_sr()
+        self_consistency_rmsd = self_consistency_calc.cross_consistency_rmsd()
+        # self_consistency_rmspd = self_consistency_calc.cross_consistency_rmspd()
+        self_consistency_tm = self_consistency_calc.cross_consistency_tm()
+        self_consistency_sr = self_consistency_calc.cross_consistency_sr()
 
-    wandb.log(
-        {
-            # detailed stats for self-consistency RMSD and SR as representative metrics
-            "self_consistency_rmsd_mean": np.mean(self_consistency_rmsd),
-            "self_consistency_rmsd_std": np.std(self_consistency_rmsd),
-            "self_consistency_rmsd_median": np.median(self_consistency_rmsd),
-            "self_consistency_sr_mean": np.mean(self_consistency_sr),
-            "self_consistency_sr_std": np.std(self_consistency_sr),
-            "self_consistency_sr_median": np.median(self_consistency_sr),
-            # also log histogram
-            "self_consistency_tm_hist": wandb.Histogram(self_consistency_tm),
-            "self_consistency_rmsd_hist": wandb.Histogram(self_consistency_rmsd),
-            # "self_consistency_rmspd_hist": wandb.Histogram(self_consistency_rmspd),
-            "self_consistency_sr_hist": wandb.Histogram(self_consistency_sr),
-        }
-    )
+        wandb.log(
+            {
+                # detailed stats for self-consistency RMSD and SR as representative metrics
+                "self_consistency_rmsd_mean": np.mean(self_consistency_rmsd),
+                "self_consistency_rmsd_std": np.std(self_consistency_rmsd),
+                "self_consistency_rmsd_median": np.median(self_consistency_rmsd),
+                "self_consistency_sr_mean": np.mean(self_consistency_sr),
+                "self_consistency_sr_std": np.std(self_consistency_sr),
+                "self_consistency_sr_median": np.median(self_consistency_sr),
+                # also log histogram
+                "self_consistency_tm_hist": wandb.Histogram(self_consistency_tm),
+                "self_consistency_rmsd_hist": wandb.Histogram(self_consistency_rmsd),
+                # "self_consistency_rmspd_hist": wandb.Histogram(self_consistency_rmspd),
+                "self_consistency_sr_hist": wandb.Histogram(self_consistency_sr),
+            }
+        )
 
-    # add to the big table
-    samples_d["self_consistency_rmsd"] = self_consistency_rmsd
-    # samples_d["self_consistency_rmspd"] = self_consistency_rmspd
-    samples_d["self_consistency_tm"] = self_consistency_tm
-    samples_d["self_consistency_sr"] = self_consistency_sr
+        # add to the big table
+        samples_d["self_consistency_rmsd"] = self_consistency_rmsd
+        # samples_d["self_consistency_rmspd"] = self_consistency_rmspd
+        samples_d["self_consistency_tm"] = self_consistency_tm
+        samples_d["self_consistency_sr"] = self_consistency_sr
 
-    # log our big table
-    wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
+        # log our big table
+        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
 
+    except:
+        # log our table with whatever we got to:
+        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
 
 if __name__ == "__main__":
     main()
