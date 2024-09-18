@@ -13,7 +13,7 @@ beta_scheduler_start: null
 beta_scheduler_end: null
 beta_scheduler_tau: null
 
-sampling_timesteps: 20
+sampling_timesteps: 20 
 
 batch_size: -1 
 return_all_timesteps: True

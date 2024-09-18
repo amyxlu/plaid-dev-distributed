@@ -1,0 +1,18 @@
+# @package _global_
+
+defaults:
+  - _self_
+
+sample:
+  length: 256
+  batch_size: 64
+
+decode:
+  batch_size: 32
+
+inverse_generate_structure:
+  batch_size: 16
+
+phantom_generate_structure:
+  batch_size: 16
+

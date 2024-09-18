@@ -165,6 +165,9 @@ def main(cfg: DictConfig):
     print(fid)
     wandb.log({"fid": fid})
 
+    if cfg.uid is None:
+        del sample_latent
+
     # ===========================
     # Decode, calculate naturalness, and log
     # ===========================
@@ -226,6 +229,8 @@ def main(cfg: DictConfig):
             "perplexity_hist": wandb.Histogram(samples_d["perplexity"]),
         }
     )
+
+    del perplexity_calc
 
     # ===========================
     # Run consistency evals
