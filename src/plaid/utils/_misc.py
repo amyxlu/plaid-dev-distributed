@@ -474,17 +474,23 @@ def view_py3Dmol(pdbstr):
     view.show()
 
 
-def parse_sequence_from_structure(pdb_data, id="") -> str:
+def parse_sequence_from_structure(pdb_data=None, pdb_path=None, id="") -> str:
     """Returns a string where chains are separated by : and assumes one model per PDB file"""
     from Bio.PDB import PDBParser
     import io
 
-    # Using StringIO to create a file-like object from the string
-    pdb_io = io.StringIO(pdb_data)
+    if pdb_data:
+        # Using StringIO to create a file-like object from the string
+        pdb_io = io.StringIO(pdb_data)
 
-    # Parsing the PDB data
-    parser = PDBParser()
-    structure = parser.get_structure(id, pdb_io)
+        # Parsing the PDB data
+        parser = PDBParser()
+        structure = parser.get_structure(id, pdb_io)
+    else:
+        assert not pdb_path is None
+        parser = PDBParser()
+        with open(pdb_path, "r") as f:
+            structure = parser.get_structure(id, f)
 
     # Extracting the sequence
     if len(structure) > 1:

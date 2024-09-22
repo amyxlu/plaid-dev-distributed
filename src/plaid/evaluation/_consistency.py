@@ -5,10 +5,15 @@ import re
 from plaid.evaluation import batch_rmsd_calculation, batch_rmspd_from_pdb_paths, run_tmalign
 from plaid.utils import read_sequences_from_fasta, calc_sequence_recovery
 
+import re
+
+def filename_to_suffix_number(path):
+    x = str(path).split("/")[-1]
+    return int(re.findall(r"\d+", x)[-1])
 
 def sort_by_suffix(lst):
     import re
-    sorted_list = sorted(lst, key=lambda x: int(re.search(r'\d+', x).group()))
+    sorted_list = sorted(lst, key=lambda path: filename_to_suffix_number(path))
     return sorted_list
 
 
@@ -51,13 +56,13 @@ class SelfConsistencyEvaluation:
 
         inverse_generated_pdb_dir = self.experiment_dir / "inverse_generated" / "structures"
         self.inverse_generated_pdb_paths = glob.glob(str(inverse_generated_pdb_dir / "*.pdb"))
-        self.inverse_generated_pdb_paths.sort()
+        self.inverse_generated_pdb_paths = sort_by_suffix(self.inverse_generated_pdb_paths)
 
         self.inverse_generated_fasta_path = self.experiment_dir / "inverse_generated" / "sequences.fasta"
 
         phantom_generated_pdb_dir = self.experiment_dir / "phantom_generated" / "structures"
         self.phantom_generated_pdb_paths = glob.glob(str(phantom_generated_pdb_dir / "*.pdb"))
-        self.phantom_generated_pdb_paths.sort()
+        self.phantom_generated_pdb_paths = sort_by_suffix(self.phantom_generated_pdb_paths)
 
         self.phantom_generated_fasta_path = self.experiment_dir / "phantom_generated" / "sequences.fasta"
 

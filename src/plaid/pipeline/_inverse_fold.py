@@ -54,7 +54,7 @@ class InverseFoldPipeline:
         backbone_noise: float = 0.00,  # Standard deviation of Gaussian noise to add to backbone atoms
         homomer: bool = True,
         omit_AAs: str = "X",  # Specify which amino acids should be omitted in the generated sequence, e.g. 'AC' would omit alanine and cystine.
-        save_score: bool = False,  # save score=-log_prob to npy files
+        save_score: bool = False,  # save score=-log_prob to ny files
         save_probs: bool = False,  # save MPNN predicted probabilities per position
         score_only: bool = False,  # score input backbone-sequence pairs
         conditional_probs_only: bool = False,  # output conditional probabilities p(s_i given the rest of the sequence and backbone)

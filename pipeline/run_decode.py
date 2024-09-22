@@ -1,32 +1,45 @@
 import os
+from pathlib import Path
 from plaid.pipeline._decode import DecodeLatent
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
-def run(cfg: DictConfig):
-    if cfg.npz_path is None:
-        timestamps = os.listdir(f"/data/lux70/plaid/artifacts/samples/{cfg.plaid_model_id}/{cfg.cond_code}")
-        timestamp = timestamps[-1]
-        npz_path = f"/data/lux70/plaid/artifacts/samples/{cfg.plaid_model_id}/{cfg.cond_code}/{timestamp}/latent.npz"
-    else:
-        npz_path = cfg.npz_path
+import argparse
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--batch_size", type=int, default=64)
+args = parser.parse_args()
+
+# cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/decode/default.yaml")
+
+def run(npz_path):
     """Hydra configurable instantiation, for imports in full pipeline."""
+    npz_path = Path(npz_path)
+    output_root_dir = npz_path.parent
+
     decode_latent = DecodeLatent(
         npz_path=npz_path,
-        output_root_dir=cfg.output_root_dir,
-        num_recycles=cfg.num_recycles,
-        batch_size=cfg.batch_size,
-        device=cfg.device
+        output_root_dir=output_root_dir,
+        num_recycles=4,
+        batch_size=args.batch_size,
+        device="cuda"
     )
     decode_latent.run()
 
 
-@hydra.main(config_path="../configs/pipeline", config_name="decode_latent", version_base=None)
-def hydra_run(cfg: DictConfig):
-    """Hydra configurable instantiation for running as standalone script."""
-    run(cfg)
-
-
 if __name__ == "__main__":
-    hydra_run()
+    from pathlib import Path
+    sample_dir = Path("/data/lux70/plaid/artifacts/samples/5j007z42/ddim/5j007z42")
+
+
+    import os
+    for cond_code in os.listdir(sample_dir):
+        for timestamp in os.listdir(sample_dir / cond_code):
+            root_dir = sample_dir / cond_code / timestamp
+            if not "generated" in os.listdir(root_dir):
+                npz_path = root_dir / "latent.npz"
+                print(npz_path)
+
+                run(npz_path)
+

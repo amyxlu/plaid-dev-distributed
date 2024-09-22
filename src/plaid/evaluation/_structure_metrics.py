@@ -173,7 +173,7 @@ def gdt_ha(p1, p2, mask):
 
 
 
-def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A'):
+def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A', ca_only=True):
     # Initialize the PDB parser
     parser = PDB.PDBParser(QUIET=True)
     
@@ -186,8 +186,12 @@ def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A'):
     chain2 = structure2[0][chain_id_2]
 
     # Extract the alpha carbons (CA) for alignment
-    atoms1 = [atom for atom in chain1.get_atoms() if atom.get_id() == 'CA']
-    atoms2 = [atom for atom in chain2.get_atoms() if atom.get_id() == 'CA']
+    if ca_only:
+        atoms1 = [atom for atom in chain1.get_atoms() if atom.get_id() == 'CA']
+        atoms2 = [atom for atom in chain2.get_atoms() if atom.get_id() == 'CA']
+    else:
+        atoms1 = list(chain1.get_atoms())
+        atoms2 = list(chain2.get_atoms())
 
     # Ensure both chains have the same number of alpha carbons
     if len(atoms1) != len(atoms2):

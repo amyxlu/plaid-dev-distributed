@@ -23,7 +23,8 @@
 # python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=ksme77o6"
 # python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=lqp25b7g"
 # python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=zlkurtdd"
-python run_diffusion_slrm.py -g 8 -n 4 -c 8 --flags "++resume_from_model_id=oqdkajg3"
+python run_diffusion_slrm.py -g 8 -n 4 -c 8 --flags "++resume_from_model_id=87up71bi"
+python run_diffusion_slrm.py -g 8 -n 4 -c 8 --flags "++resume_from_model_id=87up71bi"
 
 # python run_diffusion_slrm.py -g 8 -n 10 -c 8 --flags "experiment=udit/XXL ++logger.name=UDiT_XXL"
 

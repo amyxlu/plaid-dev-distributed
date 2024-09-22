@@ -3,16 +3,19 @@
 defaults:
   - _self_
 
+uid: b1695i8s
+
+
 sample:
   length: 256
   batch_size: 64
 
 decode:
-  batch_size: 32
+  batch_size: 4 
 
 inverse_generate_structure:
-  batch_size: 16
+  batch_size: 4 
 
 phantom_generate_structure:
-  batch_size: 16
+  batch_size: 4 
 

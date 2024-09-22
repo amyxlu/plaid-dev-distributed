@@ -1,0 +1,9 @@
+samples_dir: "/data/lux70/plaid/baselines/protpardelle/seqlen_256/"
+wandb_job_name: "protpardelle_len256"
+
+defaults:
+  - _self_
+  - inverse_generate_sequence: default
+  - inverse_generate_structure: esmfold
+  - phantom_generate_sequence: default
+  - experiment: null

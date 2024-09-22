@@ -20,31 +20,11 @@ from plaid.evaluation import (
     SelfConsistencyEvaluation,
 )
 from plaid.typed import PathLike
-from plaid.utils import extract_avg_b_factor_per_residue
+from plaid.utils import extract_avg_b_factor_per_residue, parse_sequence_from_structure
 
 
 def default(val, default_val):
     return val if val is not None else default_val
-
-
-def sample_run(sample_cfg: DictConfig):
-    sample_latent = hydra.utils.instantiate(sample_cfg)
-    sample_latent = sample_latent.run()  # returns npz path
-    with open(sample_latent.outdir / "sample.yaml", "w") as f:
-        OmegaConf.save(sample_cfg, f)
-    return sample_latent
-
-
-def decode_run(
-    decode_cfg: DictConfig, npz_path: PathLike, output_root_dir: PathLike, esmfold=None, max_seq_len=None
-):
-    decode_latent = hydra.utils.instantiate(
-        decode_cfg, npz_path=npz_path, output_root_dir=output_root_dir, esmfold=esmfold
-    )
-    seq_strs, pdb_paths = decode_latent.run()
-    with open(output_root_dir / "decode_config.yaml", "w") as f:
-        OmegaConf.save(decode_cfg, f)
-    return seq_strs, pdb_paths
 
 
 def inverse_generate_structure_run(
@@ -100,154 +80,45 @@ def phantom_generate_sequence_run(
     return inverse_fold
 
 
-@hydra.main(config_path="configs/pipeline", config_name="full")
+@hydra.main(config_path="configs/pipeline", config_name="consistency")
 def main(cfg: DictConfig):
-    sample_cfg = cfg.sample
-    decode_cfg = cfg.decode
     inverse_generate_sequence_cfg = cfg.inverse_generate_sequence
     inverse_generate_structure_cfg = cfg.inverse_generate_structure
     phantom_generate_sequence_cfg = cfg.phantom_generate_sequence
-    # NOTE: no phantom generate structure config, using all OmegaFold defaults.
 
-    # ===========================
-    # Sample configuration
-    # ===========================
+    outdir = Path(cfg.samples_dir)
 
-    # an unique ID was generated while sampling, but also provide the option to begin from
-    # an existing sampled UID, in which case we bystep the sampling
-    if cfg.uid is None:
-        sample_latent = sample_run(sample_cfg)
-        outdir = sample_latent.outdir
-        uid = sample_latent.uid
-    else:
-        uid = cfg.uid
-        outdir = (
-            Path(sample_cfg.output_root_dir)
-            / sample_cfg.model_id
-            / f"f{sample_cfg.function_idx}_o{sample_cfg.organism_idx}"
-            / sample_cfg.sample_scheduler
-            / uid
-        )
+    import IPython;IPython.embed()
 
-    # if the job id is repeated in an wandb init, it logs to the same entry
     wandb.init(
         project="plaid-sampling",
-        config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
-        id=uid,
-        resume="allow",
+        name=cfg.wandb_job_name
     )
-
-    if cfg.uid is None:
-        wandb.log({"sample_latent_time": sample_latent.sampling_time})
-
-    # ===========================
-    # FID calculation
-    # ===========================
-    if cfg.uid is None:
-        x = sample_latent.x
-    else:
-        outdir = (
-            Path(cfg.sample.output_root_dir)
-            / cfg.sample.model_id
-            / f"f{cfg.sample.function_idx}_o{cfg.sample.organism_idx}"
-            / cfg.sample.sample_scheduler
-            / uid
-        )
-        x = np.load(outdir / "latent.npz", allow_pickle=True)["samples"]
-
-    max_sequence_length = x.shape[1] * 2
-
-    gt_path = "/data/lux70/data/pfam/features/all.pt"
-
-    with safe_open(gt_path, "pt") as f:
-        gt = f.get_tensor("features").numpy()
-
-    # randomly sample x
-    idx = np.random.choice(gt.shape[0], size=sample_cfg.num_samples, replace=False)
-    gt = gt[idx]
-
-    feat = x[:, -1, :, :].mean(axis=1)
-    fid = parmar_fid(feat, gt)
-    with open(outdir / "fid.txt", "w") as f:
-        f.write(str(fid))
-
-    print(fid)
-    wandb.log({"fid": fid})
-
-    if cfg.uid is None:
-        del sample_latent
-
-    # ===========================
-    # Decode, calculate naturalness, and log
-    # ===========================
-    if not cfg.run_decode:
-        exit(0)
-
-    esmfold = esmfold_v1()
-    esmfold.eval().requires_grad_(False)
-    esmfold.cuda()
-
-    start = time.time()
-    with torch.no_grad():
-        seq_strs, pdb_paths = decode_run(
-            decode_cfg,
-            npz_path=outdir / "latent.npz",
-            output_root_dir=outdir / "generated",
-            esmfold=esmfold,
-        )
-    end = time.time()
-    wandb.log({"decode_time": end - start})
-
-    assert len(seq_strs) == len(pdb_paths) == x.shape[0]
 
     perplexity_calc = RITAPerplexity()
 
     samples_d = {
         "structure": [],
         "sequence": [],
-        "plddt": [],
         "perplexity": [],
     }
 
-    for i in range(x.shape[0]):
+    pdb_paths = glob.glob(str(outdir / "generated/structures/*.pdb"))
+    seq_strs = [parse_sequence_from_structure(pdb_path=pdb_path) for pdb_path in pdb_paths]
+    num_samples = len(pdb_paths)
+
+    for i in range(num_samples):
         seqstr, pdbpath = seq_strs[i], pdb_paths[i]
         samples_d["structure"].append(wandb.Molecule(str(pdbpath)))
         samples_d["sequence"].append(seqstr)
-
-        # extract pLDDT scores
-        plddts = extract_avg_b_factor_per_residue(pdbpath)
-        samples_d["plddt"].append(np.mean(plddts))  # average across the pLDDT scores
 
         # calculate perplexity
         perplexity = perplexity_calc.calc_perplexity(seqstr)
         samples_d["perplexity"].append(perplexity)
 
-    wandb.log(
-        {
-            "plddt_mean": np.mean(samples_d["plddt"]),
-            "plddt_std": np.std(samples_d["plddt"]),
-            "plddt_median": np.median(samples_d["plddt"]),
-            "plddt_hist": wandb.Histogram(samples_d["plddt"]),
-        }
-    )
-
-    wandb.log(
-        {
-            "perplexity_mean": np.mean(samples_d["perplexity"]),
-            "perplexity_std": np.std(samples_d["perplexity"]),
-            "perplexity_median": np.median(samples_d["perplexity"]),
-            "perplexity_hist": wandb.Histogram(samples_d["perplexity"]),
-        }
-    )
-
-    del perplexity_calc
-
-    # ===========================
-    # Run consistency evals
-    # ===========================
-
-    if not cfg.run_cross_consistency:
-        exit(0)
+    esmfold = esmfold_v1()
+    esmfold.eval().requires_grad_(False)
+    esmfold.cuda()
 
     try:
         # run ProteinMPNN for generated structures
@@ -310,8 +181,6 @@ def main(cfg: DictConfig):
     # Phantom generations for self-consistency
     # ===========================
 
-    if not cfg.run_self_consistency:
-        exit(0)
 
     try:
         # run ProteinMPNN on the structure predictions of our generated sequences to look at self-consistency sequence recovery

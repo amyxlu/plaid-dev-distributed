@@ -1,31 +1,36 @@
+from pathlib import Path
 from plaid.pipeline._fold import FoldPipeline
-import hydra
-from omegaconf import DictConfig
+
+import argparse
+
+parser = argparse.ArgumentParser(description="Run ESMFold on a FASTA file.")
+parser.add_argument("--fasta_file", type=str, help="Path to the input FASTA file.")
+parser.add_argument("--outdir", type=str, default=None, help="Output directory for PDB files.")
+parser.add_argument("--max_seq_len", type=int, default=None, help="Maximum sequence length.")
+parser.add_argument("--batch_size", type=int, default=-1, help="Batch size for processing.")
+parser.add_argument("--max_num_batches", type=int, default=None, help="Maximum number of batches to process.")
+parser.add_argument("--shuffle", action="store_true", help="Shuffle the input sequences.")
+args = parser.parse_args()
 
 
-def run(cfg: DictConfig, esmfold=None):
+def run(esmfold=None):
     """Hydra configurable instantiation, for imports in full pipeline.
     
     Optional: if ESMFold was already loaded elsewhere, pass it as an argument to save on GPU memory.
     """
 
     fold_pipeline = FoldPipeline(
-        fasta_file=cfg.fasta_file,
-        outdir=cfg.outdir,
+        fasta_file=Path(args.fasta_file),
+        outdir=Path(args.outdir),
         esmfold=esmfold,
-        max_seq_len=cfg.max_seq_len,
-        batch_size=cfg.batch_size,
-        max_num_batches=cfg.max_num_batches,
-        shuffle=cfg.shuffle
+        max_seq_len=args.max_seq_len,
+        batch_size=args.batch_size,
+        max_num_batches=args.max_num_batches,
+        shuffle=args.shuffle
     )
     fold_pipeline.run()
 
 
-@hydra.main(config_path="../configs/pipeline", config_name="esmfold", version_base=None)
-def hydra_run(cfg: DictConfig):
-    """Hydra configurable instantiation for running as standalone script."""
-    run(cfg)
-
-
 if __name__ == "__main__":
-    hydra_run()
+    run()
+

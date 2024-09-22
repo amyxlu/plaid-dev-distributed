@@ -2,11 +2,11 @@ _target_: plaid.pipeline.SampleLatent
 
 model_id: "5j007z42"
 model_ckpt_dir: "/data/lux70/plaid/checkpoints/plaid-compositional"
-output_root_dir: null
+output_root_dir: "/data/lux70/plaid/artifacts/samples/"
 
 organism_idx: null
 function_idx: null 
-cond_scale: 1.0
+cond_scale: 8.0
 
 sampling_timesteps: 500 
 sample_scheduler: ddim 
