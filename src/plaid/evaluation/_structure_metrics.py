@@ -194,8 +194,8 @@ def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A', ca_on
         atoms2 = list(chain2.get_atoms())
 
     # Ensure both chains have the same number of alpha carbons
-    if len(atoms1) != len(atoms2):
-        raise ValueError(f"CA atom count mismatch between {pdb_path_1} and {pdb_path_2}. Cannot calculate RMSD.")
+    # if len(atoms1) != len(atoms2):
+    #     raise ValueError(f"CA atom count mismatch between {pdb_path_1} and {pdb_path_2}. Cannot calculate RMSD.")
 
     # Perform the superimposition
     super_imposer = PDB.Superimposer()
@@ -207,11 +207,13 @@ def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A', ca_on
     return rmsd
 
 def process_pdb_pair(pdb_pair):
-    pdb_path_1, pdb_path_2 = pdb_pair
-    return calculate_rmsd(pdb_path_1, pdb_path_2)
+    pdb_path_1, pdb_path_2, ca_only = pdb_pair
+    return calculate_rmsd(pdb_path_1, pdb_path_2, ca_only=ca_only)
 
-def batch_rmsd_calculation(pdb_paths1, pdb_paths2):
-    pdb_pairs = zip(pdb_paths1, pdb_paths2)
+def batch_rmsd_calculation(pdb_paths1, pdb_paths2,ca_only=True):
+    assert len(pdb_paths1) == len(pdb_paths2), "The number of PDB paths must be equal."
+    ca_only = [ca_only] * len(pdb_paths1)
+    pdb_pairs = zip(pdb_paths1, pdb_paths2, ca_only)
     results = []
 
     # Use ProcessPoolExecutor to parallelize the RMSD calculations

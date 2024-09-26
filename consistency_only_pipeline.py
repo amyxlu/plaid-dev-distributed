@@ -88,8 +88,6 @@ def main(cfg: DictConfig):
 
     outdir = Path(cfg.samples_dir)
 
-    import IPython;IPython.embed()
-
     wandb.init(
         project="plaid-sampling",
         name=cfg.wandb_job_name
@@ -172,8 +170,9 @@ def main(cfg: DictConfig):
         samples_d["cctm"] = cctm
         samples_d["ccsr"] = ccsr
 
-    except:
+    except Exception as e:
         # log our table with whatever we got to:
+        print(e)
         wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
         pass
 
@@ -228,7 +227,8 @@ def main(cfg: DictConfig):
         samples_d["self_consistency_tm"] = self_consistency_tm
         samples_d["self_consistency_sr"] = self_consistency_sr
 
-    except:
+    except Exception as e:
+        print(e)
         pass
 
     # log our big table

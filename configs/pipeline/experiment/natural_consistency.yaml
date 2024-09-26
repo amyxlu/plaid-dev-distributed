@@ -1,0 +1,4 @@
+# @package _global_
+
+samples_dir: /data/lux70/data/pfam/val_stats
+wandb_job_name: natural

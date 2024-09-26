@@ -68,6 +68,7 @@ class SampleLatent:
         return_all_timesteps: bool = False,
         # output setup
         output_root_dir: str = "/data/lux70/plaid/artifacts/samples",
+        subdirectory_format_results: bool = False,
         # scheduler
         sample_scheduler: str = "ddim",  # ["ddim", ""ddpm"]
         sigma_min: float = 1e-2,
@@ -96,13 +97,17 @@ class SampleLatent:
         self.uid = wandb.util.generate_id()
 
         # set up paths
-        self.outdir = (
-            Path(self.output_root_dir)
-            / model_id
-            / f"f{self.function_idx}_o{self.organism_idx}" 
-            / sample_scheduler
-            / self.uid
-        )
+        if subdirectory_format_results:
+            self.outdir = (
+                Path(self.output_root_dir)
+                / self.uid
+            )
+        else:
+            self.outdir = Path(output_root_dir)
+        
+        if not self.outdir.exists():
+            self.outdir.mkdir(parents=True)
+        
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
 
@@ -267,9 +272,6 @@ class SampleLatent:
         with open(outpath.parent / "sample.log", "w") as f:
             self.sampling_time = end - start
             f.write("Sampling time: {:.2f} seconds.\n".format(end - start))
-
-        with open(outpath.parent / "config.yaml", "w") as f:
-            f.write(OmegaConf.to_yaml(self.cfg))
 
         self.outpath = outpath
         self.x = all_sampled

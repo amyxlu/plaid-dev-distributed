@@ -1,4 +1,5 @@
 from typing import Optional, List, Tuple
+from pathlib import Path
 import os
 
 import torch
@@ -31,7 +32,7 @@ class FoldPipeline:
         shuffle: bool = False
     ):
         self.fasta_file = fasta_file
-        self.outdir = outdir
+        self.outdir = Path(outdir)
         self.num_recycles = num_recycles
         self.max_seq_len = max_seq_len
         self.device = device
@@ -85,6 +86,7 @@ class FoldPipeline:
         all_pdb_strs = []
 
         num_batches = min(len(self.ds) // self.batch_size, self.max_num_batches)
+        cur_num = 0
 
         print("Saving structures to", self.outdir)        
 
@@ -100,7 +102,8 @@ class FoldPipeline:
 
             # write for this batch:
             for i in range(len(pdb_strs)):
-                with open(self.outdir / f"{headers[i]}.pdb", "w") as f:
+                with open(self.outdir / f"pfam{cur_num}.pdb", "w") as f:
                     f.write(pdb_strs[i])
+                cur_num += 1
 
         return all_pdb_strs

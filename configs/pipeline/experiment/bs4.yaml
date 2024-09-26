@@ -3,12 +3,8 @@
 defaults:
   - _self_
 
-uid: b1695i8s
-
-
 sample:
-  length: 256
-  batch_size: 64
+  batch_size: 32 
 
 decode:
   batch_size: 4 

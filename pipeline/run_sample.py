@@ -1,6 +1,6 @@
 from plaid.pipeline import SampleLatent
 import hydra
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 
 def run(cfg: DictConfig):
@@ -19,10 +19,12 @@ def run(cfg: DictConfig):
         return_all_timesteps=cfg.return_all_timesteps,
         output_root_dir=cfg.output_root_dir,
     )
-    sample_latent.run()
+    sample_latent = sample_latent.run()
+    with open(sample_latent.outdir / "sample.yaml", "w") as f:
+        f.write(OmegaConf.to_yaml(cfg))
 
 
-@hydra.main(config_path="../configs/pipeline", config_name="sample_latent")
+@hydra.main(config_path="/homefs/home/lux70/code/plaid/configs/pipeline/sample", config_name="sample_latent")
 def hydra_run(cfg: DictConfig):
     """Hydra configurable instantiation for running as standalone script."""
     run(cfg)

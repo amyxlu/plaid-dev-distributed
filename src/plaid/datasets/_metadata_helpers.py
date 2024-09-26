@@ -3,6 +3,7 @@ import pandas as pd
 
 NUM_FUNCTION_CLASSES = 2219
 NUM_ORGANISM_CLASSES = 3617
+HUMAN_IDX = 1326 
 
 
 class MetadataParser:
