@@ -67,16 +67,16 @@ class SelfConsistencyEvaluation:
         self.phantom_generated_fasta_path = self.experiment_dir / "phantom_generated" / "sequences.fasta"
 
     def self_consistency_rmsd(self):
-        return batch_rmsd_calculation(self.inverse_generated_pdb_paths, self.phantom_generated_pdb_paths)
+        return batch_rmsd_calculation(self.generated_pdb_paths, self.phantom_generated_pdb_paths)
 
     def self_consistency_rmspd(self):
-        return batch_rmspd_from_pdb_paths(self.inverse_generated_pdb_paths, self.phantom_generated_pdb_paths)
+        return batch_rmspd_from_pdb_paths(self.generated_pdb_paths, self.phantom_generated_pdb_paths)
 
     def self_consistency_tm(self):
-        return [run_tmalign(p1, p2) for (p1, p2) in zip(self.inverse_generated_pdb_paths, self.phantom_generated_pdb_paths)]
+        return [run_tmalign(p1, p2) for (p1, p2) in zip(self.generated_pdb_paths, self.phantom_generated_pdb_paths)]
     
     def self_consistency_sr(self):
-        gen_seqs_dict = read_sequences_from_fasta(self.inverse_generated_fasta_path)
+        gen_seqs_dict = read_sequences_from_fasta(self.generated_fasta_path)
         inv_gen_seqs_dict = read_sequences_from_fasta(self.phantom_generated_fasta_path)
         gen_seqs = [gen_seqs_dict[k] for k in sorted(gen_seqs_dict)]
         inv_gen_seqs = [inv_gen_seqs_dict[k] for k in sorted(inv_gen_seqs_dict)]
