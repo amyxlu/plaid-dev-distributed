@@ -13,3 +13,6 @@ save_probs: false
 score_only: false
 conditional_probs_only: false
 conditional_probs_only_backbone: false
+
+max_length: 512 
+batch_size: 1

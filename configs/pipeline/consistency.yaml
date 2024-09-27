@@ -1,5 +1,7 @@
 samples_dir: "/data/lux70/plaid/baselines/protpardelle/seqlen_256/"
 wandb_job_name: ""
+run_inverse: True
+run_phantom: True
 
 defaults:
   - _self_
