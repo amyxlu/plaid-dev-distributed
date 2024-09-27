@@ -88,7 +88,7 @@ Per-sequence protein properties
 """
 
 
-def _protein_property(protein_sequence, prop):
+def protein_property(protein_sequence, prop):
     protein_sequence = "".join(list(filter(lambda char: char in RESTYPES, protein_sequence)))
     analyzer = ProteinAnalysis(protein_sequence)
     if prop == "charge_at_pH":
@@ -99,12 +99,12 @@ def _protein_property(protein_sequence, prop):
 
 def calculate_df_protein_property(df, sequence_col="sequences", properties=DEFAULT_PROPERTIES):
     for prop in properties:
-        df[prop] = df[sequence_col].map(lambda seq: _protein_property(seq, prop))
+        df[prop] = df[sequence_col].map(lambda seq: protein_property(seq, prop))
     return df
 
 
 def process_chunk(chunk, prop, sequence_col):
-    return chunk[sequence_col].map(lambda seq: _protein_property(seq, prop))
+    return chunk[sequence_col].map(lambda seq: protein_property(seq, prop))
 
 
 def calculate_df_protein_property_mp(df, sequence_col="sequences", properties=DEFAULT_PROPERTIES):

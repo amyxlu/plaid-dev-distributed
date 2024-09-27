@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--pdbdir", type=str, required=True)
+parser.add_argument("-p", "--pdbdir", type=str, required=True)
 args = parser.parse_args()
 
 # pdbdir = Path("/data/lux70/data/pfam/val_stats/generated/structures")
@@ -28,9 +28,13 @@ for p in tqdm(pdb_paths):
 outfasta = pdbdir / "../sequences.fasta"
 
 headers, sequences = [], []
+cur_i = 0
+
 for k, v in seq_dict.items():
-    headers.append(k)
+    # headers.append(k)
+    headers.append(f"sample{cur_i}")
     sequences.append(v)
+    cur_i += 1
 
 write_to_fasta(
     sequences,

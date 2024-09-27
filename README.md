@@ -16,13 +16,19 @@ python setup.py develop
 ```
 
 
-
 To develop:
 
 ```
 cd plaid  # directory into which this repo is cloned
 pip install -e .
 ```
+
+## Inference Sampling
+
+### Unconditional
+
+
+
 
 ## Usage
 The diffusion model further employs a few tricks beyond the standard diffusion formulation which can be turned off:
@@ -33,5 +39,4 @@ The diffusion model further employs a few tricks beyond the standard diffusion f
 * Self-Conditioning
 
 
-## Usage
 * If using `torch.compile`, please make sure to use `float32` rather than mix precision or `bfloat16` due to [this issue](https://github.com/facebookresearch/xformers/issues/920) in the `xFormers` library.
