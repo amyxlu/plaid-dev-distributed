@@ -648,6 +648,17 @@ def round_to_multiple(x, multiple):
     return int(multiple * round(x/multiple))
 
 
+def filename_to_suffix_number(path):
+    x = str(path).split("/")[-1]
+    return int(re.findall(r"\d+", x)[-1])
+
+
+def sort_by_suffix(lst):
+    import re
+    sorted_list = sorted(lst, key=lambda path: filename_to_suffix_number(path))
+    return sorted_list
+
+
 ######
 # The following is adapted from pseudocode in Chen et al.,
 # https://arxiv.org/abs/2301.10972
