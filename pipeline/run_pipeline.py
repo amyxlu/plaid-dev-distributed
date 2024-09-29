@@ -14,13 +14,13 @@ import hydra
 
 from plaid.esmfold import esmfold_v1
 from plaid.evaluation import (
-    parmar_fid,
     RITAPerplexity,
     CrossConsistencyEvaluation,
     SelfConsistencyEvaluation,
 )
 from plaid.typed import PathLike
 from plaid.utils import extract_avg_b_factor_per_residue
+
 
 
 def default(val, default_val):
@@ -100,7 +100,7 @@ def phantom_generate_sequence_run(
     return inverse_fold
 
 
-@hydra.main(config_path="configs/pipeline", config_name="full")
+@hydra.main(config_path="../configs/pipeline", config_name="full")
 def main(cfg: DictConfig):
     
     print(OmegaConf.to_yaml(cfg))
@@ -144,21 +144,21 @@ def main(cfg: DictConfig):
     if cfg.uid is None:
         wandb.log({"sample_latent_time": sample_latent.sampling_time})
 
+    if cfg.uid is None:
+        x = sample_latent.x
+    else:
+        outdir = (
+            Path(cfg.sample.output_root_dir)
+            / cfg.sample.model_id
+            / f"f{cfg.sample.function_idx}_o{cfg.sample.organism_idx}"
+            / cfg.sample.sample_scheduler
+            / uid
+        )
+        x = np.load(outdir / "latent.npz", allow_pickle=True)["samples"]
+
     # ===========================
     # FID calculation
     # ===========================
-    # if cfg.uid is None:
-    #     x = sample_latent.x
-    # else:
-    #     outdir = (
-    #         Path(cfg.sample.output_root_dir)
-    #         / cfg.sample.model_id
-    #         / f"f{cfg.sample.function_idx}_o{cfg.sample.organism_idx}"
-    #         / cfg.sample.sample_scheduler
-    #         / uid
-    #     )
-    #     x = np.load(outdir / "latent.npz", allow_pickle=True)["samples"]
-
     # from plaid.evaluation import ConditionalFID
     
     # cond_fid = ConditionalFID(

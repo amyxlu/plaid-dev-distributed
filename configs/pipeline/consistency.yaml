@@ -1,5 +1,7 @@
+# only runs the consistency part, and assumes that samples have already been generated.
+# this is used for the baselines and for PLAID pipelines that failed during the consistency step.
+
 samples_dir: "/data/lux70/plaid/baselines/protpardelle/seqlen_256/"
-wandb_job_name: ""
 run_inverse: True
 run_phantom: True
 

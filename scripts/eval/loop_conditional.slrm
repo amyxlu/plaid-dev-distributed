@@ -19,7 +19,7 @@ echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
 export HYDRA_FULL_ERROR=1
 
-cd /homefs/home/lux70/code/plaid
+cd /homefs/home/lux70/code/plaid/pipeline
 
 nvidia-smi
 
@@ -28,7 +28,7 @@ organism_idx=$2
 length=$3
 cond_scale=$4
 
-srun python evaluation_pipeline.py \
+srun python run_pipeline.py \
     experiment=loop_conditional \
     ++sample.num_samples=16 \
     ++sample.function_idx=$function_idx \

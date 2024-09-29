@@ -1,3 +1,5 @@
+# default conditional sampling config
+
 _target_: plaid.pipeline.SampleLatent
 
 model_id: "5j007z42"

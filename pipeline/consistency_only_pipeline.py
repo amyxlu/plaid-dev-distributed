@@ -65,7 +65,7 @@ def phantom_generate_sequence_run(
     return inverse_fold
 
 
-@hydra.main(config_path="/homefs/home/lux70/code/plaid/configs/pipeline", config_name="consistency")
+@hydra.main(config_path="../configs/pipeline", config_name="consistency")
 def main(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg))
     

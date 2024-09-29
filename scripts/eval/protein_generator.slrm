@@ -39,14 +39,3 @@ srun python inference.py \
     --checkpoint weights/SEQDIFF_221219_equalTASKS_nostrSELFCOND_mod30.pt \
     --save_best_plddt
 done
-
-python inference.py \
-    --num_designs 100 \
-    --out /data/lux70/plaid/baselines/proteingenerator/generated/structures/len$i \
-    --length $i \
-    --T 25 \
-    --contigs $i \
-    --checkpoint weights/SEQDIFF_221219_equalTASKS_nostrSELFCOND_mod30.pt \
-    --save_best_plddt
-done
-

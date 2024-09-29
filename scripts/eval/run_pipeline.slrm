@@ -19,13 +19,13 @@ echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
 export HYDRA_FULL_ERROR=1
 
-cd /homefs/home/lux70/code/plaid
+cd /homefs/home/lux70/code/plaid/pipeline
 
 nvidia-smi
 
-srun python evaluation_pipeline.py $@
+srun python run_pipeline.py $@
 
 # for len in $@; do
-#     python evaluation_pipeline.py experiment=bs16 ++sample.length=$len ++sample.num_samples=64 ++sample.output_root_dir="/data/lux70/plaid/artifacts/samples/by_length/${len}"
+#     python run_pipeline.py experiment=bs16 ++sample.length=$len ++sample.num_samples=64 ++sample.output_root_dir="/data/lux70/plaid/artifacts/samples/by_length/${len}"
 # done
 
