@@ -173,7 +173,8 @@ def gdt_ha(p1, p2, mask):
 
 
 
-def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A', ca_only=True):
+def calculate_rmsd(pdb_path_1, pdb_path_2, ca_only=True):
+    """Aligns and calculates the RMSD for the first chain in the first model of each PDB path."""
     # Initialize the PDB parser
     parser = PDB.PDBParser(QUIET=True)
     
@@ -182,8 +183,8 @@ def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A', ca_on
     structure2 = parser.get_structure('structure2', pdb_path_2)
 
     # Select the chains
-    chain1 = structure1[0][chain_id_1]
-    chain2 = structure2[0][chain_id_2]
+    chain1 = next(structure1[0].get_chains())
+    chain2 = next(structure2[0].get_chains())
 
     # Extract the alpha carbons (CA) for alignment
     if ca_only:
@@ -194,8 +195,8 @@ def calculate_rmsd(pdb_path_1, pdb_path_2, chain_id_1='A', chain_id_2='A', ca_on
         atoms2 = list(chain2.get_atoms())
 
     # Ensure both chains have the same number of alpha carbons
-    # if len(atoms1) != len(atoms2):
-    #     raise ValueError(f"CA atom count mismatch between {pdb_path_1} and {pdb_path_2}. Cannot calculate RMSD.")
+    if len(atoms1) != len(atoms2):
+        raise ValueError(f"CA atom count mismatch between {pdb_path_1} and {pdb_path_2}. Cannot calculate RMSD.")
 
     # Perform the superimposition
     super_imposer = PDB.Superimposer()
