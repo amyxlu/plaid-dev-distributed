@@ -1,0 +1,15 @@
+# @package _global_
+
+samples_dir: /data/lux70/plaid/baselines/proteingenerator/by_length
+
+inverse_generate_sequence:
+  max_length: 536 
+  designed_chain: "A"
+
+phantom_generate_sequence:
+  max_length: 536 
+  designed_chain: "A"
+
+inverse_generate_structure:
+  batch_size: 4 
+  max_seq_len: 536 

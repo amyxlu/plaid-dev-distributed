@@ -1,6 +1,0 @@
-# @package _global_
-
-# samples_dir: /data/lux70/plaid/baselines/protpardelle/samples_100_200_300/
-# wandb_job_name: protpardelle_sc
-samples_dir: /data/lux70/plaid/baselines/proteingenerator/100_200_300/
-wandb_job_name: protpardelle_sc

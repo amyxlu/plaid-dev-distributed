@@ -8,6 +8,7 @@ model_name: "v_48_002"
 ca_only: true
 num_seq_per_target: 8
 sampling_temp: "0.1"
+designed_chain: "A"
 save_score: false
 save_probs: false
 score_only: false

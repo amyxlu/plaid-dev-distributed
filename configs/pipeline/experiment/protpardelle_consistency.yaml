@@ -1,0 +1,19 @@
+# @package _global_
+
+# samples_dir: /data/lux70/plaid/baselines/protpardelle/samples_100_200_300/
+# wandb_job_name: protpardelle_sc
+samples_dir: /data/lux70/plaid/baselines/protpardelle/samples_large/samples
+
+# protpardelle PDB files use chain "B" instead of "A" by default
+inverse_generate_sequence:
+  max_length: 512 
+  designed_chain: "B"
+
+# esmfold PDB files does use chain "A" instead of "B"
+phantom_generate_sequence:
+  max_length: 512 
+  designed_chain: "A"
+
+inverse_generate_structure:
+  batch_size: 512 
+  max_seq_len: 300 

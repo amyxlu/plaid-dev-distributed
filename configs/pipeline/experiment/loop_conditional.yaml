@@ -1,0 +1,9 @@
+# @package _global_
+
+# overrides full.yaml.
+
+run_decode: True 
+run_cross_consistency: False
+run_self_consistency: False
+
+# wandb_project_name: plaid-

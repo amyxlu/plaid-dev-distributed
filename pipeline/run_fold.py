@@ -10,6 +10,7 @@ parser.add_argument("--max_seq_len", type=int, default=None, help="Maximum seque
 parser.add_argument("--batch_size", type=int, default=-1, help="Batch size for processing.")
 parser.add_argument("--max_num_batches", type=int, default=None, help="Maximum number of batches to process.")
 parser.add_argument("--shuffle", action="store_true", help="Shuffle the input sequences.")
+parser.add_argument("--num_recycles", type=int, default=4, help="Number of recycling steps for structure prediction.")
 args = parser.parse_args()
 
 
@@ -26,7 +27,8 @@ def run(esmfold=None):
         max_seq_len=args.max_seq_len,
         batch_size=args.batch_size,
         max_num_batches=args.max_num_batches,
-        shuffle=args.shuffle
+        shuffle=args.shuffle,
+        num_recycles=args.num_recycles
     )
     fold_pipeline.run()
 

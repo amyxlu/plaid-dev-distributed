@@ -4,6 +4,8 @@ run_decode: True
 run_cross_consistency: True
 run_self_consistency: True
 
+wandb_project_name: plaid-sampling
+
 defaults:
   - _self_
   - decode: default

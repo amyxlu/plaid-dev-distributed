@@ -28,13 +28,11 @@ for p in tqdm(pdb_paths):
 outfasta = pdbdir / "../sequences.fasta"
 
 headers, sequences = [], []
-cur_i = 0
 
-for k, v in seq_dict.items():
-    # headers.append(k)
-    headers.append(f"sample{cur_i}")
-    sequences.append(v)
-    cur_i += 1
+for path, sequence in seq_dict.items():
+    header = Path(path).stem
+    headers.append(header)
+    sequences.append(sequence)
 
 write_to_fasta(
     sequences,
