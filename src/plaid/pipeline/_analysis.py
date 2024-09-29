@@ -40,7 +40,7 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
     for i, p in enumerate(generated_pdb_paths):
         d['pdb_paths'].append(p)
         d['inverse_generated_pdb_paths'].append(inverse_generated_pdb_paths[i])
-        d['phantom_generated_pdb_paths'].append(inverse_generated_pdb_paths[i])
+        d['phantom_generated_pdb_paths'].append(phantom_generated_pdb_paths[i])
 
         with open(p, "r") as f:
             pdbstr = f.read()
