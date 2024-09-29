@@ -102,6 +102,9 @@ def phantom_generate_sequence_run(
 
 @hydra.main(config_path="configs/pipeline", config_name="full")
 def main(cfg: DictConfig):
+    
+    print(OmegaConf.to_yaml(cfg))
+
     sample_cfg = cfg.sample
     decode_cfg = cfg.decode
     inverse_generate_sequence_cfg = cfg.inverse_generate_sequence
@@ -121,6 +124,7 @@ def main(cfg: DictConfig):
         uid = sample_latent.uid
     else:
         uid = cfg.uid
+        # TODO: fix sampling job resumption
         outdir = (
             Path(sample_cfg.output_root_dir)
             / sample_cfg.model_id
@@ -131,7 +135,7 @@ def main(cfg: DictConfig):
 
     # if the job id is repeated in an wandb init, it logs to the same entry
     wandb.init(
-        project="plaid-sampling",
+        project=cfg.wandb_project_name,
         config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
         id=uid,
         resume="allow",
@@ -143,39 +147,50 @@ def main(cfg: DictConfig):
     # ===========================
     # FID calculation
     # ===========================
-    if cfg.uid is None:
-        x = sample_latent.x
-    else:
-        outdir = (
-            Path(cfg.sample.output_root_dir)
-            / cfg.sample.model_id
-            / f"f{cfg.sample.function_idx}_o{cfg.sample.organism_idx}"
-            / cfg.sample.sample_scheduler
-            / uid
-        )
-        x = np.load(outdir / "latent.npz", allow_pickle=True)["samples"]
+    # if cfg.uid is None:
+    #     x = sample_latent.x
+    # else:
+    #     outdir = (
+    #         Path(cfg.sample.output_root_dir)
+    #         / cfg.sample.model_id
+    #         / f"f{cfg.sample.function_idx}_o{cfg.sample.organism_idx}"
+    #         / cfg.sample.sample_scheduler
+    #         / uid
+    #     )
+    #     x = np.load(outdir / "latent.npz", allow_pickle=True)["samples"]
 
-    max_sequence_length = x.shape[1] * 2
+    # from plaid.evaluation import ConditionalFID
+    
+    # cond_fid = ConditionalFID(
+    #     function_idx=cfg.sample.function_idx,
+    #     organism_idx=cfg.sample.organism_idx,
+    #     max_seq_len=cfg.sample.length * 2,
+    #     min_samples=cfg.sample.num_samples,
+    #     batch_size=cfg.sample.batch_size,
+    # )
+    # fid = cond_fid.run(x)
 
-    gt_path = "/data/lux70/data/pfam/features/all.pt"
+    # max_sequence_length = x.shape[1] * 2
 
-    with safe_open(gt_path, "pt") as f:
-        gt = f.get_tensor("features").numpy()
+    # gt_path = "/data/lux70/data/pfam/features/all.pt"
 
-    # randomly sample x
-    idx = np.random.choice(gt.shape[0], size=sample_cfg.num_samples, replace=False)
-    gt = gt[idx]
+    # with safe_open(gt_path, "pt") as f:
+    #     gt = f.get_tensor("features").numpy()
 
-    feat = x[:, -1, :, :].mean(axis=1)
-    fid = parmar_fid(feat, gt)
-    with open(outdir / "fid.txt", "w") as f:
-        f.write(str(fid))
+    # # randomly sample x
+    # idx = np.random.choice(gt.shape[0], size=sample_cfg.num_samples, replace=False)
+    # gt = gt[idx]
 
-    print(fid)
-    wandb.log({"fid": fid})
+    # feat = x[:, -1, :, :].mean(axis=1)
+    # fid = parmar_fid(feat, gt)
+    # with open(outdir / "fid.txt", "w") as f:
+    #     f.write(str(fid))
 
-    if cfg.uid is None:
-        del sample_latent
+    # print(fid)
+    # wandb.log({"fid": fid})
+
+    # if cfg.uid is None:
+    #     del sample_latent
 
     # ===========================
     # Decode, calculate naturalness, and log
@@ -247,6 +262,7 @@ def main(cfg: DictConfig):
     # ===========================
 
     if not cfg.run_cross_consistency:
+        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
         exit(0)
 
     try:
@@ -311,6 +327,7 @@ def main(cfg: DictConfig):
     # ===========================
 
     if not cfg.run_self_consistency:
+        wandb.log({"generations": wandb.Table(dataframe=pd.DataFrame(samples_d))})
         exit(0)
 
     try:
