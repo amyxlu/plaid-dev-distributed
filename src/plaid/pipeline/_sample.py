@@ -68,7 +68,8 @@ class SampleLatent:
         return_all_timesteps: bool = False,
         # output setup
         output_root_dir: str = "/data/lux70/plaid/artifacts/samples",
-        subdirectory_format_results: bool = False,
+        use_condition_output_suffix: bool = False,
+        use_uid_output_suffix: bool = False,
         # scheduler
         sample_scheduler: str = "ddim",  # ["ddim", ""ddpm"]
         sigma_min: float = 1e-2,
@@ -88,26 +89,16 @@ class SampleLatent:
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
 
+        self.uid = wandb.util.generate_id()
+
         # default to cuda
         self.device = torch.device("cuda")
 
         # if no batch size is provided, sample all at once
         self.batch_size = batch_size if batch_size > 0 else num_samples
 
-        self.uid = wandb.util.generate_id()
-
         # set up paths
-        if subdirectory_format_results:
-            self.outdir = (
-                Path(self.output_root_dir)
-                / self.uid
-            )
-        else:
-            self.outdir = Path(output_root_dir)
-        
-        if not self.outdir.exists():
-            self.outdir.mkdir(parents=True)
-        
+        self.outdir = self.setup_paths(output_root_dir, use_condition_output_suffix, use_uid_output_suffix)
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
 
@@ -139,6 +130,22 @@ class SampleLatent:
 
         self.denoiser.eval().requires_grad_(False)
         self.diffusion.eval().requires_grad_(False)
+
+    def setup_paths(
+        self,
+        output_root_dir,
+        use_condition_output_suffix=False,
+        use_uid_output_suffix=False,
+    ):
+        # set up paths
+        outdir = Path(output_root_dir)
+        if use_condition_output_suffix:
+            outdir = outdir / f"f{self.function_idx}_o{self.organism_idx}"
+        if use_uid_output_suffix:
+            outdir = outdir / self.uid
+        if not outdir.exists():
+            outdir.mkdir(parents=True)
+        return outdir
 
     def create_denoiser(
         self,
