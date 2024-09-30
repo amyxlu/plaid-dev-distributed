@@ -189,8 +189,8 @@ def main(cfg: DictConfig):
     # print(fid)
     # wandb.log({"fid": fid})
 
-    # if cfg.uid is None:
-    #     del sample_latent
+    if cfg.uid is None:
+        del sample_latent
 
     # ===========================
     # Decode, calculate naturalness, and log

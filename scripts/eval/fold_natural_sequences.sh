@@ -13,7 +13,7 @@ batch_size=$2 #512
 #     --max_seq_len $maxlen \
 #     --batch_size $batch_size
 
-python consistency_only_pipeline.py \
+python pipeline/run_consistency.py \
     ++samples_dir=${root_dir}/maxlen${maxlen} \
     ++inverse_generate_sequence.max_length=$maxlen \
     ++phantom_generate_sequence.max_length=$maxlen \

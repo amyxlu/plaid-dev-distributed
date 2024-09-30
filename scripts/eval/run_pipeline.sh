@@ -1,8 +1,13 @@
-len=48
-samples_dir=/data/lux70/plaid/artifacts/samples/5j007z42/100_200_300_v2/$len
-wandb_job_name=100_200_300_v2_$len
-
-sbatch consistency.slrm
-
 # arg_list=(32 40 48 56 64)
 # sbatch run_pipeline.slrm "${arg_list[@]}"
+
+# cd /homefs/home/lux70/code/plaid/scripts
+# for len in 100 200 300 350 400 450 500 550; do
+#     python structure_dir_to_fasta.py -p /data/lux70/plaid/baselines/protpardelle/samples_large/maxlen${len}/generated/structures
+# done
+
+for ((len=176; len<=256; len+=4)); do
+    sbatch run_pipeline.slrm \
+    ++sample.length=$len \
+    ++sample.output_root_dir="/data/lux70/plaid/artifacts/samples/by_length/$len"
+done

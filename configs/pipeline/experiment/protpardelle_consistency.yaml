@@ -15,5 +15,5 @@ phantom_generate_sequence:
   designed_chain: "A"
 
 inverse_generate_structure:
-  batch_size: 512 
-  max_seq_len: 300 
+  batch_size: 8 
+  max_seq_len: 512

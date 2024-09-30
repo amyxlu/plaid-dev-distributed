@@ -2,7 +2,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 
-@hydra.main(config_path="/homefs/home/lux70/code/plaid/configs/pipeline/sample", config_name="sample_latent")
+@hydra.main(config_path="../configs/pipeline/sample", config_name="sample_latent")
 def hydra_run(cfg: DictConfig):
     """Hydra configurable instantiation for running as standalone script."""
     print(OmegaConf.to_yaml(cfg))
