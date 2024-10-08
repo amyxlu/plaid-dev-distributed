@@ -3,6 +3,6 @@ _target_: plaid.pipeline.DecodeLatent
 npz_path: null 
 output_root_dir: null 
 
-batch_size: 64 
+batch_size: 8 
 device: "cuda"
 num_recycles: 4

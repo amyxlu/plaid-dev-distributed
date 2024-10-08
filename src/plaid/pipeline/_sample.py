@@ -78,11 +78,11 @@ class SampleLatent:
         assert sample_scheduler in AVAILABLE_SAMPLERS, f"Invalid sample scheduler: {sample_scheduler}. Must be one of {AVAILABLE_SAMPLERS}."
         self.model_id = model_id
         self.model_ckpt_dir = Path(model_ckpt_dir)
-        self.organism_idx = organism_idx
-        self.function_idx = function_idx
-        self.cond_scale = cond_scale
-        self.num_samples = num_samples
-        self.length = length
+        self.organism_idx = int(organism_idx)
+        self.function_idx = int(function_idx)
+        self.cond_scale = float(cond_scale)
+        self.num_samples = int(num_samples)
+        self.length = int(length)
         self.return_all_timesteps = return_all_timesteps
         self.output_root_dir = output_root_dir
         self.sample_scheduler = sample_scheduler

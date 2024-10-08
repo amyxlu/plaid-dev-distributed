@@ -171,7 +171,13 @@ def main(args):
             designed_chain_list = all_chain_list
         fixed_chain_list = [letter for letter in all_chain_list if letter not in designed_chain_list]
         chain_id_dict = {}
-        chain_id_dict[pdb_dict_list[0]['name']]= (designed_chain_list, fixed_chain_list)
+
+        # hack around the inconsistent "A" and "B" chain names between baselines (i.e. protpardelle) and PLAID 
+        try:
+            chain_id_dict[pdb_dict_list[0]['name']]= (designed_chain_list, fixed_chain_list)
+        except:
+            chain_id_dict["B"]= (designed_chain_list, fixed_chain_list)
+
     else:
         dataset_valid = StructureDataset(args.jsonl_path, truncate=None, max_length=args.max_length, verbose=print_all)
 

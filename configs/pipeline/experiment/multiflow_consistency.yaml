@@ -1,0 +1,15 @@
+# @package _global_
+
+samples_dir: /data/lux70/plaid/baselines/multiflow/100_200_300_organized
+
+inverse_generate_sequence:
+  max_length: 300 
+  designed_chain: "A"
+
+phantom_generate_sequence:
+  max_length: 300 
+  designed_chain: "A"
+
+inverse_generate_structure:
+  batch_size: 8 
+  max_seq_len: 300 

@@ -55,15 +55,45 @@
 
 
 ## metal ion binding
-function_idx=38
-for length in 10 20 40 80; do
-    for cond_scale in 3; do
-        for organism_idx in 2436 1326 818 1452 300; do 
-            echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
-            sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
-        done
-    done
+# function_idx=38
+# for length in 10 20 40 80; do
+#     for cond_scale in 3; do
+#         for organism_idx in 2436 1326 818 1452 300; do 
+#             echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+#             sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+#         done
+#     done
+# done
+
+# protein kinase activity
+function_idx=124
+cond_scale=3
+organism_idx=1326
+for length in 116 140 200; do
+    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+    sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
 done
+
+# function_idx=475
+# for length in 32 94 128; do
+#     for cond_scale in 3 7; do
+#         for organism_idx in 2436 1326 818 1452 300; do 
+#             echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+#             sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+#         done
+#     done
+# done
+
+
+# function_idx=727
+# for length in 32 94 128; do
+#     for cond_scale in 3 7; do
+#         for organism_idx in 2436 1326 818 1452 300; do 
+#             echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+#             sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+#         done
+#     done
+# done
 # 758 ['BOVIN']
 # 1411 ['CHICK']
 # 2436 ['ECOLI']

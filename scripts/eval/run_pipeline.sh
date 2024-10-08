@@ -6,8 +6,9 @@
 #     python structure_dir_to_fasta.py -p /data/lux70/plaid/baselines/protpardelle/samples_large/maxlen${len}/generated/structures
 # done
 
-for ((len=176; len<=256; len+=4)); do
-    sbatch run_pipeline.slrm \
-    ++sample.length=$len \
-    ++sample.output_root_dir="/data/lux70/plaid/artifacts/samples/by_length/$len"
-done
+# for ((len=176; len<=256; len+=4)); do
+#     sbatch run_pipeline.slrm \
+#     ++sample.length=$len \
+#     ++sample.output_root_dir="/data/lux70/plaid/artifacts/samples/by_length/v2/$len"
+# done
+

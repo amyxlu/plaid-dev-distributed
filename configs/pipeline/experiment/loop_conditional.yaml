@@ -1,9 +1,10 @@
 # @package _global_
 
-# overrides full.yaml.
+
+defaults:
+  - _self_
+  - override /sample: sample_latent 
 
 run_decode: True 
 run_cross_consistency: False
 run_self_consistency: False
-
-# wandb_project_name: plaid-

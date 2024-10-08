@@ -28,7 +28,7 @@ organism_idx=$2
 length=$3
 cond_scale=$4
 
-srun python run_pipeline.py \
+python run_pipeline.py \
     experiment=loop_conditional \
     ++sample.num_samples=16 \
     ++sample.function_idx=$function_idx \

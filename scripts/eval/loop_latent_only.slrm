@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-#SBATCH --job-name scaling 
+#SBATCH --job-name fid 
 #SBATCH --nodes 1 
 #SBATCH --gpus-per-node 1 
 #SBATCH --partition gpu2
@@ -23,13 +23,16 @@ cd /homefs/home/lux70/code/plaid/pipeline
 
 nvidia-smi
 
-model_id=$1
-length=$2
+organism_idx=$1
+function_idx=2219
+length=80
 
 srun python run_pipeline.py \
-    ++sample.num_samples=64 \
+    experiment=loop_conditional \
+    ++run_decode=False \
+    ++sample.num_samples=128 \
+    ++sample.return_all_timesteps=False \
+    ++sample.function_idx=$function_idx \
+    ++sample.organism_idx=$organism_idx \
     ++sample.length=$length \
-    ++sample.model_id=$model_id \
-    ++sample.output_root_dir=/data/lux70/plaid/artifacts/samples/scaling/${model_id}/$length
-
-
+    ++sample.output_root_dir=/data/lux70/plaid/artifacts/samples/5j007z42/organism_cond/f${function_idx}_o${organism_idx}

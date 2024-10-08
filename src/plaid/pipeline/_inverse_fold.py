@@ -194,6 +194,10 @@ class InverseFoldPipeline:
             pdb_dict_list, truncate=None, max_length=self.max_length
         )
 
+        print("Dataset valid", len(dataset_valid))
+        if len(dataset_valid) == 0:
+            raise ValueError(f"No valid chains found in the input PDB file less than specified max length {self.max_length}")
+
         chain_id_dict = {}
         chain_id_dict[pdb_dict_list[0]["name"]] = (
             designed_chain_list,
@@ -214,6 +218,7 @@ class InverseFoldPipeline:
         with torch.no_grad():
             if verbose:
                 print("Generating sequences...")
+
             for ix, protein in enumerate(dataset_valid):
                 score_list = []
                 all_probs_list = []

@@ -116,22 +116,9 @@ def main(cfg: DictConfig):
     # Sample configuration
     # ===========================
 
-    # an unique ID was generated while sampling, but also provide the option to begin from
-    # an existing sampled UID, in which case we bystep the sampling
-    if cfg.uid is None:
-        sample_latent = sample_run(sample_cfg)
-        outdir = sample_latent.outdir
-        uid = sample_latent.uid
-    else:
-        uid = cfg.uid
-        # TODO: fix sampling job resumption
-        outdir = (
-            Path(sample_cfg.output_root_dir)
-            / sample_cfg.model_id
-            / f"f{sample_cfg.function_idx}_o{sample_cfg.organism_idx}"
-            / sample_cfg.sample_scheduler
-            / uid
-        )
+    sample_latent = sample_run(sample_cfg)
+    outdir = sample_latent.outdir
+    uid = sample_latent.uid
 
     # if the job id is repeated in an wandb init, it logs to the same entry
     wandb.init(
@@ -141,56 +128,9 @@ def main(cfg: DictConfig):
         resume="allow",
     )
 
-    if cfg.uid is None:
-        wandb.log({"sample_latent_time": sample_latent.sampling_time})
+    wandb.log({"sample_latent_time": sample_latent.sampling_time})
 
-    if cfg.uid is None:
-        x = sample_latent.x
-    else:
-        outdir = (
-            Path(cfg.sample.output_root_dir)
-            / cfg.sample.model_id
-            / f"f{cfg.sample.function_idx}_o{cfg.sample.organism_idx}"
-            / cfg.sample.sample_scheduler
-            / uid
-        )
-        x = np.load(outdir / "latent.npz", allow_pickle=True)["samples"]
-
-    # ===========================
-    # FID calculation
-    # ===========================
-    # from plaid.evaluation import ConditionalFID
-    
-    # cond_fid = ConditionalFID(
-    #     function_idx=cfg.sample.function_idx,
-    #     organism_idx=cfg.sample.organism_idx,
-    #     max_seq_len=cfg.sample.length * 2,
-    #     min_samples=cfg.sample.num_samples,
-    #     batch_size=cfg.sample.batch_size,
-    # )
-    # fid = cond_fid.run(x)
-
-    # max_sequence_length = x.shape[1] * 2
-
-    # gt_path = "/data/lux70/data/pfam/features/all.pt"
-
-    # with safe_open(gt_path, "pt") as f:
-    #     gt = f.get_tensor("features").numpy()
-
-    # # randomly sample x
-    # idx = np.random.choice(gt.shape[0], size=sample_cfg.num_samples, replace=False)
-    # gt = gt[idx]
-
-    # feat = x[:, -1, :, :].mean(axis=1)
-    # fid = parmar_fid(feat, gt)
-    # with open(outdir / "fid.txt", "w") as f:
-    #     f.write(str(fid))
-
-    # print(fid)
-    # wandb.log({"fid": fid})
-
-    if cfg.uid is None:
-        del sample_latent
+    x = sample_latent.x
 
     # ===========================
     # Decode, calculate naturalness, and log

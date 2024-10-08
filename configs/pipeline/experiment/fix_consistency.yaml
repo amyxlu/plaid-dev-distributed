@@ -1,6 +1,6 @@
 # @package _global_
 
-samples_dir: /data/lux70/plaid/baselines/protpardelle/samples_large/samples/
+samples_dir: /data/lux70/plaid/baselines/proteingenerator/by_length
 # /data/lux70/plaid/baselines/protpardelle/samples_100_200_300/
 # samples_dir: /data/lux70/plaid/artifacts/natural/maxlen256/
 run_inverse: False

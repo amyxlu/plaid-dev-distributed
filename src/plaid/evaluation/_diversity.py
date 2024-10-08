@@ -33,6 +33,7 @@ def run_easy_cluster(designable_dir, output_dir):
         stderr=subprocess.PIPE
     )
     stdout, _ = process.communicate()
+    import pdb;pdb.set_trace()
     del stdout # We don't actually need the stdout, we will read the number of clusters from the output files
     rep_seq_fasta = fasta.FastaFile.read(os.path.join(output_dir, 'res_rep_seq.fasta'))
     return len(rep_seq_fasta)

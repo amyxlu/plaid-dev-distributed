@@ -172,7 +172,6 @@ def gdt_ha(p1, p2, mask):
     return gdt(p1, p2, mask, [0.5, 1.0, 2.0, 4.0])
 
 
-
 def calculate_rmsd(pdb_path_1, pdb_path_2, ca_only=True):
     """Aligns and calculates the RMSD for the first chain in the first model of each PDB path."""
     # Initialize the PDB parser
