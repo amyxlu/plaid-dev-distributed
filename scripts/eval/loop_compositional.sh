@@ -66,13 +66,43 @@
 # done
 
 # protein kinase activity
-function_idx=124
-cond_scale=3
-organism_idx=1326
-for length in 116 140 200; do
-    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
-    sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+function_idx=28
+for length in 116 200; do
+    for cond_scale in 3 8; do
+        for organism_idx in 1326 300; do 
+            echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+            sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+        done
+    done
 done
+
+organism_idx=1326
+function_idx=2219
+for length in 116 200; do
+    for cond_scale in 3 8; do
+        echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+        sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+    done
+done
+
+# organism_idx=300
+# function_idx=2219
+# for length in 116 200; do
+#     for cond_scale in 3 8; do
+#         echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+#         sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+#     done
+# done
+
+organism_idx=3617
+function_idx=28
+for length in 116 200; do
+    for cond_scale in 3 8; do
+        echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale
+        sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale 
+    done
+done
+
 
 # function_idx=475
 # for length in 32 94 128; do
