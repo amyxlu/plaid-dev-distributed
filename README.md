@@ -33,6 +33,9 @@ The steps involved in PLAID inference are:
 
 We use Hydra to flexibly interchange between different during development. Configs can be found in `configs`, and inference configs are found in `configs/pipeline/experiments`.
 
+To do set function to unconditional generation mode, use `2219` as the function index.
+
+To set organism to unconditional generation mode, use `3617` as the organism index.
 
 ## Inference (Evaluation)
 
