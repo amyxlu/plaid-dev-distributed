@@ -37,9 +37,4 @@ torchdiffeq
 torchsde
 xformers
 git+https://github.com/amyxlu/cheap-proteins.git
-
-# for openfold, use this hack to get around clunky imports while
-# making sure the custom CUDA kernels used are being created: 
-# git clone github.com/amyxlu/openfold.git ~/openfold
-# cd ~/openfold
-# python setup.py develop
+POT

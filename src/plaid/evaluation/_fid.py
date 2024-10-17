@@ -8,7 +8,7 @@ import math
 import torch
 import einops
 
-from ..typed import DeviceLike, PathLike
+from ..typed import DeviceLike, PathLike, ArrayLike
 from ..datasets import NUM_FUNCTION_CLASSES, NUM_ORGANISM_CLASSES
 
 
@@ -20,6 +20,13 @@ https://arxiv.org/abs/2104.11222
 def default(x, val):
     return x if x is not None else val
 
+
+def npy(x: ArrayLike):
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().numpy()
+    else:
+        return np.array(x)
+    
 
 def is_fn_conditional(fn_idx):
     ret = True
@@ -168,9 +175,11 @@ def calc_fid_fn(x, y, eps=1e-8):
     return mean_term + cov_term
 
 
-class ConditionalFID:
+class ConditionalDistributionDistance:
     """
-    Given a sampled latent from a function and organism, compute the FID.
+    Given a sampled latent from a function and organism, compute the distribution distance.
+
+    Currently supports: sinkhorn (multi-dimensional Wasserstein) and FID.
     
     This will look in the cache to see if we've already computed the CHEAP latent embedding
     for this function + organism combination. If not, it will load the CHEAP pipeline,
@@ -189,7 +198,8 @@ class ConditionalFID:
         device: DeviceLike = "cuda",
         cheap_pipeline: Optional[torch.nn.Module] = None,
         write_to_cache: bool = True,
-        min_samples: int = 512
+        min_samples: int = 512,
+        metric: str = "fid",
     ):
         self.function_idx = default(function_idx, NUM_FUNCTION_CLASSES)
         self.organism_idx = default(organism_idx, NUM_ORGANISM_CLASSES)
@@ -199,6 +209,7 @@ class ConditionalFID:
         self.max_eval_samples = max_eval_samples
         self.write_to_cache = write_to_cache
         self.min_samples = min_samples
+        self.metric = metric
 
         self.val_parquet_fpath = Path(val_parquet_fpath)
         self.cached_pt_dir = Path(cached_pt_dir)
@@ -313,4 +324,19 @@ class ConditionalFID:
     def run(self, sampled):
         if isinstance(sampled, torch.Tensor):
             sampled = sampled.cpu().numpy()
-        return parmar_fid(sampled, self.real)
+
+        if self.metric == "fid":
+            return parmar_fid(sampled, self.real)
+        elif self.metric == "sinkhorn":
+            return sinkhorn(sampled, self.real)
+        else:
+            raise ValueError(f"Unsupported metric {self.metric}")
+
+
+def sinkhorn(x,y):
+    x, y = npy(x), npy(y)
+    import ot
+
+    M = ot.dist(x,y)
+    wasserstein_dist = ot.emd2([], [], M)
+    return wasserstein_dist

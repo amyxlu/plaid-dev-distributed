@@ -15,10 +15,10 @@ from cheap.pretrained import CHEAP_pfam_shorten_2_dim_32
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fasta_file", type=str, default="/data/lux70/data/pfam/val.fasta")
-    parser.add_argument("--max_num_batches", type=int, default=200)
-    parser.add_argument("--max_seq_len", type=int, default=64)
-    parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--outdir", type=str, default="/data/lux70/data/pfam/")
+    parser.add_argument("--max_num_batches", type=int, default=500)
+    parser.add_argument("--max_seq_len", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--outpath", type=str, default="/data/lux70/data/pfam/features/val.pt")
     return parser.parse_args()
 
 
@@ -63,5 +63,7 @@ for i, batch in tqdm(enumerate(dataloader)):
 feats = torch.cat(feats_all, dim=0)
 
 # safetensors
-outdir = Path(args.outdir)
-safetensors.torch.save_file({"features": feats}, "holdout_mean_pool.pt")
+outpath = Path(args.outpath)
+if not outpath.parent.exists():
+    outpath.parent.mkdir(parents=True)
+safetensors.torch.save_file({"features": feats}, outpath)
