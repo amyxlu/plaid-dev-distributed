@@ -1,5 +1,11 @@
 # PLAID (Protein LAtent Induced Diffusion)
 
+## Contents
+
+## Demo
+
+We will provide the model on HuggingFace spaces shortly.
+
 
 ## Install
 ```
@@ -15,13 +21,15 @@ cd openfold
 python setup.py develop
 ```
 
-
 To develop:
 
 ```
 cd plaid  # directory into which this repo is cloned
 pip install -e .
 ```
+
+PLAID is a latent diffusion model, whereby the ESMFold latent space is further compressed by an autoencoder. This autoencoder is offered in the [CHEAP](https://github.com/amyxlu/cheap-proteins) package. Running `pip install -r requirements.txt` using the instructions given should automatically download the CHEAP package. By default, the CHEAP autoencoder weights are saved to `~/.cache/cheap`, but this can be overriden by setting `CHEAP_CACHE=/path/to/cache`.
+
 
 ## Inference (Design Only)
 
@@ -33,9 +41,26 @@ The steps involved in PLAID inference are:
 
 We use Hydra to flexibly interchange between different during development. Configs can be found in `configs`, and inference configs are found in `configs/pipeline/experiments`.
 
-To do set function to unconditional generation mode, use `2219` as the function index.
+To note is that for all evaluations in the paper and pipeline code, we use PLAID-2B, where the model length must be a multiple of 8. This is because the accelerated xFormers implementation only allows lengths that are multiple of 4, and we additionally use an autoencoder that reduces the length by a factor of 2. If this is an issue, you can use the PLAID-100M model.
 
-To set organism to unconditional generation mode, use `3617` as the organism index.
+
+### Mapping Conditioning Indices to GO Terms and Organisms
+
+Conditioning is done by specifying the function and organism indices.
+
+
+>![NOTE]
+>To do set function to unconditional generation mode, use `2219` as the function index.
+>To set organism to unconditional generation mode, use `3617` as the organism index.
+
+You can also import the "unconditional" index using:
+
+```
+from plaid.datasets import NUM_FUNCTION_CLASSES   # 2219
+from plaid.datasets import NUM_ORGANISM_CLASSES	  # 3617
+```
+
+
 
 ## Inference (Evaluation)
 
@@ -89,11 +114,21 @@ For better control of the pipeline (e.g. batch sizes, length, sampling hyperpara
 
 
 ## Training
-The diffusion model further employs a few tricks beyond the standard diffusion formulation which can be turned off:
+We make our training code available to encourage others to use the PLAID paradigm of multimodal generation via latent space diffusion with their predition models. DDP uses the PyTorch Lightning package; this code is tested for up to 10 nodes of 8 A100s. To launch with the default settings used to train our primary model:
+
+```
+```
+
+The code also includes support for:
 
 * Min-SNR loss scaling
-* SchedulerFree AdamW
 * Classifier-free guidance (with GO term and organism)
 * Self-Conditioning
 
 If using `torch.compile`, please make sure to use `float32` rather than mix precision or `bfloat16` due to [this issue](https://github.com/facebookresearch/xformers/issues/920) in the `xFormers` library.
+
+
+### Data availability
+Data used to train the model can be found on HuggingFace, including:
+* Training dataset as TAR-compressed shards, for use with WebDataset
+* validation data parquet file (for running Sinkhorn distance evaluations)
