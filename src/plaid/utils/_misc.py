@@ -659,6 +659,23 @@ def sort_by_suffix(lst):
     return sorted_list
 
 
+def get_pfam_length(pfam_id, full_pfam_hmm_file):
+    idx = full_pfam_hmm_file.find(pfam_id)
+    
+    if idx != -1:
+        # Extract lines in that neighborhood
+        subcontent = full_pfam_hmm_file[idx:idx+1000]
+        
+        # filter for lines with the length identifier
+        lines = subcontent.split("\n")
+        line = list(filter(lambda line: "#=GF ML" in line, lines))[0]
+    
+        if "#=GF ML" in line:
+            length = int(line.split()[-1])
+
+    return length
+
+
 ######
 # The following is adapted from pseudocode in Chen et al.,
 # https://arxiv.org/abs/2301.10972
