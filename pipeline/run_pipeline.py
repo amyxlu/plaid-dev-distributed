@@ -195,7 +195,14 @@ def main(cfg: DictConfig):
     df = run_analysis(outdir, rita_perplexity=rita_perplexity)
 
     # add wandb molecule object:
+    wandb.init(
+        project="plaid-sampling2",
+        config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
+        id=uid,
+        resume="allow",
+    )
     df['structure'] = [wandb.Molecule(str(pdbpath)) for pdbpath in pdb_paths]
+    df['pdbpath'] = [str(pdbpath) for pdbpath in pdb_paths]
     wandb.log({"generations": wandb.Table(dataframe=df)})
 
 

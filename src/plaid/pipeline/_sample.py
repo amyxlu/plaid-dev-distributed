@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from tqdm import trange
 import torch
 import numpy as np
+import pandas as pd
 
 import wandb
 
@@ -28,13 +29,23 @@ from plaid.diffusion.dpm_samplers import (
 from plaid.denoisers import FunctionOrganismDiT, FunctionOrganismUDiT, DenoiserKwargs
 from plaid.constants import COMPRESSION_INPUT_DIMENSIONS
 from plaid.datasets import NUM_ORGANISM_CLASSES, NUM_FUNCTION_CLASSES
+from plaid.utils import get_pfam_length, round_to_multiple
 
 
 device = torch.device("cuda")
 
 
+def check_function_is_uncond(idx):
+    return (idx is None) or (idx == NUM_FUNCTION_CLASSES)
+
+
+def check_organism_is_uncond(idx):
+    return (idx is None) or (idx == NUM_ORGANISM_CLASSES)
+
+
 def default(x, val):
     return x if x is not None else val
+
 
 AVAILABLE_SAMPLERS = [
     "ddim",
@@ -56,16 +67,18 @@ class SampleLatent:
         # sampling setup
         organism_idx: int = NUM_ORGANISM_CLASSES,
         function_idx: int = NUM_FUNCTION_CLASSES,
-        cond_scale: float = 7,
-        num_samples: int = -1,
+        cond_scale: float = 3,
+        num_samples: int = 4,
         beta_scheduler_name: T.Optional[str] = None,
         beta_scheduler_start: T.Optional[int] = None,
         beta_scheduler_end: T.Optional[int] = None,
         beta_scheduler_tau: T.Optional[int] = None,
         sampling_timesteps: int = 1000,
         batch_size: int = -1,
-        length: int = 32,  # the final length, after decoding back to structure/sequence, is twice this value
+        length: T.Optional[int] = 32,  # the final length, after decoding back to structure/sequence, is twice this value
         return_all_timesteps: bool = False,
+        full_pfam_hmm_file_path: str = "/data/lux70/data/pfam/Pfam-A.hmm.dat",
+        go_to_representative_pfam_path: str = "/data/lux70/data/pfam/go_index.csv",
         # output setup
         output_root_dir: str = "/data/lux70/plaid/artifacts/samples",
         use_condition_output_suffix: bool = False,
@@ -82,7 +95,6 @@ class SampleLatent:
         self.function_idx = int(function_idx)
         self.cond_scale = float(cond_scale)
         self.num_samples = int(num_samples)
-        self.length = int(length)
         self.return_all_timesteps = return_all_timesteps
         self.output_root_dir = output_root_dir
         self.sample_scheduler = sample_scheduler
@@ -97,12 +109,10 @@ class SampleLatent:
         # if no batch size is provided, sample all at once
         self.batch_size = batch_size if batch_size > 0 else num_samples
 
-        # set up paths
-        self.outdir = self.setup_paths(output_root_dir, use_condition_output_suffix, use_uid_output_suffix)
+        # load config
         model_path = self.model_ckpt_dir / model_id / "last.ckpt"
         config_path = self.model_ckpt_dir / model_id / "config.yaml"
 
-        # load config
         self.cfg = OmegaConf.load(config_path)
 
         # if specified a specific beta scheduler or number of sampling steps, override
@@ -131,6 +141,51 @@ class SampleLatent:
         self.denoiser.eval().requires_grad_(False)
         self.diffusion.eval().requires_grad_(False)
 
+        # if length is not specified and we are using conditional generation, automatically choose length
+        self.full_pfam_hmm_file = None
+        self.go_to_representative_pfam_df = None
+        self.full_pfam_hmm_file_path = full_pfam_hmm_file_path
+        self.go_to_representative_pfam_path = go_to_representative_pfam_path
+
+        if (length is None) or (length == "None"):
+            assert (full_pfam_hmm_file_path is not None) and (go_to_representative_pfam_path is not None), \
+                "If length is not provided, `full_pfam_hmm_file_path` and `go_to_representative_pfam_path` must be provided."
+
+            assert not check_function_is_uncond(function_idx), \
+                "If length is not provided, function_idx cannot be unconditional, such that we can sample a pfam ID."
+            
+            length = self.auto_choose_length() 
+        
+        else:
+            if length % 4 != 0:
+                print(f"WARNING: length {length} is not a multiple of 4.")
+                length = round_to_multiple(length, 4)
+                print(f"Rounding to the nearest multiple of 4 as {length}.")
+
+        self.length = int(length)
+
+        # set up output paths
+        self.outdir = self.setup_paths(output_root_dir, use_condition_output_suffix, use_uid_output_suffix)
+
+    def auto_choose_length(self):
+        if self.full_pfam_hmm_file is None:
+            with open(self.full_pfam_hmm_file_path, "r") as f:
+                self.full_pfam_hmm_file = f.read()
+
+        if self.go_to_representative_pfam_df is None:
+            self.go_to_representative_pfam_df = pd.read_csv(self.go_to_representative_pfam_path)
+
+        def _go_idx_to_representative_pfam():
+            df = self.go_to_representative_pfam_df
+            return df[df.GO_idx == self.function_idx].pfam_id.values[0]
+
+        pfam_id = _go_idx_to_representative_pfam()
+        length = get_pfam_length(pfam_id, self.full_pfam_hmm_file)
+
+        length = round_to_multiple(length / 2, 4)
+        print(f"Auto-choosing length {length * 2} (implicit length in GPU memory: {length}).")
+        return length
+
     def setup_paths(
         self,
         output_root_dir,
@@ -140,11 +195,14 @@ class SampleLatent:
         # set up paths
         outdir = Path(output_root_dir)
         if use_condition_output_suffix:
-            outdir = outdir / f"f{self.function_idx}_o{self.organism_idx}"
+            outdir = outdir / f"f{self.function_idx}_o{self.organism_idx}_l{int(self.length)}_s{int(self.cond_scale)}"
+
         if use_uid_output_suffix:
             outdir = outdir / self.uid
+
         if not outdir.exists():
             outdir.mkdir(parents=True)
+
         return outdir
 
     def create_denoiser(

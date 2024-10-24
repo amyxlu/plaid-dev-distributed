@@ -32,7 +32,7 @@ defaults = f"""#!/usr/bin/env bash
 #SBATCH --job-name train 
 
 source ~/.bashrc
-micromamba activate plaid-train 
+micromamba activate omegafold 
 
 {multi_node_flags}
 

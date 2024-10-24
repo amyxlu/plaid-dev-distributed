@@ -7,49 +7,78 @@
 We will provide the model on HuggingFace spaces shortly.
 
 
-## Install
-```
-mamba env create --file environment.yaml
-mamba activate plaid
-```
+## Installation
 
-OpenFold should be installed individually to trigger CUDA builds without downloading other dependencies:
+Clone the repository:
 
 ```
-git clone https://github.com/openfold/openfold.git
-cd openfold
-python setup.py develop
+git clone https://github.com/amyxlu/plaid.git
+cd plaid
 ```
 
-To develop:
+To create the environment for the repository:
+```
+conda env create --file environment.yaml   # create environment
+pip install --no-deps git+https://github.com/amyxlu/openfold.git  # installs openfold
+pip install -e .   # installs PLAID
+```
+
+The ESMFold structure module use the OpenFold implementation, which includes custom CUDA kernels for the attention mechanism. Installing using the instructions here will automatically install an OpenFold [fork]() in no-dependency mode, which includes some minor changes to use C++17 instead of C++14 to build the CUDA kernels, for compatibility with `torch >= 2.0`.
+
+PLAID is a latent diffusion model, whereby the ESMFold latent space is further compressed by an autoencoder. This autoencoder is offered in the [CHEAP](https://github.com/amyxlu/cheap-proteins) package. Using the instructions given should automatically download the CHEAP package.
+>[!TIP]
+>By default, the PLAID model weights are saved to `~/.cache/plaid`, and CHEAP autoencoder weights are saved to `~/.cache/cheap`. You can override this by setting environment variables `CHEAP_CACHE=/path/to/cache` and `PLAID_CACHE=/path/to/cache`.
+>```
+>echo "export CHEAP_CACHE=/data/lux70/cheap" >> ~/.bashrc
+>```
+
+
+## Inference (Design-Only)
+
+This section includes details for sampling from PLAID; if you are looking for more detailed instructions in evaluating samples, see Inference (Evaluation).
+
+The steps involved in PLAID generation are:
+1. **Sample** (`pipeline/run_sample.py`): samples a latent embedding with reverse diffusion.
+2. **Decode** (`pipeline/run_decode.py`): uncompresses the latent, and runs it through the sequence and structure decoders.
+
+We use Hydra for configuration. Inference configs are found in `configs/pipeline/experiments`, and we suggest reading the documentation to better understand the usage syntax described.
+
+To run the sample and decoding together:
+
+
+### Step 1: Sampling the Latent Embedding
+Sampling a latent array with length $N \times L \times 32$, where $L$ is the length of your protein, and $N$ is the number of proteins you'd like to generate.
+
+If the GO term (i.e. `function_idx`) is specified, you can use `length=None` to automatically infer what an appropriate sequence length should be, by randomly sampling a Pfam family that uses the given GO term.
+
+You can use this stage as a standalone script using Hydra syntax. Options are specified in `configs/pipeline/sample/sample_latent.yaml`. You can also use one of the other common use case configs in `configs/pipeline/sample/`, such as `ddim_unconditional.yaml`, which is for unconditional sampling. 
 
 ```
-cd plaid  # directory into which this repo is cloned
-pip install -e .
+# conditional prompt: human AND 6-phosphofructokinase activity, automatically infer length
+python pipeline/run_sample.py ++length=null ++function_idx=166 ++organism_idx=1326
+
+# conditional prompt: human AND 6-phosphofructokinase activity, always use length 400
+# NOTE: the length specified here most be automatically infer length
+python pipeline/run_sample.py ++length=200 ++function_idx=166 ++organism_idx=1326
+
+# unconditional generation; specify output directory
+python pipeline/run_sample.py ++length=200 ++function_idx=2219 ++organism_idx=3617 ++output_root_dir=/data/lux70/plaid/samples/unconditional
 ```
 
-PLAID is a latent diffusion model, whereby the ESMFold latent space is further compressed by an autoencoder. This autoencoder is offered in the [CHEAP](https://github.com/amyxlu/cheap-proteins) package. Running `pip install -r requirements.txt` using the instructions given should automatically download the CHEAP package. By default, the CHEAP autoencoder weights are saved to `~/.cache/cheap`, but this can be overriden by setting `CHEAP_CACHE=/path/to/cache`.
+>[!IMPORTANT]
+>The length specified here is **half the actual length**, and **must be divisible by 4**.
+>For example, if you want to sample a protein with length 200, you should pass `length=100`.
 
+For all evaluations in the paper and pipeline code, we use PLAID-2B, where the model length must be a multiple of 8. This is because the accelerated xFormers implementation only allows lengths that are multiple of 4, and we additionally use an autoencoder that reduces the length by a factor of 2. If this is an issue, you can use the PLAID-100M model.
 
-## Inference (Design Only)
-
-The steps involved in PLAID inference are:
-1. Sampling a latent array with length $N \times L \times 32$, where $L$ is the length of your protein, and $N$ is the number of proteins you'd like to generate.
-2. Uncompress this latent array to size $N \times L \times 1024$ using the [CHEAP](https://github.com/amyxlu/cheap-proteins/tree/main) model (specifically,  `CHEAP_pfam_shorten_2_dim_32`)
-3. Use the CHEAP sequence decoder to obtain the sequence.
-4. Use the ESMFold structure encoder to obtain the structure.
-
-We use Hydra to flexibly interchange between different during development. Configs can be found in `configs`, and inference configs are found in `configs/pipeline/experiments`.
-
-To note is that for all evaluations in the paper and pipeline code, we use PLAID-2B, where the model length must be a multiple of 8. This is because the accelerated xFormers implementation only allows lengths that are multiple of 4, and we additionally use an autoencoder that reduces the length by a factor of 2. If this is an issue, you can use the PLAID-100M model.
-
+The main logic for the sampling is defined in in the `SampleLatent` class in `src/pipeline/_sample.py`; the class can also be imported to be used in a pipeline, as is the case in `pipeline/run_pipeline.py`.
 
 ### Mapping Conditioning Indices to GO Terms and Organisms
 
 Conditioning is done by specifying the function and organism indices.
 
 
->![NOTE]
+>[!NOTE]
 >To do set function to unconditional generation mode, use `2219` as the function index.
 >To set organism to unconditional generation mode, use `3617` as the organism index.
 
@@ -61,6 +90,12 @@ from plaid.datasets import NUM_ORGANISM_CLASSES	  # 3617
 ```
 
 
+### Step 2-4: Obtain the Sequence and Structure
+
+
+2. Uncompress this latent array to size $N \times L \times 1024$ using the [CHEAP](https://github.com/amyxlu/cheap-proteins/tree/main) model (specifically,  `CHEAP_pfam_shorten_2_dim_32`)
+3. Use the CHEAP sequence decoder to obtain the sequence.
+4. Use the ESMFold structure encoder to obtain the structure.
 
 ## Inference (Evaluation)
 
@@ -74,9 +109,40 @@ The full pipeline (`pipeline/run_pipeline.py`) calls the model passes required t
 5. Runs ProteinMPNN (`pipeline/run_inverse_fold.py`) on the "inverse generated" structure from Step 3 to obtain a "phantom generated" sequence (for calculating scSR).
 6. Runs OmegaFold on the "phantom generated" sequence to obtain the structure, to obtain scRMSD (this is done simply with `omegafold <file> <outdir>`, assuming you have OmegaFold installed).
 
-Steps 3 to 6 can be run together using `pipeline/run_consistency.py`, which is what we do for the baseline samples reported in the paper. To obtain metrics for analysis (e.g. ccRMSD, etc.), use `pipeline/run_analysis.py`.
+### Generating Inverse and Phantom Generation
+
+TODO: highlight what inverse and phantom means using a diagram
+
+To calculate self-consistency and cross-consistency, we need to first generate inverse and phantom generations, i.e. steps 3 to 6 of the pipeline. This can be run together using `pipeline/run_consistency.py`. We use this script for all reported baselines.
+
+```
+python pipeline/run_consistency.py --help  # show all config options
+
+python pipeline/run_consistency.py ++samples_dir=/data/lux70/plaid/artifacts/samples/5j007z42/compositional/f166_o818_l148_s3/f166_o818
+```
+
+
+To obtain metrics for analysis (e.g. ccRMSD, etc.), use `pipeline/run_analysis.py`:
+
+```
+python pipeline/run_analysis.py /data/lux70/plaid/artifacts/samples/5j007z42/compositional/f166_o818_l148_s3/f166_o818
+```
+
+To run the Foldseek pipeline, you can do:
+```
+python /homefs/home/robins21/scripts/run_foldseek_novelty_diversity2.py -input_folder /data/lux70/plaid/artifacts/samples/5j007z42/compositional/f166_o818_l148_s3/f166_o818/generated/structures -outputfolder /data/lux70/plaid/artifacts/samples/5j007z42/compositional/f166_o818_l148_s3/f166_o818fold_seek_results_/ -outputfile foldseek_filtered --d --n --f
+```
 
 We also provide scripts for sweeping through sampling hyperparmeters using SLURM. Scripts for running `pipeline/run_{step}.py` can be found at `scripts/eval/run_{step}.sh`.
+
+#### Additional Evaluations
+
+We additionally use other scripts for evaluation:
+* `scripts/eval/loop_compositional.sh`: hyperparameter tunes across SLURM jobs and launches them concurrently.
+* `scripts/eval/run_consistency.sh`: loops through a series of folders and runs consistency experiments
+
+These provide entry points for inference experiments at `configs/pipeline/experiments`.
+
 
 #### Folder Structure
 Using the scripts here, the output directory will have the structure:

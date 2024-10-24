@@ -6,6 +6,25 @@ import shutil
 import pandas as pd
 
 
+EASY_SEARCH_OUTPUT_COLS = [
+    "query",
+    "target",
+    "theader",
+    "evalue",
+    "alntmscore",
+    "qtnscore",
+    "ttmscore",
+    "rmsd",
+    "lddt",
+    "prob",
+]
+
+
+#####################################################################################################
+# Diversity scoring
+#####################################################################################################
+
+
 def diversity_scores(
     filename,
 ):  # Report number of clusters, number of samples. - note representative is included as a cluster member.
@@ -75,8 +94,7 @@ def easy_cluster(i, o, outputfolder, filtered):
         )
     else:
         print(
-            "Diversity has already been run: ",
-            outputfolder + "/scoring/" + outputfile + "_diversity_score.csv",
+            "Diversity has already been run."
         )
 
 
@@ -107,6 +125,11 @@ def run_foldseek_easycluster(
             )
             if os.path.exists(outputfolder + "/temp_foldseek/"):
                 shutil.rmtree(outputfolder + "/temp_foldseek/")
+
+
+#####################################################################################################
+# Novelty scoring
+#####################################################################################################
 
 
 def novelty_scores_tm(
@@ -168,17 +191,18 @@ def novelty_scores_e(
 def easy_search(i, o, filtered):
     if filtered != None:
         i = "/homefs/home/robins21/fold_seek_results_/temp_foldseek/"
+
     cmd = [
         "foldseek",
         "easy-search",
         i,
         "/data/bucket/robins21/pdb",
+        "tmp",
         o,
         "--alignment-type",
         "1",
         "--format-output",
-        "query,target,theader,evalue,alntmscore,qtmscore,ttmscore,rmsd,lddt,prob",
-        "tmp",
+        EASY_SEARCH_OUTPUT_COLS
     ]
     subprocess.run(cmd)
 
@@ -187,18 +211,7 @@ def filterdf(filename):
     pdb_results = pd.read_csv(
         filename,
         sep="\t",
-        names=[
-            "query",
-            "target",
-            "theader",
-            "evalue",
-            "alntmscore",
-            "qtnscore",
-            "ttmscore",
-            "rmsd",
-            "lddt",
-            "prob",
-        ],
+        names=EASY_SEARCH_OUTPUT_COLS
     )
     return pdb_results
 
@@ -264,13 +277,28 @@ def run_foldseek(input_folder, outputfile, next_folder, outputfolder, filtered):
                 shutil.rmtree(outputfolder + "/temp_foldseek/")
 
 
+#####################################################################################################
+# Main
+#####################################################################################################
+
+
 def run_foldseek_and_analysis(
-    input_folder, next_folder, outputfolder, outputfile, n, d, f
+    input_folder: str,
+    next_folder: str,
+    outputfolder: str,
+    outputfile: str,
+    run_novelty: bool=True,
+    run_diversity: bool=True,
+    use_filter: bool=True
 ):
     filtered = None
+
+    # remove temp folder created from 
     if os.path.exists(outputfolder + "/temp_foldseek/"):
         shutil.rmtree(outputfolder + "/temp_foldseek/")
-    if f:
+    
+    # apply filter, if needed
+    if use_filter:
         print("Using developability filter")
         if os.path.exists(input_folder + "/designability.csv"):
             df = pd.read_csv(input_folder + "/designability.csv")
@@ -285,20 +313,26 @@ def run_foldseek_and_analysis(
         else:
             print("cant find designability file")
             return
+
         filtered = df.loc[df["designable"] == True]["pdb_paths"].to_list()
+
         if next_folder == None:
+            # move filtered files into a new folder
             filter(input_folder, filtered, outputfolder)
             print(len(filtered), " proteins remaining")
+
     if not os.path.exists(outputfolder):
         os.makedirs(outputfolder)
+
     # if scoring folder does not exist, create it:
     if not os.path.exists(outputfolder + "/scoring/"):
         os.makedirs(outputfolder + "/scoring/")
-    if n:
+    
+    if run_novelty:
         print("Running novelty assessment ")
         run_foldseek(input_folder, outputfile, next_folder, outputfolder, filtered)
 
-    if d:
+    if run_diversity:
         print("Running diversity assessment ")
         run_foldseek_easycluster(
             input_folder, outputfile, next_folder, outputfolder, filtered

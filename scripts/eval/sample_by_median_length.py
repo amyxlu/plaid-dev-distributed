@@ -10,7 +10,7 @@ import pandas as pd
 
 from plaid.utils import round_to_multiple, get_pfam_length
 from plaid.pipeline import SampleLatent
-from plaid.datasets import NUM_ORGANISM_CLASSES, NUM_FUNCTION_CLASSES
+from plaid.datasets import NUM_ORGANISM_CLASSES, NUM_FUNCTION_CLASSES, HUMAN_IDX
 from plaid.esmfold import esmfold_v1
 from plaid.typed import PathLike
 
@@ -21,10 +21,11 @@ def parse_args():
     parser.add_argument("--function_idx", type=int, default=None)
     parser.add_argument("--organism_idx", type=int, default=None)
     parser.add_argument("--loop_over", required=True, choices=["function", "organism"], default="function")
-    parser.add_argument("--n_samples", type=int, default=16)
+    parser.add_argument("--n_samples", type=int, default=32)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--start_idx", type=int, default=None)
     parser.add_argument("--end_idx", type=int, default=None)
+    parser.add_argument("--outdir", default="/data/lux70/plaid/artifacts/samples/5j007z42/val_dist")
     args = parser.parse_args() 
     return args
 
@@ -60,9 +61,11 @@ def run(df, function_idx, organism_idx, n_samples):
     # override configs
     sample_cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/sample/sample_latent.yaml")
     sample_cfg.function_idx = int(function_idx)
-    sample_cfg.organism_idx = int(organism_idx)
+    # sample_cfg.organism_idx = int(organism_idx)
+    sample_cfg.organism_idx = HUMAN_IDX  # int(organism_idx)
     sample_cfg.length = int(sample_len)
     sample_cfg.num_samples = int(n_samples)
+    sample_cfg.output_root_dir = args.outdir
 
     print(OmegaConf.to_yaml(sample_cfg))
 
@@ -82,7 +85,7 @@ def run(df, function_idx, organism_idx, n_samples):
     outdir = sample_latent.outdir
     x = sample_latent.x
 
-    decode_cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/decode/decode_latent.yaml")
+    decode_cfg = OmegaConf.load("/homefs/home/lux70/code/plaid/configs/pipeline/decode/default.yaml")
     decode_cfg.npz_path = str(outdir / "latent.npz")
     decode_cfg.output_root_dir = str(outdir / "generated")
     print(OmegaConf.to_yaml(decode_cfg))
@@ -115,6 +118,7 @@ def main(args):
 
     if organism_idx is None:
         organism_idx = NUM_ORGANISM_CLASSES
+        # organism_idx = HUMAN_IDX
 
     assert check_function_is_uncond(function_idx) or check_organism_is_uncond(organism_idx)
 
