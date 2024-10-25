@@ -10,10 +10,13 @@ import pandas as pd
 from ..evaluation._structure_metrics import calculate_rmsd
 from ..evaluation._tmalign import run_tmalign
 from ..evaluation._perplexity import RITAPerplexity
+from ..evaluation._dssp import pdb_path_to_secondary_structure
 
 from ..utils._misc import (
     extract_avg_b_factor_per_residue,
-    parse_sequence_from_structure,
+    # parse_sequence_from_structure,
+    read_sequences_from_fasta,
+    calc_sequence_recovery
 )
 from ..utils._protein_properties import calculate_df_protein_property_mp
 
@@ -22,6 +25,12 @@ def _ensure_parent_exists(path):
     path = Path(path)
     if not path.parent.exists():
         path.parent.mkdir(parents=True)
+
+
+def sort_dict_values_by_key(d):
+    # d: header : sequence
+    idx = np.argsort(np.array(list(d.keys())))
+    return np.array(list(d.values()))[idx]
 
 
 def copy(src, dst, suffix=""):
@@ -83,10 +92,12 @@ def move_designable(
 
 def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
     import warnings
-
     warnings.filterwarnings("ignore")
 
-    # Gather paths; sort should guarantee that samples are in the same order
+    ########################################################################
+    # Grab PDB paths
+    ########################################################################
+    # sort should guarantee that samples are in the same order
     generated_pdb_paths = glob.glob(str(sample_dir / "generated/structures/*pdb"))
     inverse_generated_pdb_paths = glob.glob(
         str(sample_dir / "inverse_generated/structures/*pdb")
@@ -97,6 +108,20 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
     assert (
         len(generated_pdb_paths) == len(inverse_generated_pdb_paths)
     )
+
+    ########################################################################
+    # Read sequences 
+    ########################################################################
+
+    gen_seqs = read_sequences_from_fasta(sample_dir / "generated" / "sequences.fasta")
+    inv_gen_seqs = read_sequences_from_fasta(sample_dir / "inverse_generated" / "sequences.fasta")
+
+    gen_seqs = sort_dict_values_by_key(gen_seqs)
+    inv_gen_seqs = sort_dict_values_by_key(inv_gen_seqs)
+
+    ########################################################################
+    # Repeat for phantom generations, if applicable
+    ########################################################################
 
     # maybe run self-consistency (if phantom generated structures were generated)
     phantom_generated_pdb_paths = glob.glob(
@@ -110,32 +135,27 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
             len(generated_pdb_paths) == len(phantom_generated_pdb_paths)
         )
 
+        phan_gen_seqs = read_sequences_from_fasta(sample_dir / "phantom_generated" / "sequences.fasta")
+        phan_gen_seqs = sort_dict_values_by_key(phan_gen_seqs)
+
+    ########################################################################
     # Initialize dataframe
+    ########################################################################
+
     d = {
-        "pdb_paths": [],
-        "sequences": [],
-        "inverse_generated_pdb_paths": [],
+        "pdb_paths": generated_pdb_paths,
+        "sequences": gen_seqs,
+        "inverse_generated_pdb_paths": generated_pdb_paths,
+        "inv_gen_seqs": inv_gen_seqs,
     }
 
     if run_self_consistency:
-        d["phantom_generated_pdb_paths"] = []
+        d["phantom_generated_pdb_paths"] = phantom_generated_pdb_paths
+        d["phantom_gen_seqs"] = phan_gen_seqs
 
-    # parse sequence directly from structure to make sure there are no mismatches
-    print("Parsing sequences from structures")
-    for i, p in enumerate(generated_pdb_paths):
-        d["pdb_paths"].append(p)
-        d["inverse_generated_pdb_paths"].append(inverse_generated_pdb_paths[i])
-
-        if run_self_consistency:
-            d["phantom_generated_pdb_paths"].append(phantom_generated_pdb_paths[i])
-
-        with open(p, "r") as f:
-            pdbstr = f.read()
-
-        sequence = parse_sequence_from_structure(pdbstr)
-        d["sequences"].append(sequence)
-
-    # apply metrics to dataframe:
+    ########################################################################
+    # Calculate metrics 
+    ########################################################################
     try:
         df = pd.DataFrame(d)
         df.head()
@@ -194,6 +214,20 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
         # calculate protein properties
         print("Calculating sequence properties")
         df = calculate_df_protein_property_mp(df)
+
+        # calculate sequence recovery
+        print("Calculating ccSR")
+        df['ccsr'] = [calc_sequence_recovery(gen, inv) for (gen, inv) in zip(gen_seqs, inv_gen_seqs)]
+
+        if run_self_consistency:
+            print("Calculating scSR")
+            df['scsr'] = [calc_sequence_recovery(gen, phan) for (gen, phan) in zip(gen_seqs, phan_gen_seqs)]
+        
+        # calculate secondary structure fractions
+        print("Calculating secondary structure fractions")
+        df["alpha_fraction"], df["beta_fraction"], df["dssp_annotation"] = zip(
+            *df["pdb_paths"].apply(pdb_path_to_secondary_structure)
+        )
 
     # if any any time we get an error, save the df as it is in that state
     except Exception as e:
