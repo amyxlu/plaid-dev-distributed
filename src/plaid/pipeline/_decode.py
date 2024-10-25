@@ -139,9 +139,13 @@ class DecodeLatent:
     #         for k, v in d.items():
     #             f.write(f"{k}: {v:.4f}\n")
 
-    def write_sequences_to_disk(self, sequences, fasta_name):
+    def write_sequences_to_disk(self, sequences, fasta_name, headers=None):
         ensure_exists(self.output_root_dir)
-        write_to_fasta(sequences, Path(self.output_root_dir) / fasta_name)
+        write_to_fasta(
+            sequences=sequences,
+            outpath=Path(self.output_root_dir) / fasta_name,
+            headers=headers
+        )
 
     def run(self):
         print("Loading latent samples from", self.npz_path)
@@ -158,7 +162,9 @@ class DecodeLatent:
         print(f"Constructing sequences and writing to {str(self.output_root_dir)}")
         start = time.time()
         seq_strs = self.construct_sequence(x_processed)
-        self.write_sequences_to_disk(seq_strs, "sequences.fasta")
+        headers = [f"sample{i}" for i in range(len(seq_strs))]
+        self.write_sequences_to_disk(seq_strs, "sequences.fasta", headers=headers)
+
         del self.sequence_constructor  # free up memory
         end = time.time()
         with open(self.time_log_path, "a") as f:
