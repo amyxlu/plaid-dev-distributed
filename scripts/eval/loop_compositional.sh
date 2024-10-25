@@ -152,12 +152,22 @@
 #     sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale $subdir
 # done
 
-organism_idx=3617
+# organism_idx=3617
+# cond_scale=3
+# length="None"
+# subdir=""
+
+# for function_idx in {1..100}; do
+#     echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
+#     # sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+# done
+
+
+organism_idx=1326
 cond_scale=3
 length="None"
 subdir=""
+function_idx=2194
 
-for function_idx in {1..100}; do
-    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
-    # sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale $subdir
-done
+echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
+sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale $subdir

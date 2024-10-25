@@ -69,6 +69,6 @@ def foldseek_easycluster(sample_dir: str, structure_subdir_name="designable"):
     ]
 
     subprocess.run(cmd)
-    shutil.rmtree(tmp_dir)
+    # shutil.rmtree(tmp_dir)
 
     return output_file

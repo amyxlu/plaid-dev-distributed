@@ -201,16 +201,17 @@ def main(cfg: DictConfig):
         rita_perplexity = RITAPerplexity()
         df = run_analysis(outdir, rita_perplexity=rita_perplexity)
 
-        # add wandb molecule object:
-        wandb.init(
-            project="plaid-sampling2",
-            config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
-            id=uid,
-            resume="allow",
-        )
-        df["structure"] = [wandb.Molecule(str(pdbpath)) for pdbpath in pdb_paths]
-        df["pdbpath"] = [str(pdbpath) for pdbpath in pdb_paths]
-        wandb.log({"generations": wandb.Table(dataframe=df)})
+        if cfg.log_to_wandb:
+            # add wandb molecule object:
+            wandb.init(
+                project="plaid-sampling2",
+                config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
+                id=uid,
+                resume="allow",
+            )
+            df["structure"] = [wandb.Molecule(str(pdbpath)) for pdbpath in pdb_paths]
+            df["pdbpath"] = [str(pdbpath) for pdbpath in pdb_paths]
+            wandb.log({"generations": wandb.Table(dataframe=df)})
 
         # ===========================
         # Foldseek and MMseqs
@@ -218,7 +219,7 @@ def main(cfg: DictConfig):
         # this moves everything into a "designable" subdir
         move_designable(df, delete_original=False, original_dir_prefix="generated/structures", target_dir_prefix="")
         
-        if cfg.use_designablity_filter:
+        if cfg.use_designability_filter:
             subdir_name = "designable"
         else:
             subdir_name = "generated/structures" 

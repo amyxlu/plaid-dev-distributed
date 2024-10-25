@@ -6,8 +6,8 @@ run_self_consistency: True
 run_analysis: True
 
 use_designability_filter: True
+log_to_wandb: True
 
-wandb_project_name: plaid-sampling
 
 defaults:
   - _self_

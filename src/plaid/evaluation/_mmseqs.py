@@ -62,6 +62,6 @@ def mmseqs_easycluster(sample_dir, fasta_file_name="generated/sequences.fasta"):
     ]
 
     subprocess.run(cmd)
-    shutil.rmtree(tmp_dir)
+    # shutil.rmtree(tmp_dir)
 
     return output_file
