@@ -6,12 +6,16 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 import hydra
 
+from plaid.typed import PathLike
 from plaid.esmfold import esmfold_v1
 from plaid.evaluation import (
     RITAPerplexity,
+    foldseek_easycluster,
+    foldseek_easysearch,
+    mmseqs_easysearch,
+    mmseqs_easycluster,
 )
-from plaid.typed import PathLike
-
+from plaid.pipeline import run_analysis, move_designable
 
 
 def default(val, default_val):
@@ -27,7 +31,11 @@ def sample_run(sample_cfg: DictConfig):
 
 
 def decode_run(
-    decode_cfg: DictConfig, npz_path: PathLike, output_root_dir: PathLike, esmfold=None, max_seq_len=None
+    decode_cfg: DictConfig,
+    npz_path: PathLike,
+    output_root_dir: PathLike,
+    esmfold=None,
+    max_seq_len=None,
 ):
     decode_latent = hydra.utils.instantiate(
         decode_cfg, npz_path=npz_path, output_root_dir=output_root_dir, esmfold=esmfold
@@ -93,7 +101,7 @@ def phantom_generate_sequence_run(
 
 @hydra.main(config_path="../configs/pipeline", config_name="full")
 def main(cfg: DictConfig):
-    
+
     print(OmegaConf.to_yaml(cfg))
 
     sample_cfg = cfg.sample
@@ -134,9 +142,8 @@ def main(cfg: DictConfig):
 
     assert len(seq_strs) == len(pdb_paths) == x.shape[0]
 
-
     # ===========================
-    # Inverse generations 
+    # Inverse generations
     # ===========================
 
     if cfg.run_cross_consistency:
@@ -184,26 +191,42 @@ def main(cfg: DictConfig):
         pass
 
     # ===========================
-    # Analysis 
+    # Analysis
     # ===========================
 
-    # TODO: make analysis step also optional
-    from plaid.pipeline import run_analysis
+    if run_analysis:
+        # TODO: make analysis step also optional
 
-    # run and save result CSV
-    rita_perplexity = RITAPerplexity()
-    df = run_analysis(outdir, rita_perplexity=rita_perplexity)
+        # run and save result CSV
+        rita_perplexity = RITAPerplexity()
+        df = run_analysis(outdir, rita_perplexity=rita_perplexity)
 
-    # add wandb molecule object:
-    wandb.init(
-        project="plaid-sampling2",
-        config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
-        id=uid,
-        resume="allow",
-    )
-    df['structure'] = [wandb.Molecule(str(pdbpath)) for pdbpath in pdb_paths]
-    df['pdbpath'] = [str(pdbpath) for pdbpath in pdb_paths]
-    wandb.log({"generations": wandb.Table(dataframe=df)})
+        # add wandb molecule object:
+        wandb.init(
+            project="plaid-sampling2",
+            config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
+            id=uid,
+            resume="allow",
+        )
+        df["structure"] = [wandb.Molecule(str(pdbpath)) for pdbpath in pdb_paths]
+        df["pdbpath"] = [str(pdbpath) for pdbpath in pdb_paths]
+        wandb.log({"generations": wandb.Table(dataframe=df)})
+
+        # ===========================
+        # Foldseek and MMseqs
+        # ===========================
+        # this moves everything into a "designable" subdir
+        move_designable(df, delete_original=False, original_dir_prefix="generated/structures", target_dir_prefix="")
+        
+        if cfg.use_designablity_filter:
+            subdir_name = "designable"
+        else:
+            subdir_name = "generated/structures" 
+        
+        foldseek_easycluster(outdir, subdir_name)
+        foldseek_easysearch(outdir, subdir_name)
+        mmseqs_easycluster(outdir, "generated/sequences.fasta")
+        mmseqs_easysearch(outdir, "generated/sequences.fasta")
 
 
 if __name__ == "__main__":

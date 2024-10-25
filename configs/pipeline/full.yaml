@@ -3,6 +3,9 @@ uid: null
 run_decode: True
 run_cross_consistency: True
 run_self_consistency: True
+run_analysis: True
+
+use_designability_filter: True
 
 wandb_project_name: plaid-sampling
 
