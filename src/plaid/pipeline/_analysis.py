@@ -1,4 +1,7 @@
 import glob
+import shutil
+import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,6 +13,40 @@ from ..evaluation._perplexity import RITAPerplexity
 from ..utils._misc import extract_avg_b_factor_per_residue, parse_sequence_from_structure
 from ..utils._protein_properties import calculate_df_protein_property_mp
 
+
+from pathlib import Path
+
+def _ensure_parent_exists(path):
+    path = Path(path)
+    if not path.parent.exists():
+        path.parent.mkdir(parents=True)
+
+def copy(src, dst):
+    _ensure_parent_exists(dst)
+    shutil.copy2(src, dst)
+
+
+def move(src, dst):
+    _ensure_parent_exists(dst)
+    shutil.move(src, dst)
+
+
+def move_designable(df, delete_original=False):
+    generated_pdb_paths = df.pdb_paths
+
+    if delete_original:
+        for i, p in enumerate(generated_pdb_paths):
+            if df['designable'][i]:
+                move(p, p.replace("generated/structures", "designable"))
+            else:
+                move(p, p.replace("generated/structures", "undesignable"))
+    
+    else:
+        for i, p in enumerate(generated_pdb_paths):
+            if df['designable'][i]:
+                copy(p, p.replace("generated/structures", "designable"))
+            else:
+                copy(p, p.replace("generated/structures", "undesignable"))
 
 
 def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
@@ -87,6 +124,8 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
         pass
 
     df.to_csv(sample_dir / "designability.csv")
+
+    move_designable(df, delete_original=False)
 
     return df
 

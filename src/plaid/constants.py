@@ -141,6 +141,8 @@ CATH_SS_BOUNDARIES = {
 # for quantizing secondary structure fraction for conditioning
 NUM_SECONDARY_STRUCTURE_BINS = 6
 
-
 # for foldseek
 PDB_DATABASE_PATH = "/data/bucket/robins21/pdb"
+
+# for mmseqs
+UNIREF_DATABASE_PATH = "/data/lux70/data/uniref50db/uniref50db"

@@ -25,7 +25,8 @@ EASY_SEARCH_OUTPUT_COLS = [
 ]
 
 
-def foldseek_easysearch(sample_dir: str, structure_subdir_name="generated/structures"):
+def foldseek_easysearch(sample_dir: str, structure_subdir_name="designable"):
+    sample_dir = Path(sample_dir)
     structures_dir = sample_dir / structure_subdir_name
     output_file = sample_dir / "foldseek_easysearch.m8"
     tmp_dir = sample_dir / "tmp"
@@ -46,10 +47,10 @@ def foldseek_easysearch(sample_dir: str, structure_subdir_name="generated/struct
 
     subprocess.run(cmd)
     shutil.rmtree(tmp_dir)
+    return output_file
 
 
-def foldseek_easycluster(sample_dir: str, structure_subdir_name="generated/structures"):
-    # TODO: run this only on designable structures
+def foldseek_easycluster(sample_dir: str, structure_subdir_name="designable"):
     structures_dir = sample_dir / structure_subdir_name
     output_file = sample_dir / "foldseek_easycluster.m8"
     tmp_dir = sample_dir / "tmp"
@@ -69,3 +70,5 @@ def foldseek_easycluster(sample_dir: str, structure_subdir_name="generated/struc
 
     subprocess.run(cmd)
     shutil.rmtree(tmp_dir)
+
+    return output_file

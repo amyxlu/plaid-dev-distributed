@@ -137,9 +137,9 @@ We also provide scripts for sweeping through sampling hyperparmeters using SLURM
 
 #### Additional Evaluations
 
-We additionally use other scripts for evaluation:
 * `scripts/eval/loop_compositional.sh`: hyperparameter tunes across SLURM jobs and launches them concurrently.
 * `scripts/eval/run_consistency.sh`: loops through a series of folders and runs consistency experiments
+* `scripts/eval/sample_by_median_length.py`: 
 
 These provide entry points for inference experiments at `configs/pipeline/experiments`.
 

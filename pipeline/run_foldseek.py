@@ -3,17 +3,17 @@ from pathlib import Path
 import subprocess
 import shutil
 
-from plaid.constants import PDB_DATABASE_PATH
-from plaid.evaluation._foldseek import foldseek_easysearch, foldseek_easycluster
+from plaid.evaluation import foldseek_easysearch, foldseek_easycluster
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--sample_dir', default="/data/lux70/plaid/artifacts/samples/5j007z42/val_dist//data/lux70/plaid/artifacts/samples/5j007z42/val_dist/f989_o1326_l144_s3")
+parser.add_argument("--structure_subdir_name", default="generated/structures")
 args = parser.parse_args()
 
 # TODO: run this only on designable structures
 # "generated/structures/designable"
-foldseek_easycluster(args.sample_dir, "generated/structures")
-foldseek_easysearch(args.sample_dir, "generated/structures")
+foldseek_easycluster(args.sample_dir, args.structure_subdir_name) 
+foldseek_easysearch(args.sample_dir, args.structure_subdir_name)
 
 # sample_dir = Path(args.sample_dir)
 # structures_dir = sample_dir / "generated/structures"
