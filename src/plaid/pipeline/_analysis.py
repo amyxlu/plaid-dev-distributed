@@ -145,7 +145,7 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
     d = {
         "pdb_paths": generated_pdb_paths,
         "sequences": gen_seqs,
-        "inverse_generated_pdb_paths": generated_pdb_paths,
+        "inverse_generated_pdb_paths": inverse_generated_pdb_paths,
         "inv_gen_seqs": inv_gen_seqs,
     }
 

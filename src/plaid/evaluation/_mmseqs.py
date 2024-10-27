@@ -56,9 +56,9 @@ def mmseqs_easycluster(sample_dir, fasta_file_name="generated/sequences.fasta"):
     cmd = [
         "mmseqs",
         "easy-cluster",
-        fasta_file,
-        output_file,
-        tmp_dir,
+        str(fasta_file),
+        str(output_file),
+        str(tmp_dir),
     ]
 
     subprocess.run(cmd)
