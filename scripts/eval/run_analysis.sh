@@ -1,15 +1,21 @@
 #! /bin/bash
 
-sampdir=/data/lux70/plaid/artifacts/samples/scaling
+sampdir=/data/lux70/plaid/artifacts/samples/scaling/6ryvfi2v/
 
-for subdir in "$sampdir"/*/; do
-  if [ -d "$subdir" ]; then
-    for len in 100 148 48; do
-        echo $subdir$len
-        sbatch run_analysis.slrm $subdir$len
-    done
-  fi
+for len in 100 148 48; do
+    echo $sampdir$len
+    sbatch run_analysis.slrm $sampdir$len 
 done
+
+# sampdir=/data/lux70/plaid/artifacts/samples/scaling/6ryvfi2v/
+# for subdir in "$sampdir"/*/; do
+#   if [ -d "$subdir" ]; then
+#     for len in 100 148 48; do
+#         echo $subdir$len
+#         sbatch run_analysis.slrm $subdir$len
+#     done
+#   fi
+# done
 
 
 # Base directory

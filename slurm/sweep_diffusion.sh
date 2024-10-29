@@ -16,14 +16,18 @@
 # F = no cond drop
 # python run_diffusion_slrm.py --n_gpus 4 --flags "experiment=udit/B ++logger.name='AblationF__NoCondDrop' ++diffusion.function_y_cond_drop_prob=0.0 ++diffusion.organism_y_cond_drop_prob=0.0"
 
-# python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=lqp25b7g"
 # python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "++resume_from_model_id=4hdab8dn"
 # python run_diffusion_slrm.py -g 8 -n 5 -c 8 --flags "++resume_from_model_id=5j007z42"
-# python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "++resume_from_model_id=4hdab8dn"
 # python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=ksme77o6"
 # python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=lqp25b7g"
-# python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=zlkurtdd"
-# python run_diffusion_slrm.py -g 8 -n 4 -c 8 --flags "++resume_from_model_id=87up71bi"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=zlkurtdd"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=6ryvfi2v"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=87up71bi"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=93qqcdh9"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=f0luhi8y"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=oa5kjy9x"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=ye1j29dh"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "++resume_from_model_id=zlkurtdd"
 # python run_diffusion_slrm.py -g 8 -n 4 -c 8 --flags "++resume_from_model_id=87up71bi"
 
 # python run_diffusion_slrm.py -g 8 -n 10 -c 8 --flags "experiment=udit/XXL ++logger.name=UDiT_XXL"
@@ -32,4 +36,4 @@
 
 # python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "experiment=udit/L ++logger.name=UDiT_L"
 
-python run_diffusion_slrm.py -g 8 -n 8 -c 8 --flags "++resume_from_model_id=5j007z42"
+# python run_diffusion_slrm.py -g 8 -n 8 -c 8 --flags "++resume_from_model_id=5j007z42"

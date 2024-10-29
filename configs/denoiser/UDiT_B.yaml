@@ -13,4 +13,4 @@ use_skip_connect: False
 attention_mode: "xformers_memory_efficient"
 
 
-# 900M parameters
+# 134M parameters 

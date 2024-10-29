@@ -1,8 +1,17 @@
 # sbatch run_consistency.slrm experiment=multiflow_consistency 
 
-for ((len=32; len<=256; len+=4)); do
-    sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/samples/by_length/$len
+# for ((len=32; len<=256; len+=4)); do
+#     sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/samples/by_length/$len
+# done
+
+sample_dir=/data/lux70/plaid/artifacts/samples/5j007z42/val_dist
+for subdir in "$sample_dir"/*/; do
+  if [ -d "$subdir" ]; then
+    echo $subdir
+    sbatch run_consistency.slrm ++samples_dir=$subdir
+  fi
 done
+
 
 # maxlen=100
 # echo "Running consistency experiments for max_length=$maxlen"
