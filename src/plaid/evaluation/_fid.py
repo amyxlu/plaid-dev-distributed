@@ -324,11 +324,15 @@ class ConditionalDistributionDistance:
     def run(self, sampled):
         if isinstance(sampled, torch.Tensor):
             sampled = sampled.cpu().numpy()
+        
+        N = min(sampled.shape[0], self.max_eval_samples)
+        sampled = sampled[:N] 
+        real = self.real[:N]
 
         if self.metric == "fid":
-            return parmar_fid(sampled, self.real)
+            return parmar_fid(sampled, real)
         elif self.metric == "sinkhorn":
-            return sinkhorn(sampled, self.real)
+            return sinkhorn(sampled, real)
         else:
             raise ValueError(f"Unsupported metric {self.metric}")
 
