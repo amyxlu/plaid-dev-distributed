@@ -165,6 +165,7 @@ class SampleLatent:
         self.length = int(length)
 
         # set up output paths
+        self.cond_code = f"f{self.function_idx}_o{self.organism_idx}_l{int(self.length)}_s{int(self.cond_scale)}"
         self.outdir = self.setup_paths(output_root_dir, use_condition_output_suffix, use_uid_output_suffix)
 
     def auto_choose_length(self):
@@ -195,7 +196,7 @@ class SampleLatent:
         # set up paths
         outdir = Path(output_root_dir)
         if use_condition_output_suffix:
-            outdir = outdir / f"f{self.function_idx}_o{self.organism_idx}_l{int(self.length)}_s{int(self.cond_scale)}"
+            outdir = outdir / self.cond_code
 
         if use_uid_output_suffix:
             outdir = outdir / self.uid

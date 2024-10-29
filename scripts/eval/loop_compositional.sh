@@ -170,4 +170,4 @@ subdir=""
 function_idx=2194
 
 echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
-sbatch loop_conditional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir

@@ -5,6 +5,7 @@ import wandb
 from omegaconf import DictConfig, OmegaConf
 import torch
 import hydra
+import pandas as pd
 
 from plaid.typed import PathLike
 from plaid.esmfold import esmfold_v1
@@ -214,7 +215,7 @@ def main(cfg: DictConfig):
             wandb.log({"generations": wandb.Table(dataframe=df)})
 
         # ===========================
-        # Foldseek and MMseqs
+        # Foldseek
         # ===========================
         # this moves everything into a "designable" subdir
         move_designable(df, delete_original=False, original_dir_prefix="generated/structures", target_dir_prefix="")
@@ -223,11 +224,27 @@ def main(cfg: DictConfig):
             subdir_name = "designable"
         else:
             subdir_name = "generated/structures" 
-        
-        foldseek_easycluster(outdir, subdir_name)
-        foldseek_easysearch(outdir, subdir_name)
-        mmseqs_easycluster(outdir, "generated/sequences.fasta")
-        mmseqs_easysearch(outdir, "generated/sequences.fasta")
+
+        # novelty search for structure conservation
+        foldseek_easysearch_outpath = foldseek_easysearch(outdir, subdir_name)
+        foldseek_easysearch_results = pd.read_csv(foldseek_easysearch_outpath, sep="\t")
+        if cfg.log_to_wandb:
+            wandb.log({"foldseek_easysearch": wandb.Table(dataframe=foldseek_easysearch_results)})
+
+        # diversity clustering 
+        _ = foldseek_easycluster(outdir, subdir_name)
+
+        # ===========================
+        # MMseqs
+        # ===========================
+        # novelty search for sequence conservation
+        mmseqs_easysearch_outpath  = mmseqs_easysearch(outdir, "generated/sequences.fasta")
+        mmseqs_easycluster_results = pd.read_csv(mmseqs_easysearch_outpath, sep="\t")
+        if cfg.log_to_wandb:
+            wandb.log({"mmseqs_easysearch": wandb.Table(dataframe=mmseqs_easycluster_results)})
+
+        # diversity clustering
+        _ = mmseqs_easycluster(outdir, "generated/sequences.fasta")
 
 
 if __name__ == "__main__":
