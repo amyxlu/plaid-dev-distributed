@@ -39,6 +39,8 @@ def mmseqs_easysearch(sample_dir, fasta_file_name="generated/sequences.fasta"):
         str(tmp_dir),
         "--format-output",
         ",".join(EASY_SEARCH_OUTPUT_COLS)
+        "--split-memory-limit",
+        "10G"
     ]
 
     subprocess.run(cmd)
