@@ -153,13 +153,12 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
         d["phantom_generated_pdb_paths"] = phantom_generated_pdb_paths
         d["phantom_gen_seqs"] = phan_gen_seqs
 
+    df = pd.DataFrame(d)
+
     ########################################################################
     # Calculate metrics 
     ########################################################################
     try:
-        df = pd.DataFrame(d)
-        df.head()
-
         print("Calculating average pLDDT")
         df["plddt"] = df.apply(
             lambda row: np.mean(extract_avg_b_factor_per_residue(row["pdb_paths"])),
@@ -175,7 +174,7 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
         )
 
         print("Calculating ccTM")
-        df["ccTM"] = df.apply(
+        df["cctm"] = df.apply(
             lambda row: run_tmalign(
                 row["pdb_paths"], row["inverse_generated_pdb_paths"]
             ),
@@ -209,6 +208,11 @@ def run_analysis(sample_dir, rita_perplexity: RITAPerplexity = None):
 
         df["perplexity"] = df.apply(
             lambda row: rita_perplexity.calc_perplexity(row["sequences"]), axis=1
+        )
+
+        print("Calculating self perplexity under RITA")
+        df["scperplexity"] = df.apply(
+            lambda row: rita_perplexity.calc_perplexity(row["inv_gen_seqs"]), axis=1
         )
 
         # calculate protein properties

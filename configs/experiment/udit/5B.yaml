@@ -1,0 +1,18 @@
+# @package _global_
+
+# specifies the max batch size that we can use for this model
+defaults:
+  - _self_
+  - override /denoiser: UDiT_5B.yaml
+  - override /trainer: ddp.yaml
+  - override /callbacks/checkpoint: default.yaml
+
+datamodule:
+  batch_size: 2
+  max_length: 512 
+
+diffusion:
+  lr: 6e-4
+  lr_num_training_steps: 20_000_000
+
+# N/A, not trained due to memory constraints

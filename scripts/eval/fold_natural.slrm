@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-#SBATCH --job-name analysis
+#SBATCH --job-name fold 
 #SBATCH --nodes 1 
 #SBATCH --gpus-per-node 1 
 #SBATCH --partition gpu2
 #SBATCH --cpus-per-gpu 4 
-#SBATCH --mem 100G
+#SBATCH --mem 80G
 #SBATCH --time=15-00:00:00
 
 eval "$(micromamba shell hook --shell bash)"
@@ -19,9 +19,7 @@ echo "SLURM_JOB_NUM_NODES = ${SLURM_JOB_NUM_NODES}"
 
 export HYDRA_FULL_ERROR=1
 
-cd /homefs/home/lux70/code/plaid/pipeline
-
 nvidia-smi
 
-srun python run_analysis.py $@
-
+cd /homefs/home/lux70/code/plaid/pipeline
+srun python run_fold.py $@

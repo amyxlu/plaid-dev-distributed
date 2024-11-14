@@ -2,9 +2,12 @@
 
 defaults:
   - _self_
-  - override /denoiser: UDiT_L.yaml
+  - override /denoiser: UDiT_600M.yaml
   - override /trainer: ddp.yaml
 
 datamodule:
   batch_size: 64 
-  max_length: 256
+  max_length: 256  # actually maps to proteins of len 256
+
+
+# 325M

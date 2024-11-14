@@ -1,15 +1,31 @@
-# sbatch run_consistency.slrm experiment=multiflow_consistency 
-
-# for ((len=32; len<=256; len+=4)); do
+# for ((len=32; len<=175; len+=4)); do
 #     sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/samples/by_length/$len
 # done
 
-sample_dir=/data/lux70/plaid/artifacts/samples/5j007z42/val_dist
+# Protpardelle takes chain B instead
+# sampdir=/data/lux70/plaid/baselines/protpardelle/samples_by_length
+
+# for subdir in "$sampdir"/*/; do
+#   if [ -d "$subdir" ]; then
+#     echo $subdir
+#     sbatch run_consistency.slrm ++samples_dir=$subdir ++inverse_generate_sequence.designed_chain='B'
+#   fi
+# done
+
+# sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/baselines/proteingenerator/by_length
+
+# sbatch run_consistency.slrm experiment=multiflow_consistency 
+
+# done
+
+
+#### Multiflow
+sample_dir=/data/lux70/plaid/baselines/multiflow/skip8_64per/
 for subdir in "$sample_dir"/*/; do
-  if [ -d "$subdir" ]; then
-    echo $subdir
-    sbatch run_consistency.slrm ++samples_dir=$subdir
-  fi
+    if [ -d "$subdir" ]; then
+        echo $subdir
+        sbatch run_consistency.slrm ++samples_dir=$subdir
+    fi
 done
 
 

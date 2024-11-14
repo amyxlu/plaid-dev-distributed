@@ -16,6 +16,7 @@ from plaid.evaluation import (
     mmseqs_easysearch,
     mmseqs_easycluster,
 )
+from plaid.constants import FUNCTION_IDX_TO_GO_TERM
 from plaid.pipeline import run_analysis, move_designable
 
 
@@ -121,6 +122,8 @@ def main(cfg: DictConfig):
     outdir = sample_latent.outdir
     uid = sample_latent.uid
     x = sample_latent.x
+    cond_code = sample_latent.cond_code
+    go_term = FUNCTION_IDX_TO_GO_TERM[str(cond_code.split("_")[0][1:])]
 
     # ===========================
     # Decode
@@ -209,9 +212,14 @@ def main(cfg: DictConfig):
                 config=OmegaConf.to_container(cfg, throw_on_missing=True, resolve=True),
                 id=uid,
                 resume="allow",
+                name=f"{cond_code} {go_term}",
             )
             df["structure"] = [wandb.Molecule(str(pdbpath)) for pdbpath in pdb_paths]
             df["pdbpath"] = [str(pdbpath) for pdbpath in pdb_paths]
+            df["cond_code"] = [cond_code] * len(df)
+            df["go_term"] = [go_term] * len(df)
+            df["length"] = [len(seq) for seq in seq_strs]
+
             wandb.log({"generations": wandb.Table(dataframe=df)})
 
         # ===========================
@@ -227,9 +235,17 @@ def main(cfg: DictConfig):
 
         # novelty search for structure conservation
         foldseek_easysearch_outpath = foldseek_easysearch(outdir, subdir_name)
-        foldseek_easysearch_results = pd.read_csv(foldseek_easysearch_outpath, sep="\t")
         if cfg.log_to_wandb:
-            wandb.log({"foldseek_easysearch": wandb.Table(dataframe=foldseek_easysearch_results)})
+            from plaid.evaluation._foldseek import EASY_SEARCH_OUTPUT_COLS as FOLDSEEK_SEARCH_COLS
+            df = pd.read_csv(foldseek_easysearch_outpath, sep="\t",header=None)
+            df.columns = FOLDSEEK_SEARCH_COLS
+            try:
+                df['theader'] = df.theader.map(lambda x: " ".join(x.split(" ")[1:]))
+            except:
+                pass
+            df = df.sort_values("evalue",ascending=True)
+            df = df.groupby("query").head(5)
+            wandb.log({"foldseek_easysearch": wandb.Table(dataframe=df)})
 
         # diversity clustering 
         _ = foldseek_easycluster(outdir, subdir_name)
@@ -241,7 +257,16 @@ def main(cfg: DictConfig):
         mmseqs_easysearch_outpath  = mmseqs_easysearch(outdir, "generated/sequences.fasta")
         mmseqs_easycluster_results = pd.read_csv(mmseqs_easysearch_outpath, sep="\t")
         if cfg.log_to_wandb:
-            wandb.log({"mmseqs_easysearch": wandb.Table(dataframe=mmseqs_easycluster_results)})
+            from plaid.evaluation._mmseqs import EASY_SEARCH_OUTPUT_COLS as MMSEQS_SEARCH_COLS
+            df = pd.read_csv(foldseek_easysearch_outpath, sep="\t",header=None)
+            df.columns = MMSEQS_SEARCH_COLS
+            try:
+                df['theader'] = df.theader.map(lambda x: " ".join(x.split(" ")[1:]))
+            except:
+                pass
+            df = df.sort_values("evalue",ascending=True)
+            df = df.groupby("query").head(5)
+            wandb.log({"mmseqs_easysearch": wandb.Table(dataframe=df)})
 
         # diversity clustering
         _ = mmseqs_easycluster(outdir, "generated/sequences.fasta")
