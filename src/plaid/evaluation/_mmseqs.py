@@ -30,21 +30,23 @@ def mmseqs_easysearch(sample_dir, fasta_file_name="generated/sequences.fasta", o
     output_file = sample_dir / output_file_name
     tmp_dir = sample_dir / "tmp" 
 
-    cmd = [
-        "mmseqs",
-        "easy-search",
-        str(fasta_file),
-        UNIREF_DATABASE_PATH,
-        str(output_file),
-        str(tmp_dir),
-        "--format-output",
-        ",".join(EASY_SEARCH_OUTPUT_COLS),
-        "--split-memory-limit",
-        "10G"
-    ]
-
-    subprocess.run(cmd)
-    shutil.rmtree(tmp_dir)
+    try:
+        cmd = [
+            "mmseqs",
+            "easy-search",
+            str(fasta_file),
+            UNIREF_DATABASE_PATH,
+            str(output_file),
+            str(tmp_dir),
+            "--format-output",
+            ",".join(EASY_SEARCH_OUTPUT_COLS),
+            "--split-memory-limit",
+            "10G"
+        ]
+        subprocess.run(cmd)
+    
+    except:
+        shutil.rmtree(tmp_dir)
 
     return output_file
 
@@ -55,15 +57,17 @@ def mmseqs_easycluster(sample_dir, fasta_file_name="generated/sequences.fasta", 
     output_file = sample_dir / output_file_name 
     tmp_dir = sample_dir / "tmp"
 
-    cmd = [
-        "mmseqs",
-        "easy-cluster",
-        str(fasta_file),
-        str(output_file),
-        str(tmp_dir),
-    ]
-
-    subprocess.run(cmd)
-    # shutil.rmtree(tmp_dir)
+    try:
+        cmd = [
+            "mmseqs",
+            "easy-cluster",
+            str(fasta_file),
+            str(output_file),
+            str(tmp_dir),
+        ]
+        subprocess.run(cmd)
+    
+    except:
+        shutil.rmtree(tmp_dir)
 
     return output_file

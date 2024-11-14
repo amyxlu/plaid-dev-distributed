@@ -33,6 +33,7 @@ samples_dir = Path(args.samples_dir)
 print("==========================================")
 print("Running foldseek_easysearch and foldseek_easycluster")
 print("Structures:", samples_dir / subdir_name)
+print("Use designability filter", args.use_designability_filter)
 print("==========================================")
 
 foldseek_easysearch(samples_dir, subdir_name, easysearch_output_file_name)

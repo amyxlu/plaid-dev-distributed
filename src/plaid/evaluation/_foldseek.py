@@ -32,21 +32,24 @@ def foldseek_easysearch(sample_dir: str, structure_subdir_name="designable", out
     tmp_dir = sample_dir / "tmp"
     tmp_dir.mkdir(exist_ok=True)
 
-    cmd = [
-        "foldseek",
-        "easy-search",
-        str(structures_dir),
-        PDB_DATABASE_PATH,
-        str(output_file),
-        str(tmp_dir),
-        # "--alignment-type",
-        # "1",  # TM mode align
-        "--format-output",
-        ",".join(EASY_SEARCH_OUTPUT_COLS),
-    ]
+    try:
+        cmd = [
+            "foldseek",
+            "easy-search",
+            str(structures_dir),
+            PDB_DATABASE_PATH,
+            str(output_file),
+            str(tmp_dir),
+            # "--alignment-type",
+            # "1",  # TM mode align
+            "--format-output",
+            ",".join(EASY_SEARCH_OUTPUT_COLS),
+        ]
+        subprocess.run(cmd)
+    
+    except:
+        shutil.rmtree(tmp_dir)
 
-    subprocess.run(cmd)
-    shutil.rmtree(tmp_dir)
     return output_file
 
 
@@ -56,19 +59,21 @@ def foldseek_easycluster(sample_dir: str, structure_subdir_name="designable", ou
     tmp_dir = sample_dir / "tmp"
     tmp_dir.mkdir(exist_ok=True)
 
-    cmd = [
-        "foldseek",
-        "easy-cluster",
-        str(structures_dir),
-        str(output_file),
-        str(tmp_dir),
-        # "--alignment-type",
-        # "2",
-        # "--tmscore-threshold",
-        # "0.5",
-    ]
-
-    subprocess.run(cmd)
-    # shutil.rmtree(tmp_dir)
+    try:
+        cmd = [
+            "foldseek",
+            "easy-cluster",
+            str(structures_dir),
+            str(output_file),
+            str(tmp_dir),
+            # "--alignment-type",
+            # "2",
+            # "--tmscore-threshold",
+            # "0.5",
+        ]
+        subprocess.run(cmd)
+    
+    except:
+        shutil.rmtree(tmp_dir)
 
     return output_file
