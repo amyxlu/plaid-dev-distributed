@@ -1,5 +1,5 @@
 from pathlib import Path
-from plaid.constants import PDB_DATABASE_PATH
+from ..constants import PDB_DATABASE_PATH
 import subprocess
 import shutil
 
@@ -25,10 +25,10 @@ EASY_SEARCH_OUTPUT_COLS = [
 ]
 
 
-def foldseek_easysearch(sample_dir: str, structure_subdir_name="designable"):
+def foldseek_easysearch(sample_dir: str, structure_subdir_name="designable", output_file_name="foldseek_easysearch.m8"):
     sample_dir = Path(sample_dir)
     structures_dir = sample_dir / structure_subdir_name
-    output_file = sample_dir / "foldseek_easysearch.m8"
+    output_file = sample_dir / output_file_name 
     tmp_dir = sample_dir / "tmp"
     tmp_dir.mkdir(exist_ok=True)
 
@@ -50,9 +50,9 @@ def foldseek_easysearch(sample_dir: str, structure_subdir_name="designable"):
     return output_file
 
 
-def foldseek_easycluster(sample_dir: str, structure_subdir_name="designable"):
+def foldseek_easycluster(sample_dir: str, structure_subdir_name="designable", output_file_name="foldseek_easycluster.m8"):
     structures_dir = sample_dir / structure_subdir_name
-    output_file = sample_dir / "foldseek_easycluster.m8"
+    output_file = sample_dir / output_file_name 
     tmp_dir = sample_dir / "tmp"
     tmp_dir.mkdir(exist_ok=True)
 

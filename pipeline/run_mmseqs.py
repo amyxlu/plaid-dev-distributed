@@ -10,5 +10,10 @@ args = parser.parse_args()
 
 samples_dir = Path(args.samples_dir)
 
+print("==========================================")
+print("Running mmseqs_easysearch and mmseqs_easycluster")
+print("Sequences:", samples_dir / args.fasta_file_name)
+print("==========================================")
+
 mmseqs_easysearch(samples_dir, args.fasta_file_name) 
-# mmseqs_easycluster(samples_dir, args.fasta_file_name)
+mmseqs_easycluster(samples_dir, args.fasta_file_name)
