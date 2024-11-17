@@ -1,2 +1,0 @@
-from .inference import UncompressContinuousLatent as HourglassInference 
-from .hourglass_vq import HourglassVQLightningModule
