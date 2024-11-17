@@ -20,16 +20,33 @@
 
 
 #### Multiflow
-sample_dir=/data/lux70/plaid/baselines/multiflow/skip8_64per/
-for subdir in "$sample_dir"/*/; do
-    if [ -d "$subdir" ]; then
-        echo $subdir
-        sbatch run_consistency.slrm ++samples_dir=$subdir
-    fi
-done
+# sample_dir=/data/lux70/plaid/baselines/multiflow/skip8_64per/
+# for subdir in "$sample_dir"/*/; do
+#     if [ -d "$subdir" ]; then
+#         echo $subdir
+#         sbatch run_consistency.slrm ++samples_dir=$subdir
+#     fi
+# done
 
 
-# maxlen=100
+#### Natural
+# sample_dir="/data/lux70/plaid/artifacts/natural_binned_lengths/"
+# echo $sample_dir
+# for subdir in "$sample_dir"/*/; do
+#     if [ -d "$subdir" ]; then
+#         echo $subdir
+#         sbatch run_consistency.slrm ++samples_dir=$subdir
+#     fi
+# done
+
+
+# sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/natural_binned_lengths/binstart512
+# sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/natural_binned_lengths/binstart464
+# sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/natural_binned_lengths/binstart336
+# sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/natural_binned_lengths/binstart224
+# sbatch run_consistency.slrm ++samples_dir=/data/lux70/plaid/artifacts/natural_binned_lengths/binstart96
+
+
 # echo "Running consistency experiments for max_length=$maxlen"
 # sbatch run_consistency.slrm \
 #     experiment=protpardelle_consistency.yaml \

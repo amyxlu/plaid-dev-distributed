@@ -615,6 +615,16 @@ def calc_sequence_recovery(
     return np.sum(npy(pred_seq) == npy(orig_seq)) / len(pred_seq)
 
 
+def calc_sequence_identity(query_seq, target_seq):
+    """Given two sequences, which could be of different lengths,
+    aligns the sequences with global alignment and returns the sequence identity
+    as a global alignment score divided by the query sequence."""
+    from Bio import pairwise2
+    alignments = pairwise2.align.globalxx(query_seq, target_seq)
+    similarity = alignments[0].score
+    return similarity / len(query_seq)
+
+
 def read_sequences_from_fasta(fasta_path):
     sequences = {}
     with open(fasta_path, "r") as f:

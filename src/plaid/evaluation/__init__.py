@@ -7,3 +7,5 @@ from ._mmseqs import mmseqs_easysearch, mmseqs_easycluster
 from ._foldseek import foldseek_easysearch, foldseek_easycluster
 from ._dssp import pdb_path_to_secondary_structure
 
+from ._foldseek import EASY_SEARCH_OUTPUT_COLS as FOLDSEEK_SEARCH_COLS
+from ._mmseqs import EASY_SEARCH_OUTPUT_COLS as MMSEQS_SEARCH_COLS

@@ -19,7 +19,7 @@
 # done
 
 ############### ProteinGenerator############### 
-sbatch run_analysis.slrm /data/lux70/plaid/baselines/proteingenerator/by_length/
+# sbatch run_analysis.slrm /data/lux70/plaid/baselines/proteingenerator/by_length/
 
 ############### ProtPardelle ############### 
 # sampdir=/data/lux70/plaid/baselines/protpardelle/samples_by_length
@@ -31,12 +31,19 @@ sbatch run_analysis.slrm /data/lux70/plaid/baselines/proteingenerator/by_length/
 # done
 
 # ############## Multiflow ############### 
+sampdir=/data/lux70/plaid/baselines/multiflow/skip8_64per
+for subdir in "$sampdir"/*/; do
+  if [ -d "$subdir" ]; then
+    echo $subdir$len
+    sbatch run_analysis.slrm $subdir$len
+  fi
+done
 
 # ############## Natural############### 
-# sampdir=/data/lux70/plaid/artifacts/natural
-# for subdir in "$sampdir"/*/; do
-#   if [ -d "$subdir" ]; then
-#     echo $subdir$len
-#     sbatch run_analysis.slrm $subdir$len
-#   fi
-# done
+sampdir=/data/lux70/plaid/artifacts/natural_binned_lengths
+for subdir in "$sampdir"/*/; do
+  if [ -d "$subdir" ]; then
+    echo $subdir$len
+    sbatch run_analysis.slrm $subdir$len
+  fi
+done

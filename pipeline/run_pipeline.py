@@ -18,6 +18,7 @@ from plaid.evaluation import (
 )
 from plaid.constants import FUNCTION_IDX_TO_GO_TERM
 from plaid.pipeline import run_analysis, move_designable
+from plaid.utils import calc_sequence_identity
 
 
 def default(val, default_val):
@@ -266,6 +267,7 @@ def main(cfg: DictConfig):
                 pass
             df = df.sort_values("evalue",ascending=True)
             df = df.groupby("query").head(5)
+            df['sequence_identity'] = df.apply(lambda row: sequence_identity(row['qseq'], row['tseq']), axis=1)
             wandb.log({"mmseqs_easysearch": wandb.Table(dataframe=df)})
 
         # diversity clustering
