@@ -1,9 +1,14 @@
 # from colabfold
 
 from pathlib import Path
+import os
+import re
+import pandas as pd
 
 import numpy as np
 from matplotlib import pyplot as plt
+
+from ._misc import read_sequences_from_fasta
 
 
 def plot_predicted_alignment_error(
@@ -236,3 +241,64 @@ def show_pdb(
     if animate:
         view.animate()
     return view
+
+
+def create_sample_id_from_designability_df(row):
+    s = row.pdb_paths.split("/")[-1]
+    sample_id = re.findall(r'-?\d+', s)[0]
+    length = len(row.sequences)
+    return f"length{length}_sample{sample_id}"
+
+def create_sample_id_from_cluster_dict(k,v):
+    sample_id = re.findall(r'-?\d+', k)[0]
+    length = len(v)
+    return f"length{length}_sample{sample_id}" 
+
+def load_df(sample_dir, use_designability_filter=False):
+    # load the dataframe and do some column manipulations
+    df = pd.read_csv(sample_dir / "designability.csv")
+    df = df.rename({"ccTM":"cctm"},axis=1)
+    df = df.reset_index(drop=True)
+    df = df.drop(['Unnamed: 0'],axis=1)
+    df['sample_id'] = df.apply(lambda row: create_sample_id_from_designability_df(row), axis=1)
+    df['lengths'] = df.sequences.str.len()
+    
+    # load the cluster dictionaries and get the unique clusters
+    sequence_clusters_dict = read_sequences_from_fasta(sample_dir / "mmseqs_easycluster.m8_rep_seq.fasta")
+    if use_designability_filter:
+        structure_clusters_dict = read_sequences_from_fasta(sample_dir / "foldseek_easycluster.m8_rep_seq.fasta")
+    else:
+        structure_clusters_dict = read_sequences_from_fasta(sample_dir / "no_filter_foldseek_easycluster.m8_rep_seq.fasta")
+    
+    sequence_clusters = [create_sample_id_from_cluster_dict(k,v) for (k,v) in sequence_clusters_dict.items()]
+    structure_clusters = [create_sample_id_from_cluster_dict(k,v) for (k,v) in structure_clusters_dict.items()]
+
+    # add a boolean to say if this sample is a representative cluster
+    df['is_sequence_rep'] = df.sample_id.isin(sequence_clusters)
+    df['is_structure_rep'] = df.sample_id.isin(structure_clusters)
+    return df
+
+def load_results_for_method(sample_dir, by_length=True, use_designability_filter=False):
+    all_stats = {}
+
+    if by_length:
+        lengths = os.listdir(sample_dir)
+        lengths.sort()
+        # print("Lengths:")
+        # print(lengths)
+        
+        for l in lengths:
+            try:
+                df = load_df(sample_dir / l, use_designability_filter)
+                all_stats[l] = df
+                
+            except Exception as e:
+                print(e)
+                pass
+
+        df = pd.concat(list(all_stats.values()))
+    
+    else:
+        df = load_df(sample_dir, use_designability_filter)
+
+    return df
