@@ -42,13 +42,15 @@
 # loop organism 
 ###################
 
-function_idx=1636
+function_idx=54
 cond_scale=3
 length="None"
+subdir=""
+sampling_timesteps=500
 
 for organism_idx in 818 2436 1326 3702 300 1357 758; do
-    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
-    sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir 
+    sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir 
 done
 
 ###################
@@ -70,13 +72,13 @@ done
 # Unconditional sampling
 ###################
 
-function_idx=2219
-organism_idx=3617
-cond_scale=3
-length=100
-subdir="timesteps"
+# function_idx=2219
+# organism_idx=3617
+# cond_scale=3
+# length=100
+# subdir="timesteps"
 
-for sampling_timesteps in 25 50 100 200 400 800 1000; do
-    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir SamplingTimesteps $sampling_timesteps
-    sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir $sampling_timesteps
-done
+# for sampling_timesteps in 25 50 100 200 400 800 1000; do
+#     echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir SamplingTimesteps $sampling_timesteps
+#     sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir $sampling_timesteps
+# done

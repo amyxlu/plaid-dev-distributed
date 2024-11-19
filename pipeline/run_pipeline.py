@@ -267,7 +267,7 @@ def main(cfg: DictConfig):
                 pass
             df = df.sort_values("evalue",ascending=True)
             df = df.groupby("query").head(5)
-            df['sequence_identity'] = df.apply(lambda row: sequence_identity(row['qseq'], row['tseq']), axis=1)
+            df['sequence_identity'] = df.apply(lambda row: calc_sequence_identity(row['qseq'], row['tseq']), axis=1)
             wandb.log({"mmseqs_easysearch": wandb.Table(dataframe=df)})
 
         # diversity clustering

@@ -12,3 +12,5 @@ from ._protein_properties import (
 )
 from ._structure import StructureFeaturizer
 from ._presave import make_embedder, embed_batch_esm, embed_batch_esmfold
+
+from ._plot import *
