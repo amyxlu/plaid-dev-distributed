@@ -10,6 +10,9 @@ organism_idx: 3617
 function_idx: 2219 
 cond_scale: 3.0 
 
+num_samples: 32 
+batch_size: 16 
+length: 64
 sampling_timesteps: 500 
 sample_scheduler: ddim
 
@@ -19,8 +22,5 @@ use_condition_output_suffix: True
 # append an unique ID to the output folder 
 use_uid_output_suffix: False
 
-num_samples: 32 
-batch_size: 16 
-length: 64
-
 return_all_timesteps: True
+use_compile: False

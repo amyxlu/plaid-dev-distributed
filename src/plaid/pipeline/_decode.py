@@ -36,7 +36,10 @@ class DecodeLatent:
         num_recycles=4,
         batch_size=64,
         device="cuda",
-        esmfold=None
+        esmfold=None,
+        use_compile=False,
+        chunk_size=128,
+        delete_esm_lm=False,
     ):
         self.npz_path = npz_path
         self.output_root_dir = Path(output_root_dir)
@@ -44,6 +47,9 @@ class DecodeLatent:
         ensure_exists(self.output_root_dir)
 
         self.esmfold = esmfold
+        self.chunk_size = chunk_size
+        self.use_compile = use_compile
+        self.delete_esm_lm = delete_esm_lm
 
         self.time_log_path = self.output_root_dir / "construct.log"
         self.num_recycles = num_recycles
@@ -99,7 +105,12 @@ class DecodeLatent:
         device = self.device
         if self.structure_constructor is None:
             # warning: this implicitly creates an ESMFold inference model, can be very memory consuming
-            self.structure_constructor = LatentToStructure(esmfold=self.esmfold, chunk_size=128)
+            self.structure_constructor = LatentToStructure(
+                esmfold=self.esmfold,
+                chunk_size=self.chunk_size,
+                delete_esm_lm=self.delete_esm_lm,
+                use_compile=self.use_compile
+            )
 
         self.structure_constructor.to(device)
         x_processed = x_processed.to(device=device)
@@ -169,7 +180,7 @@ class DecodeLatent:
         end = time.time()
         with open(self.time_log_path, "a") as f:
             f.write(f"Sequence construction time: {end - start:.2f} seconds.\n")
-        
+
         print(f"Constructing structures and writing to {str(self.output_root_dir / 'structures')}")
         start = time.time()
         pdb_strs = self.construct_structure(x_processed, seq_strs)

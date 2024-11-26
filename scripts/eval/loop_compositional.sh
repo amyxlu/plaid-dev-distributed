@@ -15,21 +15,35 @@
 # 1452 ['WHEAT']
 # 818 ['YEAST']
 
-
+# function_idx=841
+# length=200
 # organism_idx=2436
-# cond_scale=3
-# length="None"
 # subdir=""
 
-# for function_idx in 1636 1666 820 880; do
-#     echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
-#     sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
-# done
-
-# # prokaryotic only functions:
-# organism_idx=2436
-# function_idx=46
 # sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+
+# organism_idx=2475
+# function_idx=1197
+# sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+
+organism_idx=2436
+for function_idx in 772 782 841 852 959 1059 1142 1428 1981; do
+    echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir
+    sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+done
+
+### prokaryotic only functions:
+organism_idx=2436
+function_idx=1982
+sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+
+### plant functions
+organism_idx=1398
+for function_idx in 1199 1980; do
+    sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+done
+
+
 
 
 # length=212
@@ -77,8 +91,30 @@ done
 # cond_scale=3
 # length=100
 # subdir="timesteps"
+subdir="thermophiles"
 
 # for sampling_timesteps in 25 50 100 200 400 800 1000; do
 #     echo Function $function_idx Organism $organism_idx Length $length CondScale $cond_scale SubDir $subdir SamplingTimesteps $sampling_timesteps
 #     sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir $sampling_timesteps
 # done
+
+for organism_idx in 698 2165 2234; do
+    for function_idx in 2219; do
+        for length in 16 32 64; do
+            for cond_scale in 0 3; do
+                sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+            done
+        done
+    done
+done
+
+
+for organism_idx in 698 2165 2234; do
+    for function_idx in 125 213 852; do
+        for length in "None"; do
+            for cond_scale in 3 7; do
+                sbatch loop_compositional.slrm $function_idx $organism_idx $length $cond_scale $subdir
+            done
+        done
+    done
+done

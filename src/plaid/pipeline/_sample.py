@@ -64,6 +64,7 @@ class SampleLatent:
         # model setup
         model_id: str = "5j007z42",
         model_ckpt_dir: str = "/data/lux70/plaid/checkpoints/plaid-compositional",
+        use_compile: bool = False,
         # sampling setup
         organism_idx: int = NUM_ORGANISM_CLASSES,
         function_idx: int = NUM_FUNCTION_CLASSES,
@@ -101,6 +102,7 @@ class SampleLatent:
         self.sigma_min = sigma_min
         self.sigma_max = sigma_max
 
+        self.use_compile = use_compile
         self.uid = wandb.util.generate_id()
 
         # default to cuda
@@ -239,6 +241,10 @@ class SampleLatent:
         # load weights and create diffusion object
         denoiser.load_state_dict(mod_state_dict)
         denoiser = denoiser.to(self.device)
+
+        if self.use_compile:
+            denoiser = torch.compile(denoiser)
+
         return denoiser
 
     def create_diffusion(self, denoiser):

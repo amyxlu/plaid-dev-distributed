@@ -30,6 +30,9 @@ srun python run_pipeline.py \
     ++sample.num_samples=64 \
     ++sample.length=$length \
     ++sample.model_id=$model_id \
-    ++sample.output_root_dir=/data/lux70/plaid/artifacts/samples/scaling/${model_id}/$length
+    ++sample.output_root_dir=/data/lux70/plaid/artifacts/samples/scaling/${model_id}/$length \
+    ++inverse_generate_sequence.max_length=650 \
+    ++inverse_generate_structure.max_seq_len=650 \
+    ++phantom_generate_sequence.max_length=650 
 
 

@@ -5,10 +5,30 @@
 #     done
 # done
 
-for length in 48 100 148; do
-    sbatch scaling.slrm "6ryvfi2v" $length
-done
+# for length in 48 100 148; do
+#     sbatch scaling.slrm "6ryvfi2v" $length
+# done
 
+
+# for length in 48 100 148 200 248 300; do
+#     for model_id in "btmop0c8" "reklt5kg"; do 
+#         sbatch scaling.slrm $model_id $length
+#     done
+# done
+
+# for length in 200 248 300; do
+#     for model_id in "ksme77o6" "5j007z42" "6ryvfi2v"; do
+#         sbatch scaling.slrm $model_id $length
+#     done
+# done
+sampdir="/data/lux70/plaid/artifacts/samples/scaling"
+for model_id in "ksme77o6" "5j007z42" "6ryvfi2v" "btmop0c8" "reklt5kg"; do
+    for length in 248 300; do
+        sbatch run_foldseek_only.slrm $sampdir/$model_id/$length 
+        sbatch run_foldseek_only.slrm $sampdir/$model_id/$length --use_designability_filter
+        sbatch run_mmseqs_only.slrm $sampdir/$model_id/$length  
+    done
+done
 
 # ##### abalations #####
 # sampdir=/data/lux70/plaid/artifacts/samples/ablations
@@ -18,3 +38,5 @@ done
 #         sbatch scaling.slrm $model_id $length 
 #     done
 # done
+
+

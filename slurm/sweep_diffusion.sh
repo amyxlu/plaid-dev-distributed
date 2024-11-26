@@ -42,8 +42,9 @@
 # python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "experiment=udit/600M"
 # python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "experiment=udit/900M"
 
-python run_diffusion_slrm.py -g 2 -n 1 -c 8 --flags "++resume_from_model_id=ncwvs8xx"
+# python run_diffusion_slrm.py -g 2 -n 1 -c 8 --flags "++resume_from_model_id=ncwvs8xx"
 # python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "experiment=udit/100M"
-python run_diffusion_slrm.py -g 8 -n 1 -c 8 --flags "++resume_from_model_id=f4gh12xq"
+# python run_diffusion_slrm.py -g 8 -n 1 -c 8 --flags "++resume_from_model_id=f4gh12xq"
 # python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "experiment=udit/600M"
-python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "++resume_from_model_id=oqdkajg3"
+# python run_diffusion_slrm.py -g 8 -n 2 -c 8 --flags "++resume_from_model_id=oqdkajg3"
+python run_diffusion_slrm.py -g 4 -n 1 -c 8 --flags "experiment=udit/100M"

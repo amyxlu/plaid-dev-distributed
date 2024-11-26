@@ -1,12 +1,13 @@
 #! /bin/bash
 
 ############### Scaling ############### 
-# sampdir=/data/lux70/plaid/artifacts/samples/scaling/6ryvfi2v/
-
-# for len in 100 148 48; do
-#     echo $sampdir$len
-#     sbatch run_analysis.slrm $sampdir$len 
-# done
+sampdir=/data/lux70/plaid/artifacts/samples/scaling
+for model_id in 'btmop0c8' 'reklt5kg' '5j007z42' 'ksme77o6' 'lqp25b7g' '6ryvfi2v'; do
+  for subdir in "$sampdir"/${model_id}/*/; do
+    echo $sampdir/$model_id/$subdir
+    sbatch run_analysis.slrm $sampdir/$model_id/$subdir
+  done
+done
 
 
 ############### By length ############### 
@@ -31,19 +32,19 @@
 # done
 
 # ############## Multiflow ############### 
-sampdir=/data/lux70/plaid/baselines/multiflow/skip8_64per
-for subdir in "$sampdir"/*/; do
-  if [ -d "$subdir" ]; then
-    echo $subdir$len
-    sbatch run_analysis.slrm $subdir$len
-  fi
-done
+# sampdir=/data/lux70/plaid/baselines/multiflow/skip8_64per
+# for subdir in "$sampdir"/*/; do
+#   if [ -d "$subdir" ]; then
+#     echo $subdir$len
+#     sbatch run_analysis.slrm $subdir$len
+#   fi
+# done
 
 # ############## Natural############### 
-sampdir=/data/lux70/plaid/artifacts/natural_binned_lengths
-for subdir in "$sampdir"/*/; do
-  if [ -d "$subdir" ]; then
-    echo $subdir$len
-    sbatch run_analysis.slrm $subdir$len
-  fi
-done
+# sampdir=/data/lux70/plaid/artifacts/natural_binned_lengths
+# for subdir in "$sampdir"/*/; do
+#   if [ -d "$subdir" ]; then
+#     echo $subdir$len
+#     sbatch run_analysis.slrm $subdir$len
+#   fi
+# done
